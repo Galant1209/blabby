@@ -7,104 +7,120 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&family=Noto+Sans+TC:wght@400;500&family=Georgia&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&display=swap" rel="stylesheet">
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
         :root {
-            --navy:        #1A3550;
-            --navy-soft:   #2A4A6B;
-            --bg:          #F0F4F8;
-            --card:        #FFFFFF;
-            --question-bg: #C9DDEB;
-            --muted:       #7A8A99;
-            --border:      #D8E1EA;
-            --success:     #4A8B5C;
-            --danger:      #C44A4A;
-            --radius:      14px;
-            --shadow:      0 2px 12px rgba(26, 53, 80, 0.06);
+            --bg:         #F5F0E8;  /* 奶油白，像老紙 */
+            --surface:    #FDFAF4;  /* 更淺的奶油，卡片背景 */
+            --ink:        #1C1008;  /* 深墨，主文字 */
+            --navy:       #1A3550;  /* 深藍，次要文字 */
+            --green:      #1B3A2D;  /* 深墨綠，主色 */
+            --green-dark: #11261D;
+            --gold:       #C9A84C;  /* 金色，裝飾 */
+            --gold-warm:  #E8C866;
+            --red:        #6B1A1A;  /* 酒紅，強調 */
+            --border:     #C4B89A;  /* 暖米色邊框 */
+            --muted:      #7A6E5F;  /* 灰棕 */
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         html, body {
             background: var(--bg);
-            color: var(--navy);
-            font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
-            font-size: 15px;
-            line-height: 1.5;
+            color: var(--ink);
+            font-family: 'EB Garamond', 'Noto Serif TC', Georgia, serif;
+            font-size: 16px;
+            line-height: 1.55;
             -webkit-font-smoothing: antialiased;
         }
 
         .app {
-            max-width: 480px;
+            max-width: 520px;
             margin: 0 auto;
-            padding: 28px 20px 60px;
+            padding: 32px 24px 60px;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 22px;
         }
 
         /* Header */
-        .header { text-align: center; padding: 8px 0 4px; }
+        .header { text-align: center; padding: 12px 0 4px; }
         .header h1 {
-            font-family: 'Noto Serif TC', serif;
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
             font-weight: 700;
-            font-size: 2rem;
-            color: var(--navy);
-            letter-spacing: 0.02em;
+            font-size: 48px;
+            color: var(--green);
+            letter-spacing: 0.01em;
+            display: inline-block;
+            padding-bottom: 6px;
+            border-bottom: 2px solid var(--gold);
         }
         .header .tagline {
-            margin-top: 6px;
-            font-size: 0.8rem;
+            margin-top: 12px;
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-style: italic;
+            font-size: 16px;
             color: var(--muted);
-            font-weight: 400;
         }
+        .header-rule {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 8px auto 16px;
+            max-width: 200px;
+        }
+        .rule-line { flex: 1; height: 1px; background: var(--gold); }
+        .rule-diamond { color: var(--gold); font-size: 8px; }
 
         /* Question card */
         .question-card {
-            background: var(--question-bg);
-            border-radius: var(--radius);
-            padding: 22px 22px 18px;
-            position: relative;
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-top: 3px solid var(--green);
+            border-radius: 0;
+            padding: 22px 24px 18px;
         }
         .question-card .label {
-            font-size: 0.75rem;
-            color: var(--navy);
-            font-weight: 500;
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--gold);
             letter-spacing: 0.08em;
-            opacity: 0.7;
             margin-bottom: 10px;
         }
         .question-card .question-text {
-            font-family: 'Georgia', 'Noto Serif TC', serif;
-            font-size: 1.35rem;
-            color: var(--navy);
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
             font-weight: 500;
-            line-height: 1.45;
-            padding-right: 8px;
+            font-size: 22px;
+            color: var(--ink);
+            line-height: 1.4;
         }
         .question-card .meta {
             margin-top: 14px;
-            font-size: 0.72rem;
-            color: var(--navy);
-            opacity: 0.6;
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--muted);
             text-align: right;
         }
 
         /* Recorder card */
         .recorder-card {
-            background: var(--card);
-            border: 1px solid var(--navy);
-            border-radius: var(--radius);
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-radius: 0;
             padding: 28px 20px 32px;
             text-align: center;
-            box-shadow: var(--shadow);
         }
         .status-text {
-            font-size: 0.9rem;
-            color: var(--navy-soft);
+            font-family: 'EB Garamond', serif;
+            font-style: italic;
+            font-size: 15px;
+            color: var(--muted);
             margin-bottom: 22px;
             min-height: 22px;
         }
@@ -113,21 +129,20 @@
             height: 84px;
             border-radius: 50%;
             border: none;
-            background: var(--navy);
-            color: #fff;
+            background: var(--green);
+            color: var(--gold);
             cursor: pointer;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 14px rgba(26, 53, 80, 0.25);
-            transition: transform 0.15s ease, background 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 0 0 2px var(--gold);
+            transition: transform 0.15s ease, background 0.2s ease;
         }
         .record-btn:hover { transform: translateY(-1px); }
         .record-btn:active { transform: scale(0.97); }
         .record-btn.recording {
-            background: var(--danger);
-            box-shadow: 0 4px 14px rgba(196, 74, 74, 0.35);
-            animation: pulse 1.4s ease-in-out infinite;
+            background: var(--red);
+            animation: pulse 1.6s ease-in-out infinite;
         }
         .record-btn:disabled {
             opacity: 0.55;
@@ -137,176 +152,206 @@
         .record-btn svg { width: 32px; height: 32px; }
 
         @keyframes pulse {
-            0%, 100% { box-shadow: 0 4px 14px rgba(196, 74, 74, 0.35); }
-            50%      { box-shadow: 0 4px 22px rgba(196, 74, 74, 0.55); }
+            0%, 100% { box-shadow: 0 0 0 2px var(--gold), 0 0 0 0 rgba(107,26,26,0.45); }
+            50%      { box-shadow: 0 0 0 2px var(--gold), 0 0 0 12px rgba(107,26,26,0); }
         }
 
         /* Feedback */
         .feedback-card {
-            background: var(--card);
-            border-radius: var(--radius);
-            padding: 22px;
-            box-shadow: var(--shadow);
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-radius: 0;
+            padding: 8px 24px;
             display: none;
             flex-direction: column;
-            gap: 16px;
         }
         .feedback-card.visible { display: flex; }
 
-        .feedback-item .feedback-label {
-            font-size: 0.72rem;
-            color: var(--muted);
-            font-weight: 500;
-            letter-spacing: 0.06em;
-            margin-bottom: 6px;
+        .feedback-item {
+            padding: 18px 0;
+            border-bottom: 1px dashed var(--border);
+        }
+        .feedback-item:last-of-type { border-bottom: 1px dashed var(--border); }
+
+        .feedback-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 10px;
+            color: var(--gold);
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            margin-bottom: 10px;
         }
 
         .transcript-text {
-            font-family: 'Georgia', serif;
-            font-size: 0.95rem;
-            color: var(--navy-soft);
-            line-height: 1.55;
-            padding: 8px 10px;
-            background: #F5F8FB;
-            border-left: 3px solid var(--border);
-            border-radius: 4px;
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 16px;
+            color: var(--ink);
+            line-height: 1.6;
+            padding: 10px 14px;
+            background: var(--bg);
+            border-left: 2px solid var(--gold);
         }
         .coach-text {
-            font-size: 0.98rem;
-            color: var(--navy);
-            line-height: 1.65;
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 16px;
+            color: var(--ink);
+            line-height: 1.7;
             white-space: pre-wrap;
         }
         .expression-en {
-            font-family: 'Georgia', serif;
-            font-size: 1.05rem;
-            color: var(--navy);
-            font-weight: 500;
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+            font-size: 20px;
+            color: var(--green);
             line-height: 1.45;
             margin-bottom: 6px;
         }
         .expression-zh {
-            font-size: 0.82rem;
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 14px;
             color: var(--muted);
             line-height: 1.55;
         }
 
         .feedback-next {
-            padding-top: 14px;
-            border-top: 1px dashed var(--border);
+            padding: 18px 0 22px;
             display: flex;
             flex-direction: column;
             gap: 10px;
         }
         .next-question {
-            font-family: 'Georgia', serif;
-            font-size: 1.05rem;
-            color: var(--navy);
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-size: 18px;
+            color: var(--ink);
             line-height: 1.5;
         }
 
         #next-btn {
-            margin-top: 4px;
-            padding: 12px 0;
-            width: 100%;
-            background: var(--navy);
-            color: #fff;
+            margin-top: 8px;
+            padding: 14px 32px;
+            background: var(--green);
+            color: var(--gold);
             border: none;
-            border-radius: 10px;
-            font-size: 0.95rem;
-            font-family: inherit;
+            border-radius: 0;
+            font-family: 'Playfair Display', serif;
+            font-size: 14px;
+            letter-spacing: 0.1em;
             cursor: pointer;
-            transition: background 0.2s ease;
+            transition: background 0.2s ease, color 0.2s ease;
+            align-self: stretch;
         }
-        #next-btn:hover { background: var(--navy-soft); }
+        #next-btn:hover { background: var(--green-dark); color: var(--gold-warm); }
 
         /* Footer */
         .footer {
             text-align: center;
-            font-size: 0.72rem;
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
             color: var(--muted);
             padding-top: 12px;
+            letter-spacing: 0.05em;
         }
 
         /* Auth */
         .auth-card {
-            max-width: 400px;
+            max-width: 420px;
             margin: 80px auto;
-            padding: 40px 32px;
-            background: #fff;
-            border-radius: 16px;
-            border: 1px solid rgba(26,53,80,0.12);
+            padding: 44px 40px 36px;
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-top: 3px solid var(--green);
+            border-radius: 0;
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 16px;
         }
         .auth-card h2 {
-            font-family: 'Noto Serif TC', serif;
-            color: #1A3550;
-            font-size: 28px;
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-weight: 700;
+            color: var(--green);
+            font-size: 40px;
             text-align: center;
             margin: 0;
+            letter-spacing: 0.01em;
         }
         .auth-card p {
-            color: #6b7280;
-            font-size: 13px;
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-style: italic;
+            color: var(--muted);
+            font-size: 14px;
             text-align: center;
-            margin: 0 0 8px;
+            margin: 0 0 12px;
         }
         .auth-card input {
-            padding: 10px 14px;
-            border: 1px solid rgba(26,53,80,0.2);
-            border-radius: 8px;
-            font-size: 14px;
+            padding: 10px 0;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            background: transparent;
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 16px;
+            color: var(--ink);
             outline: none;
+            transition: border-color 0.2s ease;
         }
-        .auth-card input:focus {
-            border-color: #1A3550;
-        }
+        .auth-card input:focus { border-bottom-color: var(--green); }
+        .auth-card input::placeholder { color: var(--muted); font-style: italic; }
+
         #auth-google-btn {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            background: #fff;
-            color: #1A3550;
-            border: 1px solid rgba(26,53,80,0.2);
+            gap: 10px;
+            background: var(--surface);
+            color: var(--ink);
+            border: 1px solid var(--border);
+            border-radius: 0;
             padding: 12px;
-            border-radius: 8px;
-            font-family: 'Noto Serif TC', serif;
-            font-size: 14px;
+            font-family: 'EB Garamond', serif;
+            font-size: 15px;
             cursor: pointer;
-            margin-bottom: 8px;
+            margin: 8px 0 4px;
+            transition: border-color 0.2s, background 0.2s;
         }
-        #auth-google-btn:hover {
-            border-color: #1A3550;
-            background: #F4F7FA;
-        }
+        #auth-google-btn:hover { border-color: var(--green); background: var(--bg); }
+
         #auth-login-btn {
-            background: #1A3550;
-            color: #fff;
+            background: var(--green);
+            color: var(--gold);
             border: none;
-            padding: 12px;
-            border-radius: 8px;
-            font-family: 'Noto Serif TC', serif;
+            padding: 14px;
+            border-radius: 0;
+            font-family: 'Playfair Display', serif;
             font-size: 14px;
+            letter-spacing: 0.1em;
             cursor: pointer;
+            transition: background 0.2s, color 0.2s;
         }
+        #auth-login-btn:hover { background: var(--green-dark); color: var(--gold-warm); }
+
         #auth-signup-btn {
             background: transparent;
-            color: #1A3550;
-            border: 1px solid rgba(26,53,80,0.3);
-            padding: 12px;
-            border-radius: 8px;
-            font-family: 'Noto Serif TC', serif;
+            color: var(--green);
+            border: none;
+            padding: 8px;
+            border-radius: 0;
+            font-family: 'EB Garamond', serif;
             font-size: 14px;
+            text-decoration: underline;
+            text-underline-offset: 4px;
             cursor: pointer;
         }
+        #auth-signup-btn:hover { color: var(--green-dark); }
+
         #auth-message {
+            font-family: 'EB Garamond', serif;
+            font-style: italic;
             font-size: 13px;
-            color: #dc2626;
+            color: var(--red);
             text-align: center;
             min-height: 20px;
+            margin-top: 4px;
         }
     </style>
 </head>
@@ -335,6 +380,11 @@
     <main id="main-section" class="app" style="display:none">
         <header class="header">
             <h1>Blabby</h1>
+            <div class="header-rule">
+                <span class="rule-line"></span>
+                <span class="rule-diamond">◆</span>
+                <span class="rule-line"></span>
+            </div>
             <p class="tagline">每天開口，讓單字從腦袋跑到嘴巴</p>
         </header>
 
