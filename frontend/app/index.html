@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blabby · AI IELTS Speaking Practice</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z' fill='none' stroke='%23C9A84C' stroke-width='2' stroke-linejoin='round'/><line x1='4' y1='26' x2='28' y2='26' stroke='%23C9A84C' stroke-width='2'/><circle cx='16' cy='7' r='2' fill='%23C9A84C'/><circle cx='4' cy='13' r='2' fill='%23C9A84C'/><circle cx='28' cy='13' r='2' fill='%23C9A84C'/></svg>">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -427,6 +428,20 @@
                 <span class="rule-line"></span>
             </div>
             <p class="tagline">每天開口，讓單字從腦袋跑到嘴巴</p>
+            <div style="text-align:right; padding: 0 0 8px;">
+                <button id="logout-btn" style="
+                    background: transparent;
+                    border: none;
+                    color: var(--muted);
+                    font-family: 'Libre Baskerville', serif;
+                    font-size: 11px;
+                    font-style: italic;
+                    letter-spacing: 0.1em;
+                    cursor: pointer;
+                    text-decoration: underline;
+                    padding: 0;
+                ">登出</button>
+            </div>
         </header>
 
         <section class="question-card">
@@ -587,6 +602,17 @@
                 showAuth();
             }
         })();
+
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            console.log('Logout clicked');
+            if (!sb) { showAuth(); return; }
+            try {
+                await sb.auth.signOut();
+            } catch (err) {
+                console.error('signOut threw:', err);
+            }
+            showAuth();
+        });
 
         authGoogleBtn.addEventListener('click', async () => {
             console.log('Google clicked');
