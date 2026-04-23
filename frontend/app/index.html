@@ -46,6 +46,70 @@
             display: flex;
             flex-direction: column;
             gap: 22px;
+            position: relative;
+        }
+
+        /* User menu */
+        .user-menu-wrapper {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+        }
+        .user-avatar-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 1.5px solid var(--gold);
+            background: transparent;
+            color: var(--gold);
+            font-family: 'Playfair Display', serif;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, color 0.2s;
+        }
+        .user-avatar-btn:hover {
+            background: var(--gold);
+            color: var(--surface);
+        }
+        .user-dropdown {
+            position: absolute;
+            top: 40px;
+            right: 0;
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            min-width: 180px;
+            padding: 8px 0;
+            z-index: 100;
+        }
+        .user-email-display {
+            padding: 8px 16px;
+            font-family: 'EB Garamond', serif;
+            font-size: 12px;
+            color: var(--muted);
+            font-style: italic;
+            border-bottom: 1px dashed var(--border);
+            margin-bottom: 4px;
+        }
+        .user-logout-btn {
+            width: 100%;
+            padding: 8px 16px;
+            background: transparent;
+            border: none;
+            text-align: left;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 12px;
+            font-style: italic;
+            color: var(--ink);
+            cursor: pointer;
+            letter-spacing: 0.05em;
+            transition: color 0.2s, background 0.2s;
+        }
+        .user-logout-btn:hover {
+            color: var(--red);
+            background: rgba(107,26,26,0.05);
         }
 
         /* Header */
@@ -402,6 +466,16 @@
     </div>
 
     <main id="main-section" class="app" style="display:none">
+        <div class="user-menu-wrapper">
+            <button id="user-avatar-btn" class="user-avatar-btn" aria-label="用戶選單">
+                <span id="user-initial">?</span>
+            </button>
+            <div id="user-dropdown" class="user-dropdown" style="display:none">
+                <div id="user-email-display" class="user-email-display"></div>
+                <button id="logout-btn" class="user-logout-btn">登出</button>
+            </div>
+        </div>
+
         <header class="header">
             <svg class="logo-svg" width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <circle cx="32" cy="32" r="30" fill="none" stroke="#C9A84C" stroke-width="1.5"/>
@@ -428,20 +502,6 @@
                 <span class="rule-line"></span>
             </div>
             <p class="tagline">每天開口，讓單字從腦袋跑到嘴巴</p>
-            <div style="text-align:right; padding: 0 0 8px;">
-                <button id="logout-btn" style="
-                    background: transparent;
-                    border: none;
-                    color: var(--muted);
-                    font-family: 'Libre Baskerville', serif;
-                    font-size: 11px;
-                    font-style: italic;
-                    letter-spacing: 0.1em;
-                    cursor: pointer;
-                    text-decoration: underline;
-                    padding: 0;
-                ">登出</button>
-            </div>
         </header>
 
         <section class="question-card">
@@ -558,9 +618,19 @@
         let currentTopic    = '';
         let currentQuestion = '';
 
-        function showMain() {
+        async function showMain() {
             authSection.style.display = 'none';
             mainSection.style.display = '';
+            if (!sb) return;
+            try {
+                const { data: { user } } = await sb.auth.getUser();
+                const email = user && user.email ? user.email : '';
+                document.getElementById('user-initial').textContent =
+                    (email[0] || '?').toUpperCase();
+                document.getElementById('user-email-display').textContent = email;
+            } catch (err) {
+                console.error('showMain getUser error:', err);
+            }
         }
         function showAuth() {
             authSection.style.display = '';
@@ -603,8 +673,22 @@
             }
         })();
 
+        document.getElementById('user-avatar-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const dd = document.getElementById('user-dropdown');
+            dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.user-menu-wrapper')) {
+                const dd = document.getElementById('user-dropdown');
+                if (dd) dd.style.display = 'none';
+            }
+        });
+
         document.getElementById('logout-btn').addEventListener('click', async () => {
             console.log('Logout clicked');
+            document.getElementById('user-dropdown').style.display = 'none';
             if (!sb) { showAuth(); return; }
             try {
                 await sb.auth.signOut();
