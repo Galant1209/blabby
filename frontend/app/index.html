@@ -247,6 +247,9 @@
     <script>
         const API_BASE = 'https://blabby-backend.onrender.com';
 
+        // Warm up Render backend so the first /process call doesn't pay the cold-start tax.
+        fetch(`${API_BASE}/health`).catch(() => { /* silent */ });
+
         const recordBtn     = document.getElementById('record-btn');
         const statusText    = document.getElementById('status-text');
         const feedbackEl    = document.getElementById('feedback-section');
@@ -302,7 +305,7 @@
             const form = new FormData();
             form.append('audio', blob, 'recording.webm');
             form.append('level', 'Band 5');
-            form.append('topic', questionText.textContent.trim());
+            form.append('topic', 'Free Time');
             form.append('history', '[]');
 
             try {

@@ -119,13 +119,13 @@ def build_system_prompt(level: str, topic: str) -> str:
     )
 
 
-@app.post("/process", dependencies=[Depends(require_user_token)])
+@app.post("/process")
 @limiter.limit("20/minute")
 async def process(
     request: Request,
     audio: UploadFile = File(...),
     level: str = Form("Band 5"),
-    topic: str = Form("Part 1"),
+    topic: str = Form("Free Time"),
     history: str = Form("[]")
 ):
     try:
