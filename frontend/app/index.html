@@ -239,7 +239,7 @@
             <div class="question-text" id="question-text">
                 What do you usually do in your free time?
             </div>
-            <div class="meta">Part 1 · Topic: Hobbies</div>
+            <div class="meta" id="question-meta">Part 1 · Topic: Hobbies</div>
         </section>
 
         <section class="recorder-card">
@@ -283,12 +283,60 @@
         // Warm up Render backend so the first /process call doesn't pay the cold-start tax.
         fetch(`${API_BASE}/health`).catch(() => { /* silent */ });
 
+        const QUESTION_BANK = [
+            { topic: "Hometown",      question: "Where are you from?" },
+            { topic: "Hometown",      question: "What do you like most about your hometown?" },
+            { topic: "Hometown",      question: "Has your hometown changed much in recent years?" },
+            { topic: "Family",        question: "Do you have a large or small family?" },
+            { topic: "Family",        question: "How much time do you spend with your family?" },
+            { topic: "Family",        question: "Who are you closest to in your family?" },
+            { topic: "Daily Routine", question: "What do you usually do in the morning?" },
+            { topic: "Daily Routine", question: "Has your daily routine changed recently?" },
+            { topic: "Daily Routine", question: "Do you prefer to plan your day or be spontaneous?" },
+            { topic: "Reading",       question: "Do you enjoy reading?" },
+            { topic: "Reading",       question: "What kind of books do you like to read?" },
+            { topic: "Reading",       question: "Do you prefer reading physical books or e-books?" },
+            { topic: "Travel",        question: "Do you like travelling?" },
+            { topic: "Travel",        question: "Where is the most interesting place you have visited?" },
+            { topic: "Travel",        question: "Do you prefer travelling alone or with others?" },
+            { topic: "Technology",    question: "How often do you use the internet?" },
+            { topic: "Technology",    question: "How has technology changed your daily life?" },
+            { topic: "Technology",    question: "Do you think people rely too much on technology?" },
+            { topic: "Nature",        question: "Do you like spending time in nature?" },
+            { topic: "Nature",        question: "Are there any environmental problems in your area?" },
+            { topic: "Nature",        question: "What can individuals do to help protect the environment?" },
+        ];
+
         const recordBtn       = document.getElementById('record-btn');
         const statusText      = document.getElementById('status-text');
         const feedbackSection = document.getElementById('feedback-section');
         const nextBtn         = document.getElementById('next-btn');
         const questionText    = document.getElementById('question-text');
+        const questionMeta    = document.getElementById('question-meta');
         const nextQuestionEl  = document.getElementById('next-question-text');
+
+        let currentTopic    = '';
+        let currentQuestion = '';
+
+        function pickRandomFromBank(exclude) {
+            const pool = exclude
+                ? QUESTION_BANK.filter(q => q.question !== exclude)
+                : QUESTION_BANK;
+            return pool[Math.floor(Math.random() * pool.length)];
+        }
+
+        function setQuestion(question, topic) {
+            currentQuestion = question;
+            currentTopic    = topic;
+            questionText.textContent = question;
+            questionMeta.textContent = `Part 1 · Topic: ${topic}`;
+        }
+
+        // Initial question from bank
+        {
+            const initial = pickRandomFromBank();
+            setQuestion(initial.question, initial.topic);
+        }
 
         let mediaRecorder = null;
         let chunks        = [];
@@ -336,7 +384,7 @@
             const form = new FormData();
             form.append('audio', blob, 'recording.webm');
             form.append('level', 'Band 5');
-            form.append('topic', 'Free Time');
+            form.append('topic', currentTopic || 'General');
             form.append('history', '[]');
 
             try {
@@ -388,9 +436,15 @@
         });
 
         nextBtn.addEventListener('click', () => {
-            // Promote AI's next_question into the top examiner card, then reset.
-            const nextQ = nextQuestionEl.textContent.trim();
-            if (nextQ) questionText.textContent = nextQ;
+            // Prefer AI's next_question (natural continuation of current topic).
+            // Fall back to a random bank question, excluding the current one.
+            const aiNext = nextQuestionEl.textContent.trim();
+            if (aiNext) {
+                setQuestion(aiNext, currentTopic);
+            } else {
+                const pick = pickRandomFromBank(currentQuestion);
+                setQuestion(pick.question, pick.topic);
+            }
             feedbackSection.classList.remove('visible');
             statusText.textContent = '準備好了就按錄音';
         });

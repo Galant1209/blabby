@@ -107,8 +107,8 @@ def run_groq(messages):
     return json.loads(response.choices[0].message.content)
 
 
-def build_system_prompt():
-    return """
+def build_system_prompt(topic="General"):
+    base = """
 You are Blabby, an IELTS Speaking coach.
 You are not an examiner. You are a physical therapist for English speaking.
 Your job is to find exactly where the student is stuck and give one precise adjustment.
@@ -147,6 +147,7 @@ Your job is to find exactly where the student is stuck and give one precise adju
   "on_topic": true
 }
 """
+    return base + f"\n【本題主題】\n{topic}\n"
 
 
 @app.post("/process")
@@ -178,7 +179,7 @@ async def process(
 
         # Step 2: Groq chat (no extra round-trip to browser in between)
         history_list = json.loads(history)
-        messages = [{"role": "system", "content": build_system_prompt()}]
+        messages = [{"role": "system", "content": build_system_prompt(topic)}]
         for msg in history_list[-10:]:
             role    = msg.get("role", "")
             content = msg.get("content", "")
