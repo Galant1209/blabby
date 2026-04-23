@@ -564,7 +564,9 @@
                 if (error) {
                     setAuthMessage(error.message);
                 } else {
-                    setAuthMessage('註冊成功，請檢查你的 Email 確認註冊', true);
+                    setAuthMessage('註冊成功！請用剛才的 Email 和密碼登入', true);
+                    authPassword.value = '';
+                    authPassword.focus();
                 }
             } catch (err) {
                 console.error('signUp threw:', err);
