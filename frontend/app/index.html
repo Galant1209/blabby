@@ -253,6 +253,18 @@
             margin-bottom: 10px;
         }
 
+        .weakness-chip {
+            display: inline-block;
+            padding: 6px 10px;
+            border: 1px solid var(--gold);
+            background: rgba(201, 168, 76, 0.08);
+            color: var(--green);
+            font-family: 'Libre Baskerville', serif;
+            font-size: 11px;
+            letter-spacing: 0.06em;
+            text-transform: none;
+        }
+
         .transcript-text {
             font-family: 'EB Garamond', 'Noto Serif TC', serif;
             font-size: 16px;
@@ -531,6 +543,10 @@
             <div class="feedback-item">
                 <div class="feedback-label">物理治療師說</div>
                 <div id="coach-response" class="coach-text"></div>
+            </div>
+            <div class="feedback-item">
+                <div class="feedback-label">這次主要卡點</div>
+                <div id="weakness-tag" class="weakness-chip"></div>
             </div>
             <div class="feedback-item">
                 <div class="feedback-label">值得偷走的說法</div>
@@ -848,13 +864,30 @@
             form.append('history', '[]');
 
             try {
+                if (!sb) {
+                    statusText.textContent = '請先登入';
+                    return;
+                }
+
+                const { data: { session } } = await sb.auth.getSession();
+                const accessToken = session && session.access_token;
+                if (!accessToken) {
+                    statusText.textContent = '請先登入';
+                    return;
+                }
+
                 const res = await fetch(`${API_BASE}/process`, {
                     method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    },
                     body: form
                 });
                 const data = await res.json();
                 if (data.error) {
                     statusText.textContent = `錯誤：${data.error}`;
+                } else if (!res.ok) {
+                    statusText.textContent = `錯誤：${data.detail || '請稍後再試'}`;
                 } else {
                     renderFeedback(data);
                     statusText.textContent = '批改完成，準備好再按錄音';
@@ -865,6 +898,16 @@
             } finally {
                 recordBtn.disabled = false;
             }
+        }
+
+        function formatWeaknessTag(tag) {
+            const labels = {
+                weak_vocab: '弱點類型：模糊用詞',
+                lack_detail: '弱點類型：細節不足',
+                safe_answer: '弱點類型：回答太安全',
+                grammar_minor: '弱點類型：小型文法問題'
+            };
+            return labels[tag] || '弱點類型：待確認';
         }
 
         function renderFeedback(data) {
@@ -878,6 +921,9 @@
 
             // 批改回饋
             document.getElementById('coach-response').textContent = data.coach_response || '';
+
+            // 主要弱點標籤
+            document.getElementById('weakness-tag').textContent = formatWeaknessTag(data.weakness_tag);
 
             // 更好的說法
             document.getElementById('better-expression').textContent = data.better_expression || '';
