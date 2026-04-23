@@ -263,6 +263,25 @@
         .auth-card input:focus {
             border-color: #1A3550;
         }
+        #auth-google-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: #fff;
+            color: #1A3550;
+            border: 1px solid rgba(26,53,80,0.2);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Noto Serif TC', serif;
+            font-size: 14px;
+            cursor: pointer;
+            margin-bottom: 8px;
+        }
+        #auth-google-btn:hover {
+            border-color: #1A3550;
+            background: #F4F7FA;
+        }
         #auth-login-btn {
             background: #1A3550;
             color: #fff;
@@ -298,6 +317,15 @@
             <p>每天開口，讓單字從腦袋跑到嘴巴</p>
             <input id="auth-email" type="email" placeholder="你的 Email" autocomplete="email">
             <input id="auth-password" type="password" placeholder="密碼" autocomplete="current-password">
+            <button id="auth-google-btn">
+                <svg width="18" height="18" viewBox="0 0 18 18">
+                    <path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 0 0 2.38-5.88c0-.57-.05-.66-.15-1.18z"/>
+                    <path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 0 1-7.18-2.54H1.83v2.07A8 8 0 0 0 8.98 17z"/>
+                    <path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 0 1 0-3.04V5.41H1.83a8 8 0 0 0 0 7.18z"/>
+                    <path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 0 0 1.83 5.4L4.5 7.49a4.77 4.77 0 0 1 4.48-3.3z"/>
+                </svg>
+                用 Google 登入
+            </button>
             <button id="auth-login-btn">登入</button>
             <button id="auth-signup-btn">註冊</button>
             <div id="auth-message"></div>
@@ -358,7 +386,24 @@
 
         const SUPABASE_URL      = 'https://mkwywkwruyqzdhuzwnoa.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rd3l3a3dydXlxemRodXp3bm9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MjY1NDQsImV4cCI6MjA5MjUwMjU0NH0.qVNtw6L7oXamzGlvXbVSHkELhG4YnXjWWgKbGublJj8';
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // If the CDN fails, `window.supabase` is undefined. Guarding here means
+        // the rest of the script (incl. event listeners) still runs so the page
+        // doesn't appear frozen.
+        let supabase = null;
+        try {
+            if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+                throw new Error('Supabase SDK not loaded — window.supabase is missing or malformed.');
+            }
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            console.log('Supabase initialized');
+        } catch (err) {
+            console.error('Supabase init failed:', err);
+        }
+
+        // Surface any uncaught error so a silent failure is visible.
+        window.addEventListener('error',              (e) => console.error('window error:',  e.message, e.error));
+        window.addEventListener('unhandledrejection', (e) => console.error('unhandled promise:', e.reason));
 
         // Warm up Render backend so the first /process call doesn't pay the cold-start tax.
         fetch(`${API_BASE}/health`).catch(() => { /* silent */ });
@@ -395,13 +440,14 @@
         const questionMeta    = document.getElementById('question-meta');
         const nextQuestionEl  = document.getElementById('next-question-text');
 
-        const authSection  = document.getElementById('auth-section');
-        const mainSection  = document.getElementById('main-section');
-        const authEmail    = document.getElementById('auth-email');
-        const authPassword = document.getElementById('auth-password');
-        const authLoginBtn = document.getElementById('auth-login-btn');
-        const authSignupBtn= document.getElementById('auth-signup-btn');
-        const authMessage  = document.getElementById('auth-message');
+        const authSection   = document.getElementById('auth-section');
+        const mainSection   = document.getElementById('main-section');
+        const authEmail     = document.getElementById('auth-email');
+        const authPassword  = document.getElementById('auth-password');
+        const authGoogleBtn = document.getElementById('auth-google-btn');
+        const authLoginBtn  = document.getElementById('auth-login-btn');
+        const authSignupBtn = document.getElementById('auth-signup-btn');
+        const authMessage   = document.getElementById('auth-message');
 
         let currentTopic    = '';
         let currentQuestion = '';
@@ -441,6 +487,7 @@
 
         // Auth bootstrap: show main if session exists, else show auth form.
         (async () => {
+            if (!supabase) { showAuth(); return; }
             try {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (session) showMain(); else showAuth();
@@ -450,7 +497,30 @@
             }
         })();
 
+        authGoogleBtn.addEventListener('click', async () => {
+            console.log('Google clicked');
+            if (!supabase) {
+                setAuthMessage('Supabase 尚未載入，請重新整理');
+                return;
+            }
+            try {
+                const { error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: { redirectTo: 'https://blabby.vercel.app' }
+                });
+                if (error) setAuthMessage(error.message);
+            } catch (err) {
+                console.error('signInWithOAuth threw:', err);
+                setAuthMessage('Google 登入失敗：' + (err.message || err));
+            }
+        });
+
         authLoginBtn.addEventListener('click', async () => {
+            console.log('Login clicked');
+            if (!supabase) {
+                setAuthMessage('Supabase 尚未載入，請重新整理');
+                return;
+            }
             const email    = authEmail.value.trim();
             const password = authPassword.value;
             if (!email || !password) {
@@ -459,17 +529,28 @@
             }
             setAuthMessage('登入中...', true);
             authLoginBtn.disabled = true;
-            const { error } = await supabase.auth.signInWithPassword({ email, password });
-            authLoginBtn.disabled = false;
-            if (error) {
-                setAuthMessage(error.message);
-            } else {
-                setAuthMessage('');
-                showMain();
+            try {
+                const { error } = await supabase.auth.signInWithPassword({ email, password });
+                if (error) {
+                    setAuthMessage(error.message);
+                } else {
+                    setAuthMessage('');
+                    showMain();
+                }
+            } catch (err) {
+                console.error('signIn threw:', err);
+                setAuthMessage('登入失敗：' + (err.message || err));
+            } finally {
+                authLoginBtn.disabled = false;
             }
         });
 
         authSignupBtn.addEventListener('click', async () => {
+            console.log('Signup clicked');
+            if (!supabase) {
+                setAuthMessage('Supabase 尚未載入，請重新整理');
+                return;
+            }
             const email    = authEmail.value.trim();
             const password = authPassword.value;
             if (!email || !password) {
@@ -478,16 +559,23 @@
             }
             setAuthMessage('註冊中...', true);
             authSignupBtn.disabled = true;
-            const { error } = await supabase.auth.signUp({ email, password });
-            authSignupBtn.disabled = false;
-            if (error) {
-                setAuthMessage(error.message);
-            } else {
-                setAuthMessage('註冊成功，請檢查你的 Email 確認註冊', true);
+            try {
+                const { error } = await supabase.auth.signUp({ email, password });
+                if (error) {
+                    setAuthMessage(error.message);
+                } else {
+                    setAuthMessage('註冊成功，請檢查你的 Email 確認註冊', true);
+                }
+            } catch (err) {
+                console.error('signUp threw:', err);
+                setAuthMessage('註冊失敗：' + (err.message || err));
+            } finally {
+                authSignupBtn.disabled = false;
             }
         });
 
         async function savePracticeRecord(data) {
+            if (!supabase) return;
             try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) return;
