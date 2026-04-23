@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blabby · AI IELTS Speaking Practice</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&family=Noto+Sans+TC:wght@400;500&family=Georgia&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --navy:        #1A3550;
+            --navy-soft:   #2A4A6B;
+            --bg:          #F0F4F8;
+            --card:        #FFFFFF;
+            --question-bg: #C9DDEB;
+            --muted:       #7A8A99;
+            --border:      #D8E1EA;
+            --success:     #4A8B5C;
+            --danger:      #C44A4A;
+            --radius:      14px;
+            --shadow:      0 2px 12px rgba(26, 53, 80, 0.06);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            background: var(--bg);
+            color: var(--navy);
+            font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .app {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 28px 20px 60px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Header */
+        .header { text-align: center; padding: 8px 0 4px; }
+        .header h1 {
+            font-family: 'Noto Serif TC', serif;
+            font-weight: 700;
+            font-size: 2rem;
+            color: var(--navy);
+            letter-spacing: 0.02em;
+        }
+        .header .tagline {
+            margin-top: 6px;
+            font-size: 0.8rem;
+            color: var(--muted);
+            font-weight: 400;
+        }
+
+        /* Question card */
+        .question-card {
+            background: var(--question-bg);
+            border-radius: var(--radius);
+            padding: 22px 22px 18px;
+            position: relative;
+        }
+        .question-card .label {
+            font-size: 0.75rem;
+            color: var(--navy);
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            opacity: 0.7;
+            margin-bottom: 10px;
+        }
+        .question-card .question-text {
+            font-family: 'Georgia', 'Noto Serif TC', serif;
+            font-size: 1.35rem;
+            color: var(--navy);
+            font-weight: 500;
+            line-height: 1.45;
+            padding-right: 8px;
+        }
+        .question-card .meta {
+            margin-top: 14px;
+            font-size: 0.72rem;
+            color: var(--navy);
+            opacity: 0.6;
+            text-align: right;
+        }
+
+        /* Recorder card */
+        .recorder-card {
+            background: var(--card);
+            border: 1px solid var(--navy);
+            border-radius: var(--radius);
+            padding: 28px 20px 32px;
+            text-align: center;
+            box-shadow: var(--shadow);
+        }
+        .status-text {
+            font-size: 0.9rem;
+            color: var(--navy-soft);
+            margin-bottom: 22px;
+            min-height: 22px;
+        }
+        .record-btn {
+            width: 84px;
+            height: 84px;
+            border-radius: 50%;
+            border: none;
+            background: var(--navy);
+            color: #fff;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 14px rgba(26, 53, 80, 0.25);
+            transition: transform 0.15s ease, background 0.2s ease, box-shadow 0.2s ease;
+        }
+        .record-btn:hover { transform: translateY(-1px); }
+        .record-btn:active { transform: scale(0.97); }
+        .record-btn.recording {
+            background: var(--danger);
+            box-shadow: 0 4px 14px rgba(196, 74, 74, 0.35);
+            animation: pulse 1.4s ease-in-out infinite;
+        }
+        .record-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            animation: none;
+        }
+        .record-btn svg { width: 32px; height: 32px; }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 4px 14px rgba(196, 74, 74, 0.35); }
+            50%      { box-shadow: 0 4px 22px rgba(196, 74, 74, 0.55); }
+        }
+
+        /* Feedback */
+        .feedback-card {
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 22px;
+            box-shadow: var(--shadow);
+            display: none;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .feedback-card.visible { display: flex; }
+
+        .feedback-item .feedback-label {
+            font-size: 0.72rem;
+            color: var(--muted);
+            font-weight: 500;
+            letter-spacing: 0.06em;
+            margin-bottom: 6px;
+        }
+        .feedback-item .feedback-value {
+            font-size: 0.95rem;
+            color: var(--navy);
+            line-height: 1.55;
+        }
+        .feedback-value .mark-ok   { color: var(--success); font-weight: 700; }
+        .feedback-value .mark-miss { color: var(--danger);  font-weight: 700; }
+        .feedback-value .en {
+            font-family: 'Georgia', serif;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .feedback-value .zh {
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        .next-btn {
+            margin-top: 4px;
+            padding: 12px 0;
+            width: 100%;
+            background: var(--navy);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        .next-btn:hover { background: var(--navy-soft); }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            font-size: 0.72rem;
+            color: var(--muted);
+            padding-top: 12px;
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <header class="header">
+            <h1>Blabby</h1>
+            <p class="tagline">每天開口，讓單字從腦袋跑到嘴巴</p>
+        </header>
+
+        <section class="question-card">
+            <div class="label">考官問你</div>
+            <div class="question-text" id="question-text">
+                What do you usually do in your free time?
+            </div>
+            <div class="meta">Part 1 · Topic: Hobbies</div>
+        </section>
+
+        <section class="recorder-card">
+            <div class="status-text" id="status-text">準備好了就按錄音</div>
+            <button class="record-btn" id="record-btn" aria-label="錄音">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z" fill="currentColor"/>
+                    <path d="M18.5 11a6.5 6.5 0 0 1-13 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    <path d="M12 17.5V21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </section>
+
+        <section class="feedback-card" id="feedback-section" aria-live="polite">
+            <div class="feedback-item">
+                <div class="feedback-label">有沒有扣題</div>
+                <div class="feedback-value" id="fb-ontopic"></div>
+            </div>
+            <div class="feedback-item">
+                <div class="feedback-label">需要改進</div>
+                <div class="feedback-value" id="fb-improve"></div>
+            </div>
+            <div class="feedback-item">
+                <div class="feedback-label">更好的說法</div>
+                <div class="feedback-value" id="fb-better"></div>
+            </div>
+            <button class="next-btn" id="next-btn">下一題</button>
+        </section>
+
+        <footer class="footer">Blabby · AI IELTS Speaking Practice</footer>
+    </main>
+
+    <script>
+        const API_BASE = 'https://blabby-backend.onrender.com';
+
+        const recordBtn     = document.getElementById('record-btn');
+        const statusText    = document.getElementById('status-text');
+        const feedbackEl    = document.getElementById('feedback-section');
+        const fbOnTopic     = document.getElementById('fb-ontopic');
+        const fbImprove     = document.getElementById('fb-improve');
+        const fbBetter      = document.getElementById('fb-better');
+        const nextBtn       = document.getElementById('next-btn');
+        const questionText  = document.getElementById('question-text');
+
+        let mediaRecorder = null;
+        let chunks        = [];
+        let isRecording   = false;
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                chunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data && e.data.size > 0) chunks.push(e.data);
+                };
+                mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(t => t.stop());
+                    const blob = new Blob(chunks, { type: 'audio/webm' });
+                    await submitAudio(blob);
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                recordBtn.classList.add('recording');
+                recordBtn.setAttribute('aria-label', '停止錄音');
+                statusText.textContent = '錄音中...';
+                feedbackEl.classList.remove('visible');
+            } catch (err) {
+                console.error('getUserMedia error:', err);
+                statusText.textContent = '無法取得麥克風權限';
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            isRecording = false;
+            recordBtn.classList.remove('recording');
+            recordBtn.setAttribute('aria-label', '錄音');
+            statusText.textContent = 'AI 正在批改...';
+            recordBtn.disabled = true;
+        }
+
+        async function submitAudio(blob) {
+            const form = new FormData();
+            form.append('audio', blob, 'recording.webm');
+            form.append('level', 'Band 5');
+            form.append('topic', questionText.textContent.trim());
+            form.append('history', '[]');
+
+            try {
+                const res = await fetch(`${API_BASE}/process`, {
+                    method: 'POST',
+                    body: form
+                });
+                const data = await res.json();
+                if (data.error) {
+                    statusText.textContent = `錯誤：${data.error}`;
+                } else {
+                    renderFeedback(data);
+                    statusText.textContent = '批改完成，準備好再按錄音';
+                }
+            } catch (err) {
+                console.error('submit error:', err);
+                statusText.textContent = '網路錯誤，請稍後再試';
+            } finally {
+                recordBtn.disabled = false;
+            }
+        }
+
+        function renderFeedback(data) {
+            const tags     = Array.isArray(data.error_tags) ? data.error_tags : [];
+            const onTopic  = tags.includes('off-topic') ? false : true;
+            fbOnTopic.innerHTML = onTopic
+                ? '<span class="mark-ok">✓</span> 有扣到題目'
+                : '<span class="mark-miss">✗</span> 沒扣到題目';
+
+            fbImprove.textContent = data.feedback || '（AI 沒回傳改進建議）';
+
+            const reply = (data.reply || '').trim();
+            fbBetter.innerHTML = reply
+                ? `<span class="en">${escapeHtml(reply)}</span><span class="zh">AI 建議說法</span>`
+                : '<span class="zh">（AI 沒回傳更好的說法）</span>';
+
+            feedbackEl.classList.add('visible');
+        }
+
+        function escapeHtml(s) {
+            return s.replace(/[&<>"']/g, (c) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        recordBtn.addEventListener('click', () => {
+            if (isRecording) stopRecording();
+            else startRecording();
+        });
+
+        nextBtn.addEventListener('click', () => {
+            feedbackEl.classList.remove('visible');
+            statusText.textContent = '準備好了就按錄音';
+        });
+    </script>
+</body>
+</html>
