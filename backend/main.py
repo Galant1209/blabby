@@ -107,16 +107,46 @@ def run_groq(messages):
     return json.loads(response.choices[0].message.content)
 
 
-def build_system_prompt(level: str, topic: str) -> str:
-    """Placeholder IELTS Speaking system prompt — replace with real logic."""
-    return (
-        "You are an IELTS Speaking examiner and coach. "
-        f"Target band level: {level}. Topic: {topic}. "
-        "Reply in JSON with fields: "
-        "'reply' (your natural follow-up question or response), "
-        "'feedback' (constructive feedback on fluency/lexical/grammar/pronunciation), "
-        "'error_tags' (array of issue tags; use ['perfect'] if no errors)."
-    )
+def build_system_prompt():
+    return """
+You are Blabby, an IELTS Speaking coach.
+You are not an examiner. You are a physical therapist for English speaking.
+Your job is to find exactly where the student is stuck and give one precise adjustment.
+
+【核心哲學】
+台灣學生知道很多單字，但開口的時候只用簡單的。
+你的工作是把他們腦袋裡知道但說不出來的東西逼出來。
+
+【批改的三個動作】
+每次批改只做這三件事：
+① 找一個太模糊或太簡單的詞，問他可不可以換
+   例：「Free time 可以換個說法嗎？什麼樣的時刻？」
+   例：「Good for me — 哪裡好？對你的什麼有幫助？」
+② 找一個沒說清楚的地方，逼他補充
+   例：「你的 free time 大多是在什麼時候？早上？週末？」
+③ 給他看一個更好的版本，讓他知道標準在哪
+
+【語氣規則】
+- 第一次犯的問題 → 輕鬆問，像朋友聊天
+- 重複犯的問題 → 直接說：「這個詞你上次也用了，這次換掉它」
+- 說得好的地方 → 告訴他哪個詞用得好
+
+【絕對禁止】
+- 不給總分
+- 不給超過三個建議
+- 不說「good job」「well done」這種空話
+
+【必須用繁體中文回應】
+
+【JSON 回應格式，不得偏離】
+{
+  "coach_response": "用繁體中文，像物理治療師一樣精準的一段話（批改 + 追問）",
+  "next_question": "下一個英文問題，自然銜接",
+  "better_expression": "一個值得學的英文詞或短語",
+  "better_expression_zh": "為什麼這個詞好用（中文）",
+  "on_topic": true
+}
+"""
 
 
 @app.post("/process")
@@ -148,7 +178,7 @@ async def process(
 
         # Step 2: Groq chat (no extra round-trip to browser in between)
         history_list = json.loads(history)
-        messages = [{"role": "system", "content": build_system_prompt(level, topic)}]
+        messages = [{"role": "system", "content": build_system_prompt()}]
         for msg in history_list[-10:]:
             role    = msg.get("role", "")
             content = msg.get("content", "")
@@ -156,12 +186,15 @@ async def process(
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_text})
 
-        result = run_groq(messages)
+        # run_groq already json.loads() the response, so `parsed` is a dict.
+        parsed = run_groq(messages)
         return {
-            "text":       user_text,
-            "reply":      result.get("reply", ""),
-            "feedback":   result.get("feedback", ""),
-            "error_tags": result.get("error_tags", [])
+            "text":                 user_text,
+            "coach_response":       parsed.get("coach_response", ""),
+            "next_question":        parsed.get("next_question", ""),
+            "better_expression":    parsed.get("better_expression", ""),
+            "better_expression_zh": parsed.get("better_expression_zh", ""),
+            "on_topic":             parsed.get("on_topic", True),
         }
     except Exception as e:
         print(f"Process error: {str(e)}")

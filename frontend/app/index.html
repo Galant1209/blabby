@@ -158,24 +158,52 @@
             letter-spacing: 0.06em;
             margin-bottom: 6px;
         }
-        .feedback-item .feedback-value {
+
+        .transcript-text {
+            font-family: 'Georgia', serif;
             font-size: 0.95rem;
+            color: var(--navy-soft);
+            line-height: 1.55;
+            padding: 8px 10px;
+            background: #F5F8FB;
+            border-left: 3px solid var(--border);
+            border-radius: 4px;
+        }
+        .coach-text {
+            font-size: 0.98rem;
             color: var(--navy);
+            line-height: 1.65;
+            white-space: pre-wrap;
+        }
+        .expression-en {
+            font-family: 'Georgia', serif;
+            font-size: 1.05rem;
+            color: var(--navy);
+            font-weight: 500;
+            line-height: 1.45;
+            margin-bottom: 6px;
+        }
+        .expression-zh {
+            font-size: 0.82rem;
+            color: var(--muted);
             line-height: 1.55;
         }
-        .feedback-value .mark-ok   { color: var(--success); font-weight: 700; }
-        .feedback-value .mark-miss { color: var(--danger);  font-weight: 700; }
-        .feedback-value .en {
-            font-family: 'Georgia', serif;
-            display: block;
-            margin-bottom: 4px;
+
+        .feedback-next {
+            padding-top: 14px;
+            border-top: 1px dashed var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
-        .feedback-value .zh {
-            color: var(--muted);
-            font-size: 0.85rem;
+        .next-question {
+            font-family: 'Georgia', serif;
+            font-size: 1.05rem;
+            color: var(--navy);
+            line-height: 1.5;
         }
 
-        .next-btn {
+        #next-btn {
             margin-top: 4px;
             padding: 12px 0;
             width: 100%;
@@ -188,7 +216,7 @@
             cursor: pointer;
             transition: background 0.2s ease;
         }
-        .next-btn:hover { background: var(--navy-soft); }
+        #next-btn:hover { background: var(--navy-soft); }
 
         /* Footer */
         .footer {
@@ -225,21 +253,26 @@
             </button>
         </section>
 
-        <section class="feedback-card" id="feedback-section" aria-live="polite">
+        <div id="feedback-section" class="feedback-card" aria-live="polite">
             <div class="feedback-item">
-                <div class="feedback-label">有沒有扣題</div>
-                <div class="feedback-value" id="fb-ontopic"></div>
+                <div class="feedback-label">你說的</div>
+                <div id="user-transcript" class="transcript-text"></div>
             </div>
             <div class="feedback-item">
-                <div class="feedback-label">需要改進</div>
-                <div class="feedback-value" id="fb-improve"></div>
+                <div class="feedback-label">物理治療師說</div>
+                <div id="coach-response" class="coach-text"></div>
             </div>
             <div class="feedback-item">
-                <div class="feedback-label">更好的說法</div>
-                <div class="feedback-value" id="fb-better"></div>
+                <div class="feedback-label">值得偷走的說法</div>
+                <div id="better-expression" class="expression-en"></div>
+                <div id="better-expression-zh" class="expression-zh"></div>
             </div>
-            <button class="next-btn" id="next-btn">下一題</button>
-        </section>
+            <div class="feedback-next">
+                <div class="feedback-label">下一題</div>
+                <div id="next-question-text" class="next-question"></div>
+                <button id="next-btn">繼續練習 →</button>
+            </div>
+        </div>
 
         <footer class="footer">Blabby · AI IELTS Speaking Practice</footer>
     </main>
@@ -250,14 +283,12 @@
         // Warm up Render backend so the first /process call doesn't pay the cold-start tax.
         fetch(`${API_BASE}/health`).catch(() => { /* silent */ });
 
-        const recordBtn     = document.getElementById('record-btn');
-        const statusText    = document.getElementById('status-text');
-        const feedbackEl    = document.getElementById('feedback-section');
-        const fbOnTopic     = document.getElementById('fb-ontopic');
-        const fbImprove     = document.getElementById('fb-improve');
-        const fbBetter      = document.getElementById('fb-better');
-        const nextBtn       = document.getElementById('next-btn');
-        const questionText  = document.getElementById('question-text');
+        const recordBtn       = document.getElementById('record-btn');
+        const statusText      = document.getElementById('status-text');
+        const feedbackSection = document.getElementById('feedback-section');
+        const nextBtn         = document.getElementById('next-btn');
+        const questionText    = document.getElementById('question-text');
+        const nextQuestionEl  = document.getElementById('next-question-text');
 
         let mediaRecorder = null;
         let chunks        = [];
@@ -283,7 +314,7 @@
                 recordBtn.classList.add('recording');
                 recordBtn.setAttribute('aria-label', '停止錄音');
                 statusText.textContent = '錄音中...';
-                feedbackEl.classList.remove('visible');
+                feedbackSection.classList.remove('visible');
             } catch (err) {
                 console.error('getUserMedia error:', err);
                 statusText.textContent = '無法取得麥克風權限';
@@ -329,26 +360,26 @@
         }
 
         function renderFeedback(data) {
-            const tags     = Array.isArray(data.error_tags) ? data.error_tags : [];
-            const onTopic  = tags.includes('off-topic') ? false : true;
-            fbOnTopic.innerHTML = onTopic
-                ? '<span class="mark-ok">✓</span> 有扣到題目'
-                : '<span class="mark-miss">✗</span> 沒扣到題目';
+            if (data.error) {
+                statusText.textContent = '發生錯誤，請再試一次';
+                return;
+            }
 
-            fbImprove.textContent = data.feedback || '（AI 沒回傳改進建議）';
+            // 顯示用戶說的話
+            document.getElementById('user-transcript').textContent = data.text || '';
 
-            const reply = (data.reply || '').trim();
-            fbBetter.innerHTML = reply
-                ? `<span class="en">${escapeHtml(reply)}</span><span class="zh">AI 建議說法</span>`
-                : '<span class="zh">（AI 沒回傳更好的說法）</span>';
+            // 批改回饋
+            document.getElementById('coach-response').textContent = data.coach_response || '';
 
-            feedbackEl.classList.add('visible');
-        }
+            // 更好的說法
+            document.getElementById('better-expression').textContent = data.better_expression || '';
+            document.getElementById('better-expression-zh').textContent = data.better_expression_zh || '';
 
-        function escapeHtml(s) {
-            return s.replace(/[&<>"']/g, (c) => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            }[c]));
+            // 下一題
+            document.getElementById('next-question-text').textContent = data.next_question || '';
+
+            feedbackSection.classList.add('visible');
+            statusText.textContent = '批改完成';
         }
 
         recordBtn.addEventListener('click', () => {
@@ -357,7 +388,10 @@
         });
 
         nextBtn.addEventListener('click', () => {
-            feedbackEl.classList.remove('visible');
+            // Promote AI's next_question into the top examiner card, then reset.
+            const nextQ = nextQuestionEl.textContent.trim();
+            if (nextQ) questionText.textContent = nextQ;
+            feedbackSection.classList.remove('visible');
             statusText.textContent = '準備好了就按錄音';
         });
     </script>
