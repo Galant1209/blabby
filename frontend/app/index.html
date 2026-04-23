@@ -9,6 +9,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&family=Noto+Sans+TC:wght@400;500&family=Georgia&display=swap" rel="stylesheet">
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <style>
         :root {
             --navy:        #1A3550;
@@ -225,10 +227,84 @@
             color: var(--muted);
             padding-top: 12px;
         }
+
+        /* Auth */
+        .auth-card {
+            max-width: 400px;
+            margin: 80px auto;
+            padding: 40px 32px;
+            background: #fff;
+            border-radius: 16px;
+            border: 1px solid rgba(26,53,80,0.12);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .auth-card h2 {
+            font-family: 'Noto Serif TC', serif;
+            color: #1A3550;
+            font-size: 28px;
+            text-align: center;
+            margin: 0;
+        }
+        .auth-card p {
+            color: #6b7280;
+            font-size: 13px;
+            text-align: center;
+            margin: 0 0 8px;
+        }
+        .auth-card input {
+            padding: 10px 14px;
+            border: 1px solid rgba(26,53,80,0.2);
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+        }
+        .auth-card input:focus {
+            border-color: #1A3550;
+        }
+        #auth-login-btn {
+            background: #1A3550;
+            color: #fff;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Noto Serif TC', serif;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #auth-signup-btn {
+            background: transparent;
+            color: #1A3550;
+            border: 1px solid rgba(26,53,80,0.3);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Noto Serif TC', serif;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #auth-message {
+            font-size: 13px;
+            color: #dc2626;
+            text-align: center;
+            min-height: 20px;
+        }
     </style>
 </head>
 <body>
-    <main class="app">
+    <div id="auth-section">
+        <div class="auth-card">
+            <h2>Blabby</h2>
+            <p>每天開口，讓單字從腦袋跑到嘴巴</p>
+            <input id="auth-email" type="email" placeholder="你的 Email" autocomplete="email">
+            <input id="auth-password" type="password" placeholder="密碼" autocomplete="current-password">
+            <button id="auth-login-btn">登入</button>
+            <button id="auth-signup-btn">註冊</button>
+            <div id="auth-message"></div>
+        </div>
+    </div>
+
+    <main id="main-section" class="app" style="display:none">
         <header class="header">
             <h1>Blabby</h1>
             <p class="tagline">每天開口，讓單字從腦袋跑到嘴巴</p>
@@ -280,6 +356,10 @@
     <script>
         const API_BASE = 'https://blabby-backend.onrender.com';
 
+        const SUPABASE_URL      = 'https://mkwywkwruyqzdhuzwnoa.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rd3l3a3dydXlxemRodXp3bm9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MjY1NDQsImV4cCI6MjA5MjUwMjU0NH0.qVNtw6L7oXamzGlvXbVSHkELhG4YnXjWWgKbGublJj8';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
         // Warm up Render backend so the first /process call doesn't pay the cold-start tax.
         fetch(`${API_BASE}/health`).catch(() => { /* silent */ });
 
@@ -315,8 +395,29 @@
         const questionMeta    = document.getElementById('question-meta');
         const nextQuestionEl  = document.getElementById('next-question-text');
 
+        const authSection  = document.getElementById('auth-section');
+        const mainSection  = document.getElementById('main-section');
+        const authEmail    = document.getElementById('auth-email');
+        const authPassword = document.getElementById('auth-password');
+        const authLoginBtn = document.getElementById('auth-login-btn');
+        const authSignupBtn= document.getElementById('auth-signup-btn');
+        const authMessage  = document.getElementById('auth-message');
+
         let currentTopic    = '';
         let currentQuestion = '';
+
+        function showMain() {
+            authSection.style.display = 'none';
+            mainSection.style.display = '';
+        }
+        function showAuth() {
+            authSection.style.display = '';
+            mainSection.style.display = 'none';
+        }
+        function setAuthMessage(msg, ok = false) {
+            authMessage.textContent = msg || '';
+            authMessage.style.color = ok ? '#1A3550' : '#dc2626';
+        }
 
         function pickRandomFromBank(exclude) {
             const pool = exclude
@@ -336,6 +437,74 @@
         {
             const initial = pickRandomFromBank();
             setQuestion(initial.question, initial.topic);
+        }
+
+        // Auth bootstrap: show main if session exists, else show auth form.
+        (async () => {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) showMain(); else showAuth();
+            } catch (err) {
+                console.error('getSession error:', err);
+                showAuth();
+            }
+        })();
+
+        authLoginBtn.addEventListener('click', async () => {
+            const email    = authEmail.value.trim();
+            const password = authPassword.value;
+            if (!email || !password) {
+                setAuthMessage('請輸入 Email 和密碼');
+                return;
+            }
+            setAuthMessage('登入中...', true);
+            authLoginBtn.disabled = true;
+            const { error } = await supabase.auth.signInWithPassword({ email, password });
+            authLoginBtn.disabled = false;
+            if (error) {
+                setAuthMessage(error.message);
+            } else {
+                setAuthMessage('');
+                showMain();
+            }
+        });
+
+        authSignupBtn.addEventListener('click', async () => {
+            const email    = authEmail.value.trim();
+            const password = authPassword.value;
+            if (!email || !password) {
+                setAuthMessage('請輸入 Email 和密碼');
+                return;
+            }
+            setAuthMessage('註冊中...', true);
+            authSignupBtn.disabled = true;
+            const { error } = await supabase.auth.signUp({ email, password });
+            authSignupBtn.disabled = false;
+            if (error) {
+                setAuthMessage(error.message);
+            } else {
+                setAuthMessage('註冊成功，請檢查你的 Email 確認註冊', true);
+            }
+        });
+
+        async function savePracticeRecord(data) {
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) return;
+                const { error } = await supabase.from('practice_records').insert({
+                    user_id:              user.id,
+                    topic:                currentTopic,
+                    question:             currentQuestion,
+                    user_transcript:      data.text,
+                    coach_response:       data.coach_response,
+                    better_expression:    data.better_expression,
+                    better_expression_zh: data.better_expression_zh,
+                    next_question:        data.next_question,
+                });
+                if (error) console.error('practice_records insert error:', error);
+            } catch (err) {
+                console.error('savePracticeRecord error:', err);
+            }
         }
 
         let mediaRecorder = null;
@@ -428,6 +597,9 @@
 
             feedbackSection.classList.add('visible');
             statusText.textContent = '批改完成';
+
+            // Persist the practice session (fire-and-forget; don't block UI).
+            savePracticeRecord(data);
         }
 
         recordBtn.addEventListener('click', () => {
