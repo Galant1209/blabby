@@ -390,12 +390,12 @@
         // If the CDN fails, `window.supabase` is undefined. Guarding here means
         // the rest of the script (incl. event listeners) still runs so the page
         // doesn't appear frozen.
-        let supabase = null;
+        let sb = null;
         try {
             if (!window.supabase || typeof window.supabase.createClient !== 'function') {
                 throw new Error('Supabase SDK not loaded — window.supabase is missing or malformed.');
             }
-            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             console.log('Supabase initialized');
         } catch (err) {
             console.error('Supabase init failed:', err);
@@ -487,9 +487,9 @@
 
         // Auth bootstrap: show main if session exists, else show auth form.
         (async () => {
-            if (!supabase) { showAuth(); return; }
+            if (!sb) { showAuth(); return; }
             try {
-                const { data: { session } } = await supabase.auth.getSession();
+                const { data: { session } } = await sb.auth.getSession();
                 if (session) showMain(); else showAuth();
             } catch (err) {
                 console.error('getSession error:', err);
@@ -499,12 +499,12 @@
 
         authGoogleBtn.addEventListener('click', async () => {
             console.log('Google clicked');
-            if (!supabase) {
+            if (!sb) {
                 setAuthMessage('Supabase 尚未載入，請重新整理');
                 return;
             }
             try {
-                const { error } = await supabase.auth.signInWithOAuth({
+                const { error } = await sb.auth.signInWithOAuth({
                     provider: 'google',
                     options: { redirectTo: 'https://blabby.vercel.app' }
                 });
@@ -517,7 +517,7 @@
 
         authLoginBtn.addEventListener('click', async () => {
             console.log('Login clicked');
-            if (!supabase) {
+            if (!sb) {
                 setAuthMessage('Supabase 尚未載入，請重新整理');
                 return;
             }
@@ -530,7 +530,7 @@
             setAuthMessage('登入中...', true);
             authLoginBtn.disabled = true;
             try {
-                const { error } = await supabase.auth.signInWithPassword({ email, password });
+                const { error } = await sb.auth.signInWithPassword({ email, password });
                 if (error) {
                     setAuthMessage(error.message);
                 } else {
@@ -547,7 +547,7 @@
 
         authSignupBtn.addEventListener('click', async () => {
             console.log('Signup clicked');
-            if (!supabase) {
+            if (!sb) {
                 setAuthMessage('Supabase 尚未載入，請重新整理');
                 return;
             }
@@ -560,7 +560,7 @@
             setAuthMessage('註冊中...', true);
             authSignupBtn.disabled = true;
             try {
-                const { error } = await supabase.auth.signUp({ email, password });
+                const { error } = await sb.auth.signUp({ email, password });
                 if (error) {
                     setAuthMessage(error.message);
                 } else {
@@ -575,11 +575,11 @@
         });
 
         async function savePracticeRecord(data) {
-            if (!supabase) return;
+            if (!sb) return;
             try {
-                const { data: { user } } = await supabase.auth.getUser();
+                const { data: { user } } = await sb.auth.getUser();
                 if (!user) return;
-                const { error } = await supabase.from('practice_records').insert({
+                const { error } = await sb.from('practice_records').insert({
                     user_id:              user.id,
                     topic:                currentTopic,
                     question:             currentQuestion,
