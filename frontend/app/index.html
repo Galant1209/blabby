@@ -435,6 +435,90 @@
             min-height: 20px;
             margin-top: 4px;
         }
+
+        .admin-card {
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-top: 3px solid var(--gold);
+            border-radius: 0;
+            padding: 22px 24px 18px;
+        }
+        .admin-card .label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--gold);
+            letter-spacing: 0.08em;
+            margin-bottom: 14px;
+        }
+        #admin-list {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .admin-item {
+            padding: 14px 0;
+            border-bottom: 1px dashed var(--border);
+        }
+        .admin-item:last-child {
+            border-bottom: none;
+            padding-bottom: 4px;
+        }
+        .admin-topline {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 11px;
+            color: var(--muted);
+        }
+        .admin-email {
+            font-family: 'Playfair Display', serif;
+            font-size: 16px;
+            color: var(--green);
+        }
+        .admin-summary {
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 15px;
+            color: var(--ink);
+            margin-bottom: 6px;
+        }
+        .admin-snippet {
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 14px;
+            color: var(--muted);
+            line-height: 1.5;
+            margin-bottom: 4px;
+        }
+        .admin-pill {
+            display: inline-block;
+            margin-top: 6px;
+            padding: 4px 8px;
+            border: 1px solid var(--gold);
+            background: rgba(201, 168, 76, 0.08);
+            color: var(--green);
+            font-family: 'Libre Baskerville', serif;
+            font-size: 10px;
+            letter-spacing: 0.05em;
+        }
+        #admin-refresh-btn {
+            margin-top: 14px;
+            padding: 12px 18px;
+            background: transparent;
+            color: var(--green);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            font-family: 'Playfair Display', serif;
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            cursor: pointer;
+        }
+        #admin-refresh-btn:hover {
+            border-color: var(--gold);
+            background: var(--bg);
+        }
     </style>
 </head>
 <body>
@@ -561,6 +645,12 @@
         </div>
 
         <footer class="footer">Blabby · AI IELTS Speaking Practice</footer>
+
+        <section id="admin-section" class="admin-card" style="display:none">
+            <div class="label">ADMIN · RECENT PRACTICES</div>
+            <div id="admin-list"></div>
+            <button id="admin-refresh-btn">Refresh</button>
+        </section>
     </main>
 
     <script>
@@ -957,6 +1047,141 @@
             feedbackSection.classList.remove('visible');
             statusText.textContent = '準備好了就按錄音';
         });
+
+        const adminSection = document.getElementById('admin-section');
+        const adminList = document.getElementById('admin-list');
+        const adminRefreshBtn = document.getElementById('admin-refresh-btn');
+
+        function truncateAdminText(value, maxLength) {
+            const text = (value || '').trim();
+            if (!text) return '-';
+            return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+        }
+
+        function formatAdminTimestamp(value) {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '-';
+            return new Intl.DateTimeFormat('zh-Hant-TW', {
+                dateStyle: 'short',
+                timeStyle: 'short'
+            }).format(date);
+        }
+
+        function renderAdminRecords(records) {
+            adminList.innerHTML = '';
+            if (!Array.isArray(records) || records.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'admin-snippet';
+                empty.textContent = '目前沒有資料';
+                adminList.appendChild(empty);
+                return;
+            }
+
+            records.forEach((record) => {
+                const item = document.createElement('div');
+                item.className = 'admin-item';
+
+                const topLine = document.createElement('div');
+                topLine.className = 'admin-topline';
+
+                const email = document.createElement('div');
+                email.className = 'admin-email';
+                email.textContent = record.email || 'unknown';
+
+                const timestamp = document.createElement('div');
+                timestamp.textContent = formatAdminTimestamp(record.created_at);
+
+                topLine.appendChild(email);
+                topLine.appendChild(timestamp);
+
+                const summary = document.createElement('div');
+                summary.className = 'admin-summary';
+                const topic = record.topic || '-';
+                const question = truncateAdminText(record.question, 60);
+                summary.textContent = `${topic} · ${question}`;
+
+                const said = document.createElement('div');
+                said.className = 'admin-snippet';
+                said.textContent = `Said: ${truncateAdminText(record.user_transcript, 80)}`;
+
+                const coach = document.createElement('div');
+                coach.className = 'admin-snippet';
+                coach.textContent = `Coach: ${truncateAdminText(record.coach_response, 80)}`;
+
+                const pill = document.createElement('div');
+                pill.className = 'admin-pill';
+                pill.textContent = formatWeaknessTag(record.weakness_tag);
+
+                item.appendChild(topLine);
+                item.appendChild(summary);
+                item.appendChild(said);
+                item.appendChild(coach);
+                item.appendChild(pill);
+                adminList.appendChild(item);
+            });
+        }
+
+        async function loadAdminData() {
+            if (!adminSection || !adminList) return;
+            adminSection.style.display = '';
+            adminList.textContent = '載入中...';
+
+            try {
+                if (!sb) {
+                    adminList.textContent = '登入已過期，請重新登入';
+                    return;
+                }
+
+                const { data: { session } } = await sb.auth.getSession();
+                const accessToken = session && session.access_token;
+                if (!accessToken) {
+                    adminList.textContent = '登入已過期，請重新登入';
+                    return;
+                }
+
+                const res = await fetch(`${API_BASE}/admin/recent`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                const data = await res.json();
+
+                if (res.status === 403) {
+                    adminList.textContent = '你沒有管理員權限';
+                    return;
+                }
+                if (res.status === 401) {
+                    adminList.textContent = '登入已過期，請重新登入';
+                    return;
+                }
+                if (!res.ok) {
+                    adminList.textContent = data.detail || '載入失敗，請稍後再試';
+                    return;
+                }
+
+                renderAdminRecords(data.records);
+            } catch (err) {
+                console.error('loadAdminData error:', err);
+                adminList.textContent = '載入失敗，請稍後再試';
+            }
+        }
+
+        if (adminRefreshBtn) {
+            adminRefreshBtn.addEventListener('click', loadAdminData);
+        }
+
+        (async () => {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('admin') !== '1') return;
+            if (!sb) return;
+
+            const { data: { session } } = await sb.auth.getSession();
+            if (session) {
+                loadAdminData();
+            }
+        })();
     </script>
 </body>
 </html>

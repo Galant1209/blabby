@@ -23,6 +23,11 @@ load_dotenv()
 GOOGLE_TTS_API_KEY   = os.getenv("GOOGLE_TTS_API_KEY")
 SUPABASE_URL         = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+ADMIN_EMAILS         = {
+    email.strip().lower()
+    for email in os.getenv("ADMIN_EMAILS", "").split(",")
+    if email.strip()
+}
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
@@ -103,6 +108,23 @@ def verify_token(authorization: Optional[str]) -> str:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     return user.id
+
+
+def verify_admin(authorization: Optional[str]) -> str:
+    user_id = verify_token(authorization)
+    try:
+        response = supabase_admin.auth.admin.get_user_by_id(user_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to verify admin access") from exc
+
+    user = getattr(response, "user", None)
+    email = (getattr(user, "email", None) or "").strip().lower()
+    if email not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    return user_id
 
 
 def get_user_recent_records(user_id: str, limit: int = 10) -> list[dict]:
@@ -451,6 +473,46 @@ async def process(
 @app.get("/health")
 async def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+@app.get("/admin/recent")
+@limiter.limit("30/minute")
+async def admin_recent(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        verify_admin(authorization)
+        email_cache: dict[str, str] = {}
+        response = (
+            supabase_admin.table("practice_records")
+            .select("id, user_id, topic, question, user_transcript, coach_response, weakness_tag, created_at")
+            .order("created_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+
+        records = []
+        for record in response.data or []:
+            record_user_id = record.get("user_id") or ""
+            if record_user_id not in email_cache:
+                try:
+                    user_response = supabase_admin.auth.admin.get_user_by_id(record_user_id)
+                    user = getattr(user_response, "user", None)
+                    email_cache[record_user_id] = getattr(user, "email", None) or "unknown"
+                except Exception:
+                    email_cache[record_user_id] = "unknown"
+
+            record_with_email = dict(record)
+            record_with_email["email"] = email_cache.get(record_user_id, "unknown")
+            records.append(record_with_email)
+
+        return {"records": records}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin recent endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
 
 
 if __name__ == "__main__":
