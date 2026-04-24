@@ -192,14 +192,14 @@ def extract_dynamic_weak_words_from_history(
 
 def extract_weak_patterns(transcripts: list[str], max_items: int = 3) -> list[str]:
     counts = Counter()
-    dynamic_weak_words = extract_dynamic_weak_words_from_history(transcripts)
-    tracked_weak_words = WEAK_WORDS.union(dynamic_weak_words)
+    # NOTE: dynamic weak words are NOT mixed into prompt path.
+    # They are observability-only in memory_snapshot.
     for transcript in transcripts:
         if not transcript:
             continue
         words = tokenize_words(transcript)
         for word in words:
-            if word in tracked_weak_words:
+            if word in WEAK_WORDS:
                 counts[word] += 1
 
     ranked = [
