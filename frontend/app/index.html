@@ -630,6 +630,56 @@
             font-weight: bold;
             color: #111;
         }
+        .admin-weak-words {
+            margin-top: 0;
+        }
+        .weak-words-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            color: #111;
+            font-family: Georgia, serif;
+            font-size: 13px;
+        }
+        .weak-words-table th,
+        .weak-words-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e5e5e5;
+            text-align: left;
+            vertical-align: top;
+            word-break: break-word;
+        }
+        .weak-words-table th {
+            background: var(--green);
+            color: var(--gold);
+            font-weight: bold;
+        }
+        .weak-words-table tr.weak-words-group-a {
+            background: #faf5ec;
+        }
+        .weak-words-table tr.weak-words-group-b {
+            background: #f2f5ef;
+        }
+        .weak-words-table tr.weak-words-no-snapshot {
+            opacity: 0.4;
+            background: #fff;
+        }
+        .weak-words-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            line-height: 1.35;
+            white-space: nowrap;
+        }
+        .weak-words-badge-repeat {
+            background: #fde8e8;
+            color: #c0392b;
+        }
+        .weak-words-badge-new {
+            background: #e8f5e9;
+            color: #2d6a4f;
+        }
         .admin-observation-line {
             margin: 0 0 10px;
             font-family: Georgia, serif;
@@ -1431,6 +1481,18 @@
             }).format(date);
         }
 
+        function formatAdminTableTimestamp(value) {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '-';
+            const year = date.getFullYear();
+            const month = date.getMonth() + 1;
+            const day = date.getDate();
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${year}/${month}/${day} ${hours}:${minutes}`;
+        }
+
         function escapeHtml(value) {
             return String(value || '')
                 .replace(/&/g, '&amp;')
@@ -1662,41 +1724,52 @@
                 `;
             };
 
-            const weakPatternLines = records.map((record, index) => {
-                const currentPatterns = Array.isArray(record.memory_snapshot?.weak_patterns)
-                    ? record.memory_snapshot.weak_patterns
-                    : null;
-                const previousPatterns = index > 0 && Array.isArray(records[index - 1].memory_snapshot?.weak_patterns)
-                    ? records[index - 1].memory_snapshot.weak_patterns
-                    : null;
+            let previousPatternKey = null;
+            let repeatCount = 0;
+            let groupIndex = -1;
+            const weakWordsRows = records.map((record) => {
+                const rawPatterns = Array.isArray(record.memory_snapshot?.weak_patterns)
+                    ? record.memory_snapshot.weak_patterns.filter(Boolean).map((word) => String(word).trim()).filter(Boolean)
+                    : [];
+                const hasSnapshot = rawPatterns.length > 0;
 
-                let badge = '';
-                if (currentPatterns && currentPatterns.length > 0 && previousPatterns && previousPatterns.length > 0) {
-                    const repeated = currentPatterns.filter((word) => previousPatterns.includes(word));
-                    if (repeated.length > 0) {
-                        const repeatCount = records
-                            .slice(0, index + 1)
-                            .reverse()
-                            .reduce((count, item) => {
-                                const patterns = Array.isArray(item.memory_snapshot?.weak_patterns)
-                                    ? item.memory_snapshot.weak_patterns
-                                    : [];
-                                return repeated.some((word) => patterns.includes(word)) ? count + 1 : count;
-                            }, 0);
-                        badge = `<span class="admin-badge admin-badge-repeat">repeat: ${escapeHtml(repeated.join(', '))} × ${escapeHtml(repeatCount)}</span>`;
-                    } else {
-                        badge = '<span class="admin-badge admin-badge-no-repeat">no repeat</span>';
-                    }
+                if (!hasSnapshot) {
+                    previousPatternKey = null;
+                    repeatCount = 0;
+                    return `
+                        <tr class="weak-words-no-snapshot">
+                            <td>${escapeHtml(`Seq ${record.sequence}`)}</td>
+                            <td>${escapeHtml(formatAdminTableTimestamp(record.created_at))}</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                    `;
                 }
 
-                const weakPatternText = currentPatterns === null
-                    ? '(無快照)'
-                    : `[${currentPatterns.join(', ')}]`;
+                const patternKey = rawPatterns
+                    .map((word) => word.toLowerCase())
+                    .sort()
+                    .join('|');
+                if (patternKey === previousPatternKey) {
+                    repeatCount += 1;
+                } else {
+                    repeatCount = 1;
+                    groupIndex += 1;
+                }
+                previousPatternKey = patternKey;
+
+                const groupClass = groupIndex % 2 === 0 ? 'weak-words-group-a' : 'weak-words-group-b';
+                const repeatBadge = repeatCount >= 2
+                    ? `<span class="weak-words-badge weak-words-badge-repeat">repeat ×${escapeHtml(repeatCount)}</span>`
+                    : '<span class="weak-words-badge weak-words-badge-new">new</span>';
 
                 return `
-                    <div class="admin-observation-line">
-                        Seq ${escapeHtml(record.sequence)} (${escapeHtml(formatAdminTimestamp(record.created_at))}) | weak_patterns: ${escapeHtml(weakPatternText)}${badge}
-                    </div>
+                    <tr class="${groupClass}">
+                        <td>${escapeHtml(`Seq ${record.sequence}`)}</td>
+                        <td>${escapeHtml(formatAdminTableTimestamp(record.created_at))}</td>
+                        <td>${escapeHtml(`[${rawPatterns.join(', ')}]`)}</td>
+                        <td>${repeatBadge}</td>
+                    </tr>
                 `;
             }).join('');
 
@@ -1757,10 +1830,22 @@
                     <div class="admin-detail-header">User: ${escapeHtml(emailOrUser)} | Total: ${total} records</div>
                     ${diagnosisSection}
                     <div class="admin-deep-observation">
-                        <div class="admin-observation-block">
+                        <section class="admin-observation-block admin-weak-words">
                             <h3 class="admin-observation-title">Weak Words 累積變化</h3>
-                            ${weakPatternLines}
-                        </div>
+                            <table class="weak-words-table">
+                                <thead>
+                                    <tr>
+                                        <th>Seq</th>
+                                        <th>時間</th>
+                                        <th>Weak Patterns</th>
+                                        <th>Repeat</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${weakWordsRows}
+                                </tbody>
+                            </table>
+                        </section>
                         <hr>
                         <div class="admin-observation-block">
                             <h3 class="admin-observation-title">第 1 次 vs 最新 Coach 語氣並排</h3>
