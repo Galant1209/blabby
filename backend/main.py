@@ -48,6 +48,9 @@ supabase_admin: Client = (
 )
 
 WEAK_WORDS = {"very", "good", "interesting", "thing", "things", "stuff"}
+ALLOWED_WEAKNESS_TAGS = {
+    "weak_vocab", "safe_answer", "lack_detail", "grammar_minor", "off_topic",
+}
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "because", "but", "by",
     "do", "for", "from", "get", "go", "had", "has", "have", "he", "her",
@@ -210,32 +213,24 @@ def extract_weak_patterns(transcripts: list[str], max_items: int = 3) -> list[st
     return ranked[:max_items]
 
 
-def detect_weakness_tag(
-    transcript: str,
-    weak_words_from_history: Optional[list[str]] = None,
-) -> tuple[str, list[str]]:
-    text = (transcript or "").strip().lower()
-    tokens = tokenize_words(text)
-    token_count = len(tokens)
-    tracked_weak_words = WEAK_WORDS.union(weak_words_from_history or [])
-    weak_word_hits = [word for word in tokens if word in tracked_weak_words]
-    repeated_weak_words = [
-        word for word in (weak_words_from_history or [])
+def detect_repeated_weak_words(
+    user_text: str,
+    weak_patterns: Optional[list[str]] = None,
+) -> list[str]:
+    """
+    Detect which weak words from the user's history show up again in this answer.
+    Used for prompt injection (memory system), NOT for tagging.
+
+    Tagging (weakness_tag) is now done by Groq itself via the JSON response
+    and validated against ALLOWED_WEAKNESS_TAGS in /process.
+    """
+    if not weak_patterns:
+        return []
+    text = (user_text or "").strip().lower()
+    return [
+        word for word in weak_patterns
         if re.search(rf"\b{re.escape(word.lower())}\b", text)
     ]
-
-    if weak_word_hits:
-        return "weak_vocab", repeated_weak_words
-
-    if has_pattern_match(text, SAFE_PATTERNS):
-        return "safe_answer", repeated_weak_words
-
-    has_expansion_signal = has_pattern_match(text, EXPANSION_SIGNAL_PATTERNS)
-    sentence_count = len([part for part in re.split(r"[.!?]+", text) if part.strip()])
-    if token_count <= 8 or (token_count <= 14 and not has_expansion_signal) or (sentence_count <= 1 and token_count <= 10):
-        return "lack_detail", repeated_weak_words
-
-    return "grammar_minor", repeated_weak_words
 
 
 def build_memory_block(weak_patterns: list[str]) -> str:
@@ -402,6 +397,8 @@ Your job is to find the single most painful blockage in this answer and give one
 - 只要學生的回答跟題目主軸對得上，即使細節薄弱也算 on_topic: true
 - 只有明顯離題（例如題目問地點，學生講的完全是別的話題）才 on_topic: false
 - 如果判斷 on_topic: false，single_issue 要把「答非所問」當作首要問題，優先於 weak words
+- 當學生偏題時（on_topic: false），即使他也用了 weak word（very / good / interesting 等），single_issue **只能**提偏題，**不要**同時提 weak word。weak word 下次再處理。
+- 這條是鐵律：偏題時 single_issue 不可出現任何 weak word 的評論。
 
 【絕對禁止】
 - 不給總分
@@ -419,6 +416,7 @@ Output:
   "next_question": "What do people usually do in your hometown on weekends?",
   "better_expression": "lively night market",
   "better_expression_zh": "這個說法比 interesting 更有畫面，能直接把地方特色講出來。",
+  "weakness_tag": "weak_vocab",
   "on_topic": true
 }
 
@@ -432,6 +430,7 @@ Output:
   "next_question": "What kind of books do you usually read?",
   "better_expression": "help me slow down",
   "better_expression_zh": "這種說法比 good for me 更自然，也更容易接出後面的細節。",
+  "weakness_tag": "weak_vocab",
   "on_topic": true
 }
 
@@ -447,6 +446,23 @@ Output:
   "next_question": "Let's try again — name one specific place you've been to.",
   "better_expression": "",
   "better_expression_zh": "",
+  "weakness_tag": "off_topic",
+  "on_topic": false
+}
+
+Example 4 — off-topic + weak word (priority: off-topic wins)
+Question:
+"What kind of trash do you see in your community?"
+User answer:
+"I think reading books makes me very happy."
+Output:
+{
+  "single_issue": "你沒有回答題目 — 題目問垃圾種類，你整段在講閱讀。",
+  "correction": "先回到題目。給一個具體的垃圾種類，例如塑膠瓶、紙箱、廚餘。weak word 這次不處理，下次再說。",
+  "next_question": "Let's come back to the question — name one kind of trash you see.",
+  "better_expression": "",
+  "better_expression_zh": "",
+  "weakness_tag": "off_topic",
   "on_topic": false
 }
 
@@ -457,6 +473,7 @@ Output:
   "next_question": "下一個英文問題，自然銜接",
   "better_expression": "一個值得學的英文詞或短語；若學生偏題則可為空字串",
   "better_expression_zh": "為什麼這個詞好用（中文）；若 better_expression 為空則一併留空",
+  "weakness_tag": "本次回答最主要的問題分類，只能從這五個值選一個：weak_vocab（用 very/good/interesting 等空泛詞）、safe_answer（回答太空泛）、lack_detail（缺乏細節）、grammar_minor（文法小錯）、off_topic（完全沒回答題目）。若同時有多個問題，選最嚴重的那一個；若是 off_topic 必定選 off_topic，優先於所有其他 tag。",
   "on_topic": true
 }
 """
@@ -524,7 +541,9 @@ async def process(
         finally:
             os.unlink(tmp_path)
         user_text = transcript.text
-        weakness_tag, repeated_weak_words = detect_weakness_tag(user_text, weak_patterns)
+        # weakness_tag is now produced by Groq in the JSON response below;
+        # here we only need the repeat-detection to feed the prompt.
+        repeated_weak_words = detect_repeated_weak_words(user_text, weak_patterns)
 
         memory_snapshot = {
             "weak_words":          weak_words,
@@ -562,6 +581,17 @@ async def process(
         better_expression    = parsed.get("better_expression", "") or ""
         better_expression_zh = parsed.get("better_expression_zh", "") or ""
         on_topic             = parsed.get("on_topic", True)
+
+        # Groq now produces weakness_tag itself. Validate against the allow-list
+        # so a hallucinated value never pollutes the DB / admin dashboards.
+        weakness_tag = (parsed.get("weakness_tag") or "").strip()
+        if weakness_tag not in ALLOWED_WEAKNESS_TAGS:
+            if weakness_tag:
+                logger.warning(
+                    "Groq returned invalid weakness_tag: %r, falling back to empty",
+                    weakness_tag,
+                )
+            weakness_tag = ""
 
         # Server-side persistence (was previously done client-side).
         # Uses supabase_admin (service_role) to bypass RLS. Failures are logged
