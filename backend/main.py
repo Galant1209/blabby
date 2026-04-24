@@ -735,9 +735,10 @@ async def process(
         # even if the write breaks. `persisted` surfaces the state for the
         # client (or test harness) to act on.
         persisted = False
+        new_record_id: Optional[str] = None
         if supabase_admin is not None:
             try:
-                supabase_admin.table("practice_records").insert({
+                insert_resp = supabase_admin.table("practice_records").insert({
                     "user_id":              user_id,
                     "topic":                topic or "",
                     "question":             question or "",
@@ -750,10 +751,77 @@ async def process(
                     "memory_snapshot":      memory_snapshot,
                 }).execute()
                 persisted = True
+                # Capture the fresh row's id so the resolution lookup below
+                # can cleanly exclude it (avoids relying on ordering races).
+                rows = insert_resp.data or []
+                if rows:
+                    new_record_id = rows[0].get("id")
             except Exception:
                 logger.exception(
                     "failed to insert practice_record",
                     extra={"user_id": user_id},
+                )
+
+        # Auto-resolve the prior unresolved record for the SAME question if the
+        # new submission landed a DIFFERENT valid weakness_tag. Semantics match
+        # the spec exactly: pick the most recent prior (any tag), then check
+        # whether to flip it. If the most recent prior has the SAME tag, leave
+        # it alone — we do NOT skip over it to an older mismatched row.
+        #
+        # Failure here is swallowed: the student already got their feedback
+        # and the new record is already persisted; backfilling resolved state
+        # is not worth failing the response over.
+        if (
+            persisted
+            and question
+            and weakness_tag
+            and weakness_tag in ALLOWED_WEAKNESS_TAGS
+            and supabase_admin is not None
+        ):
+            try:
+                # Don't filter by question at the SQL layer — strict string
+                # equality silently skips retries that differ by trailing
+                # whitespace, curly vs straight apostrophes, or stray unicode.
+                # Pull the top 5 unresolved rows and do normalised matching
+                # in Python so two logically-identical question strings are
+                # treated as the same session.
+                prior_query = (
+                    supabase_admin.table("practice_records")
+                    .select("id, question, weakness_tag")
+                    .eq("user_id", user_id)
+                    .eq("resolved", False)
+                    .order("created_at", desc=True)
+                    .limit(5)
+                )
+                if new_record_id:
+                    prior_query = prior_query.neq("id", new_record_id)
+                prior_resp = prior_query.execute()
+                candidates = prior_resp.data or []
+
+                target = (question or "").strip()
+                prior = next(
+                    (
+                        c for c in candidates
+                        if (c.get("question") or "").strip() == target
+                    ),
+                    None,
+                )
+                if prior:
+                    prior_tag = prior.get("weakness_tag")
+                    prior_id = prior.get("id")
+                    if prior_id and prior_tag != weakness_tag:
+                        supabase_admin.table("practice_records").update(
+                            {"resolved": True}
+                        ).eq("id", prior_id).execute()
+                        logger.info(
+                            "auto-resolved prior practice_record %s "
+                            "(tag %r → %r) for user %s",
+                            prior_id, prior_tag, weakness_tag, user_id,
+                        )
+            except Exception:
+                logger.exception(
+                    "auto-resolve of prior practice_record failed",
+                    extra={"user_id": user_id, "question": question},
                 )
 
         return {
@@ -780,6 +848,102 @@ async def process(
 @app.get("/health")
 async def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+# ─── Resume flow (Practice Hub) ───────────────────────────────────────────────
+# These back the "你上次卡在：..." CTA. Source of truth is the DB's
+# practice_records.resolved column; localStorage is no longer consulted.
+
+@app.get("/api/practice-records/last-unresolved")
+@limiter.limit("10/minute")
+async def last_unresolved_practice_record(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Return the caller's most recent practice_record where resolved=false.
+    No unresolved record is a normal state, not an error — respond with
+    HTTP 200 and `null` so the client can render Scenario B cleanly.
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        response = (
+            supabase_admin.table("practice_records")
+            .select("id, question, topic, weakness_tag, coach_response, created_at")
+            .eq("user_id", user_id)
+            .eq("resolved", False)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("last-unresolved query failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=500, detail="Failed to load last session") from exc
+
+    rows = response.data or []
+    return rows[0] if rows else None
+
+
+@app.patch("/api/practice-records/{record_id}/resolve", status_code=204)
+@limiter.limit("60/minute")
+async def resolve_practice_record(
+    request: Request,
+    record_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Flip a single practice_record to resolved=true.
+
+    - 400 if record_id isn't a valid UUID (defence against garbage paths).
+    - 404 if no such record exists.
+    - 403 if the record exists but belongs to someone else.
+    - 204 on success (empty body).
+    """
+    user_id = verify_token(authorization)
+    try:
+        uuid.UUID(record_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid record id")
+
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    # Fetch first so we can distinguish 403 (wrong owner) from 404 (no row).
+    # A single update with composite filter would collapse both into "0 rows
+    # affected", which leaks less but also tells the client less.
+    try:
+        fetch = (
+            supabase_admin.table("practice_records")
+            .select("user_id, resolved")
+            .eq("id", record_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("resolve fetch failed", extra={"record_id": record_id})
+        raise HTTPException(status_code=500, detail="Failed to load record") from exc
+
+    rows = fetch.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Record not found")
+    if rows[0].get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Already resolved is idempotent — still return 204, no point writing again.
+    if rows[0].get("resolved") is True:
+        return Response(status_code=204)
+
+    try:
+        supabase_admin.table("practice_records").update(
+            {"resolved": True}
+        ).eq("id", record_id).execute()
+    except Exception as exc:
+        logger.exception("resolve update failed", extra={"record_id": record_id})
+        raise HTTPException(status_code=500, detail="Failed to resolve record") from exc
+
+    return Response(status_code=204)
 
 
 @app.get("/admin/recent")

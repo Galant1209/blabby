@@ -146,6 +146,101 @@
         .rule-line { flex: 1; height: 1px; background: var(--gold); }
         .rule-diamond { color: var(--gold); font-size: 8px; }
 
+        /* Practice Hub */
+        .practice-hub {
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-top: 3px solid var(--green);
+            padding: 26px 24px 24px;
+        }
+        .practice-hub h2 {
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--green);
+            line-height: 1.25;
+            margin-bottom: 14px;
+        }
+        .practice-hub-copy {
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 16px;
+            color: var(--ink);
+            line-height: 1.65;
+            margin-bottom: 18px;
+        }
+        .practice-hub-weakness {
+            padding: 14px 16px;
+            background: var(--bg);
+            border-left: 3px solid var(--red);
+            margin-bottom: 18px;
+        }
+        .practice-hub-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 10px;
+            color: var(--gold);
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            margin-bottom: 6px;
+        }
+        .practice-hub-focus {
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-size: 19px;
+            color: var(--ink);
+            line-height: 1.45;
+        }
+        .practice-hub-btn {
+            width: 100%;
+            padding: 14px 22px;
+            background: var(--green);
+            color: var(--gold);
+            border: 1px solid var(--green);
+            border-radius: 0;
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            cursor: pointer;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+        .practice-hub-btn:hover {
+            background: var(--green-dark);
+            color: var(--gold-warm);
+        }
+        .skill-entry-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 22px;
+        }
+        .skill-entry {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 0;
+            border-top: 1px dashed var(--border);
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 15px;
+            color: var(--ink);
+        }
+        .skill-entry-status {
+            flex-shrink: 0;
+            color: var(--muted);
+            font-style: italic;
+        }
+        .skill-entry-open .skill-entry-status {
+            color: var(--green);
+            font-style: normal;
+        }
+
+        .speaking-practice {
+            display: none;
+            flex-direction: column;
+            gap: 22px;
+        }
+        .speaking-practice.visible {
+            display: flex;
+        }
+
         /* Question card */
         .question-card {
             background: var(--surface);
@@ -338,6 +433,17 @@
             grid-template-columns: 1fr;
             gap: 10px;
             margin-top: 6px;
+        }
+        .soft-lock-note {
+            display: none;
+            margin: 4px 0 2px;
+            padding: 10px 12px;
+            border-left: 2px solid var(--gold);
+            background: rgba(201, 168, 76, 0.08);
+            color: var(--muted);
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 14px;
+            line-height: 1.55;
         }
 
         #retry-question-btn,
@@ -1020,57 +1126,88 @@
             <p class="tagline">每天開口，讓單字從腦袋跑到嘴巴</p>
         </header>
 
-        <section class="question-card">
-            <div class="label">考官問你</div>
-            <div class="question-text" id="question-text">
-                What do you usually do in your free time?
+        <section id="practice-hub" class="practice-hub">
+            <h2>今天的口說練習</h2>
+            <p class="practice-hub-copy" id="practice-hub-copy">先把一個卡點修掉，再往下一題走。</p>
+            <div class="practice-hub-weakness">
+                <div class="practice-hub-label" id="practice-hub-label">今天我們先抓：</div>
+                <div class="practice-hub-focus" id="practice-hub-focus">今天我們先抓一個你最常犯的錯</div>
             </div>
-            <div class="meta" id="question-meta">Part 1 · Topic: Hobbies</div>
-        </section>
-
-        <section class="recorder-card">
-            <div class="status-text" id="status-text">準備好了就按錄音</div>
-            <button class="record-btn" id="record-btn" aria-label="錄音">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z" fill="currentColor"/>
-                    <path d="M18.5 11a6.5 6.5 0 0 1-13 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                    <path d="M12 17.5V21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                </svg>
-            </button>
-        </section>
-
-        <div id="feedback-section" class="feedback-card" aria-live="polite">
-            <div class="feedback-item">
-                <div class="feedback-label">你剛剛說：</div>
-                <div id="user-transcript" class="transcript-text"></div>
-            </div>
-            <div class="feedback-item feedback-item-primary">
-                <div class="feedback-label">這一題真正的問題</div>
-                <div id="coach-response" class="coach-text"></div>
-            </div>
-            <div class="feedback-item">
-                <div class="feedback-label">你這次卡住的類型</div>
-                <div id="weakness-tag" class="weakness-chip"></div>
-                <div id="repeat-reminder" class="repeat-reminder" style="display:none"></div>
-            </div>
-            <div class="feedback-item">
-                <div class="feedback-label">你應該偷走的說法</div>
-                <div id="better-expression" class="expression-en"></div>
-                <div id="better-expression-zh" class="expression-zh"></div>
-            </div>
-            <div class="feedback-item">
-                <div class="feedback-label">這一輪你學到什麼</div>
-                <div id="session-insight" class="session-insight-text"></div>
-            </div>
-            <div class="feedback-next">
-                <div class="feedback-label">下一題</div>
-                <div id="next-question-text" class="next-question"></div>
-                <div class="feedback-actions">
-                    <button id="retry-question-btn">再講一次這題</button>
-                    <button id="next-btn">下一題</button>
+            <button id="start-practice-btn" class="practice-hub-btn">開始今天的練習</button>
+            <div class="skill-entry-list" aria-label="技能入口">
+                <div class="skill-entry skill-entry-open">
+                    <span>Speaking</span>
+                    <span class="skill-entry-status">已開放</span>
+                </div>
+                <div class="skill-entry">
+                    <span>Writing</span>
+                    <span class="skill-entry-status">即將推出</span>
+                </div>
+                <div class="skill-entry">
+                    <span>Reading</span>
+                    <span class="skill-entry-status">即將推出</span>
+                </div>
+                <div class="skill-entry">
+                    <span>Listening</span>
+                    <span class="skill-entry-status">即將推出</span>
                 </div>
             </div>
-        </div>
+        </section>
+
+        <section id="speaking-practice" class="speaking-practice">
+            <section class="question-card">
+                <div class="label">考官問你</div>
+                <div class="question-text" id="question-text">
+                    What do you usually do in your free time?
+                </div>
+                <div class="meta" id="question-meta">Part 1 · Topic: Hobbies</div>
+            </section>
+
+            <section class="recorder-card">
+                <div class="status-text" id="status-text">準備好了就按錄音</div>
+                <button class="record-btn" id="record-btn" aria-label="錄音">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z" fill="currentColor"/>
+                        <path d="M18.5 11a6.5 6.5 0 0 1-13 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M12 17.5V21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </section>
+
+            <div id="feedback-section" class="feedback-card" aria-live="polite">
+                <div class="feedback-item">
+                    <div class="feedback-label">你剛剛說：</div>
+                    <div id="user-transcript" class="transcript-text"></div>
+                </div>
+                <div class="feedback-item feedback-item-primary">
+                    <div class="feedback-label">這一題真正的問題</div>
+                    <div id="coach-response" class="coach-text"></div>
+                </div>
+                <div class="feedback-item">
+                    <div class="feedback-label">你這次卡住的類型</div>
+                    <div id="weakness-tag" class="weakness-chip"></div>
+                    <div id="repeat-reminder" class="repeat-reminder" style="display:none"></div>
+                </div>
+                <div class="feedback-item">
+                    <div class="feedback-label">你應該偷走的說法</div>
+                    <div id="better-expression" class="expression-en"></div>
+                    <div id="better-expression-zh" class="expression-zh"></div>
+                </div>
+                <div class="feedback-item">
+                    <div class="feedback-label">這一輪你學到什麼</div>
+                    <div id="session-insight" class="session-insight-text"></div>
+                </div>
+                <div class="feedback-next">
+                    <div class="feedback-label">下一題</div>
+                    <div id="next-question-text" class="next-question"></div>
+                    <div id="soft-lock-note" class="soft-lock-note"></div>
+                    <div class="feedback-actions">
+                        <button id="retry-question-btn">再講一次這題</button>
+                        <button id="next-btn">下一題</button>
+                    </div>
+                </div>
+            </div>
+        </section>
 
         <footer class="footer">Blabby · AI IELTS Speaking Practice</footer>
 
@@ -1133,14 +1270,22 @@
             { topic: "Nature",        question: "What can individuals do to help protect the environment?" },
         ];
 
+        const practiceHub     = document.getElementById('practice-hub');
+        const speakingPractice = document.getElementById('speaking-practice');
+        const startPracticeBtn = document.getElementById('start-practice-btn');
+        const practiceHubCopy = document.getElementById('practice-hub-copy');
+        const practiceHubLabel = document.getElementById('practice-hub-label');
+        const practiceHubFocus = document.getElementById('practice-hub-focus');
         const recordBtn       = document.getElementById('record-btn');
         const statusText      = document.getElementById('status-text');
+        const recorderSection = document.querySelector('.recorder-card');
         const feedbackSection = document.getElementById('feedback-section');
         const retryQuestionBtn = document.getElementById('retry-question-btn');
         const nextBtn         = document.getElementById('next-btn');
         const questionText    = document.getElementById('question-text');
         const questionMeta    = document.getElementById('question-meta');
         const nextQuestionEl  = document.getElementById('next-question-text');
+        const softLockNote    = document.getElementById('soft-lock-note');
 
         const authSection   = document.getElementById('auth-section');
         const mainSection   = document.getElementById('main-section');
@@ -1152,36 +1297,53 @@
         const authMessage   = document.getElementById('auth-message');
         const adminParams   = new URLSearchParams(window.location.search);
 
-        const WEAKNESS_LABELS = {
-            weak_vocab: '模糊用詞',
-            lack_detail: '細節不足',
-            safe_answer: '回答太安全',
-            grammar_minor: '小型文法問題'
-        };
-
         const SESSION_INSIGHT = {
             weak_vocab: '你今天不是缺單字，而是太習慣用安全、模糊的詞。下一次請把形容詞換成具體畫面。',
             lack_detail: '你今天的問題不是英文錯，而是答案太短。下一次請補一個具體場景、人物或原因。',
             safe_answer: '你今天的問題是太保守。下一次不要閃問題，直接選一個立場或經驗講下去。',
-            grammar_minor: '你今天的重點是把句子講穩。先不要追求漂亮，先把一個完整句講清楚。'
+            grammar_minor: '你今天的重點是把句子講穩。先不要追求漂亮，先把一個完整句講清楚。',
+            off_topic: '你今天的問題是沒有真正回答題目。下一次先抓住題目的核心，再補一個自己的例子。'
         };
 
         const WEAKNESS_PATTERN_HINTS = {
             weak_vocab: ['very', 'good', 'interesting', 'thing', 'things', 'stuff'],
             lack_detail: ['lack_detail'],
             safe_answer: ['safe_answer', 'it depends', 'i think so'],
-            grammar_minor: ['grammar_minor']
+            grammar_minor: ['grammar_minor'],
+            off_topic: ['off_topic']
         };
+
+        const SOFT_LOCK_TAGS = new Set(['weak_vocab', 'lack_detail', 'safe_answer', 'off_topic']);
+
+        // Human-readable labels for the Practice Hub's "你上次卡在：..." copy.
+        // Any weakness_tag outside this map deliberately falls back to Scenario B
+        // rather than rendering a blank or raw tag string.
+        const WEAKNESS_LABELS = {
+            weak_vocab:    '用字太安全',
+            safe_answer:   '答得太保險',
+            lack_detail:   '缺少具體細節',
+            grammar_minor: '小文法',
+            off_topic:     '答非所問',
+        };
+
+        // Module-scoped cache of the user's most-recent unresolved practice_record,
+        // populated from GET /api/practice-records/last-unresolved on hub load.
+        // NOT window-global, NOT localStorage — the server owns the state now.
+        let pendingResume = null;
 
         let currentTopic    = '';
         let currentQuestion = '';
-        let lastWeaknessTag = '';
-        let lastCoachResponse = '';
-        let retryingCurrentQuestion = false;
+        let lastQuestion = null;
+        let lastFeedbackData = null;
+        let isRetryingSameQuestion = false;
+        let loadingTimers = [];
 
         async function showMain() {
             authSection.style.display = 'none';
             mainSection.style.display = '';
+            if (adminParams.get('admin') !== '1') {
+                showPracticeHub();
+            }
             if (!sb) return;
             try {
                 const { data: { user } } = await sb.auth.getUser();
@@ -1200,6 +1362,79 @@
         function setAuthMessage(msg, ok = false) {
             authMessage.textContent = msg || '';
             authMessage.style.color = ok ? '#1A3550' : '#dc2626';
+        }
+
+        function updatePracticeHubState() {
+            if (!startPracticeBtn || !practiceHubCopy || !practiceHubLabel || !practiceHubFocus) return;
+
+            // Scenario A: server returned an unresolved session AND its
+            // weakness_tag maps to a known human label. Any tag outside
+            // WEAKNESS_LABELS (unexpected value from the DB) falls through
+            // to Scenario B rather than crashing or showing a raw tag.
+            const tag = pendingResume && pendingResume.weakness_tag;
+            const label = tag && WEAKNESS_LABELS[tag];
+            if (pendingResume && label) {
+                practiceHubCopy.textContent = '上次 Blabby 已經看見一個明確卡點。這次先修它。';
+                practiceHubLabel.textContent = '你上次卡在：';
+                practiceHubFocus.textContent = label;
+                startPracticeBtn.textContent = '繼續修這個問題';
+                return;
+            }
+
+            // Scenario B: no unresolved session — start fresh.
+            practiceHubCopy.textContent = '不用全面批改，先讓一句話變準。';
+            practiceHubLabel.textContent = '今天我們先抓：';
+            practiceHubFocus.textContent = '今天我們先抓一個你最常犯的錯';
+            startPracticeBtn.textContent = '開始今天的練習';
+        }
+
+        async function loadPendingResume() {
+            // Fetch the server's view of the user's last unresolved session.
+            // Any failure (network, 401, 500) silently collapses to Scenario B —
+            // the hub must never *look* broken because of this fetch.
+            if (!sb) {
+                pendingResume = null;
+                return;
+            }
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                const token = session && session.access_token;
+                if (!token) {
+                    pendingResume = null;
+                    return;
+                }
+                const res = await fetch(`${API_BASE}/api/practice-records/last-unresolved`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) {
+                    console.warn('last-unresolved fetch non-OK:', res.status);
+                    pendingResume = null;
+                    return;
+                }
+                const body = await res.json();
+                pendingResume = body || null;
+            } catch (err) {
+                console.warn('last-unresolved fetch failed:', err);
+                pendingResume = null;
+            }
+        }
+
+        async function showPracticeHub() {
+            if (practiceHub) practiceHub.style.display = '';
+            if (speakingPractice) speakingPractice.classList.remove('visible');
+            // Render Scenario B first so the hub appears instantly; then
+            // overwrite once the API replies.
+            pendingResume = null;
+            updatePracticeHubState();
+            await loadPendingResume();
+            updatePracticeHubState();
+        }
+
+        function showSpeakingPractice() {
+            if (practiceHub) practiceHub.style.display = 'none';
+            if (speakingPractice) speakingPractice.classList.add('visible');
+            lastQuestion = currentQuestion || lastQuestion;
+            updatePracticeHubState();
         }
 
         const originalShowMain = showMain;
@@ -1222,6 +1457,41 @@
             currentTopic    = topic;
             questionText.textContent = question;
             questionMeta.textContent = `Part 1 · Topic: ${topic}`;
+        }
+
+        function setRecorderStatus(message) {
+            statusText.textContent = message || '';
+        }
+
+        function clearGentleLoading() {
+            loadingTimers.forEach(clearTimeout);
+            loadingTimers = [];
+        }
+
+        function startGentleLoading() {
+            clearGentleLoading();
+            setRecorderStatus('Blabby 正在聽你說話');
+
+            loadingTimers.push(setTimeout(() => {
+                setRecorderStatus('正在整理你剛剛卡住的地方');
+            }, 2000));
+
+            loadingTimers.push(setTimeout(() => {
+                setRecorderStatus('快好了，這次只看一個重點');
+            }, 5000));
+        }
+
+        function scrollToFeedback() {
+            if (!feedbackSection || !feedbackSection.classList.contains('visible')) return;
+            setTimeout(() => {
+                if (!feedbackSection.classList.contains('visible')) return;
+                feedbackSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 500);
+        }
+
+        function scrollToRecorder() {
+            if (!recorderSection) return;
+            recorderSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
 
         // Initial question from bank
@@ -1369,11 +1639,12 @@
                 isRecording = true;
                 recordBtn.classList.add('recording');
                 recordBtn.setAttribute('aria-label', '停止錄音');
-                statusText.textContent = '錄音中...';
+                setRecorderStatus('錄音中...');
                 feedbackSection.classList.remove('visible');
             } catch (err) {
                 console.error('getUserMedia error:', err);
-                statusText.textContent = '無法取得麥克風權限';
+                clearGentleLoading();
+                setRecorderStatus('無法取得麥克風權限');
             }
         }
 
@@ -1384,11 +1655,12 @@
             isRecording = false;
             recordBtn.classList.remove('recording');
             recordBtn.setAttribute('aria-label', '錄音');
-            statusText.textContent = 'AI 正在批改...';
+            setRecorderStatus('Blabby 正在聽你說話');
             recordBtn.disabled = true;
         }
 
         async function submitAudio(blob) {
+            startGentleLoading();
             const form = new FormData();
             form.append('audio', blob, 'recording.webm');
             form.append('level', 'Band 5');
@@ -1398,14 +1670,16 @@
 
             try {
                 if (!sb) {
-                    statusText.textContent = '請先登入';
+                    clearGentleLoading();
+                    setRecorderStatus('請先登入');
                     return;
                 }
 
                 const { data: { session } } = await sb.auth.getSession();
                 const accessToken = session && session.access_token;
                 if (!accessToken) {
-                    statusText.textContent = '請先登入';
+                    clearGentleLoading();
+                    setRecorderStatus('請先登入');
                     return;
                 }
 
@@ -1417,28 +1691,31 @@
                     body: form
                 });
                 const data = await res.json();
+                clearGentleLoading();
                 if (data.error) {
-                    statusText.textContent = `錯誤：${data.error}`;
-                    if (retryingCurrentQuestion && lastCoachResponse) {
+                    setRecorderStatus(`錯誤：${data.error}`);
+                    if (isRetryingSameQuestion && lastFeedbackData) {
                         feedbackSection.classList.add('visible');
                     }
                 } else if (!res.ok) {
-                    statusText.textContent = `錯誤：${data.detail || '請稍後再試'}`;
-                    if (retryingCurrentQuestion && lastCoachResponse) {
+                    setRecorderStatus(`錯誤：${data.detail || '請稍後再試'}`);
+                    if (isRetryingSameQuestion && lastFeedbackData) {
                         feedbackSection.classList.add('visible');
                     }
                 } else {
                     renderFeedback(data);
-                    statusText.textContent = '批改完成，準備好再按錄音';
+                    setRecorderStatus('批改完成，準備好再按錄音');
                 }
             } catch (err) {
                 console.error('submit error:', err);
-                statusText.textContent = '網路錯誤，請稍後再試';
-                if (retryingCurrentQuestion && lastCoachResponse) {
+                clearGentleLoading();
+                setRecorderStatus('網路錯誤，請稍後再試');
+                if (isRetryingSameQuestion && lastFeedbackData) {
                     feedbackSection.classList.add('visible');
                 }
             } finally {
-                retryingCurrentQuestion = false;
+                clearGentleLoading();
+                isRetryingSameQuestion = false;
                 recordBtn.disabled = false;
             }
         }
@@ -1476,14 +1753,44 @@
             return tagHints.some((hint) => normalizedPatterns.includes(hint));
         }
 
+        function shouldSoftLockNext(data) {
+            if (!data) return false;
+            if (SOFT_LOCK_TAGS.has(data.weakness_tag)) return true;
+
+            const repeatedWeakWords = Array.isArray(data.memory_snapshot?.repeated_weak_words)
+                ? data.memory_snapshot.repeated_weak_words
+                : [];
+            return repeatedWeakWords.length > 0;
+        }
+
+        function renderSoftLockNote(data) {
+            if (!softLockNote) return;
+            if (shouldSoftLockNext(data)) {
+                softLockNote.textContent = '你可以直接下一題，但剛剛那個問題其實還沒修好。';
+                softLockNote.style.display = 'block';
+            } else {
+                softLockNote.textContent = '';
+                softLockNote.style.display = 'none';
+            }
+        }
+
+        function resetForRetrySameQuestion() {
+            isRetryingSameQuestion = true;
+            feedbackSection.classList.remove('visible');
+            recordBtn.disabled = false;
+            setRecorderStatus('再講一次同一題。這次只修剛剛那一個問題，不用重想答案。');
+            scrollToRecorder();
+        }
+
         function renderFeedback(data) {
             if (data.error) {
-                statusText.textContent = '發生錯誤，請再試一次';
+                setRecorderStatus('發生錯誤，請再試一次');
                 return;
             }
 
-            lastWeaknessTag = data.weakness_tag || '';
-            lastCoachResponse = data.coach_response || '';
+            lastFeedbackData = data;
+            // Persistence is server-side now; the hub rehydrates from
+            // /api/practice-records/last-unresolved on next load.
 
             // 顯示用戶說的話
             document.getElementById('user-transcript').textContent = data.text || '';
@@ -1514,10 +1821,11 @@
 
             // 下一題
             document.getElementById('next-question-text').textContent = data.next_question || '';
+            renderSoftLockNote(data);
 
             feedbackSection.classList.add('visible');
-            feedbackSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            statusText.textContent = '批改完成';
+            scrollToFeedback();
+            setRecorderStatus('批改完成');
 
             // Persistence is handled server-side inside /process. If the
             // server reported it failed to write, surface a warning so
@@ -1528,16 +1836,27 @@
             }
         }
 
+        startPracticeBtn.addEventListener('click', () => {
+            // Resume flow: only trigger when we have a valid unresolved session
+            // AND its tag maps to a known label. Otherwise fall through to the
+            // normal "start today's practice" behaviour.
+            const tag = pendingResume && pendingResume.weakness_tag;
+            if (pendingResume && tag && WEAKNESS_LABELS[tag]) {
+                setQuestion(pendingResume.question, pendingResume.topic);
+                showSpeakingPractice();
+                setRecorderStatus('先把上一題講順');
+                return;
+            }
+            showSpeakingPractice();
+        });
+
         recordBtn.addEventListener('click', () => {
             if (isRecording) stopRecording();
             else startRecording();
         });
 
         retryQuestionBtn.addEventListener('click', () => {
-            retryingCurrentQuestion = true;
-            feedbackSection.classList.remove('visible');
-            recordBtn.disabled = false;
-            statusText.textContent = '準備好了就按錄音';
+            resetForRetrySameQuestion();
         });
 
         nextBtn.addEventListener('click', () => {
@@ -1550,11 +1869,10 @@
                 const pick = pickRandomFromBank(currentQuestion);
                 setQuestion(pick.question, pick.topic);
             }
-            lastWeaknessTag = '';
-            lastCoachResponse = '';
-            retryingCurrentQuestion = false;
+            lastFeedbackData = null;
+            isRetryingSameQuestion = false;
             feedbackSection.classList.remove('visible');
-            statusText.textContent = '準備好了就按錄音';
+            setRecorderStatus('準備好了就按錄音');
         });
 
         const adminSection = document.getElementById('admin-section');
@@ -2101,6 +2419,8 @@
 
         function handleAdminRoute() {
             if (adminParams.get('admin') !== '1') return;
+            if (practiceHub) practiceHub.style.display = 'none';
+            if (speakingPractice) speakingPractice.classList.remove('visible');
             const userId = adminParams.get('user_id');
             if (userId) {
                 loadAdminUserDetail(userId);
