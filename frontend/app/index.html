@@ -463,6 +463,64 @@
             margin-bottom: 12px;
             color: #111;
         }
+        .admin-diagnosis-section {
+            margin: 24px 0;
+            padding: 16px;
+            border: 2px solid #111;
+            background: #fafafa;
+        }
+        .admin-diagnosis-btn {
+            display: block;
+            width: 100%;
+            padding: 12px 24px;
+            font-family: Georgia, serif;
+            font-size: 15px;
+            font-weight: bold;
+            background: #111;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+        }
+        .admin-diagnosis-btn:hover:not(:disabled) {
+            background: #333;
+        }
+        .admin-diagnosis-btn:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+        .admin-diagnosis-result {
+            margin-top: 16px;
+            padding: 16px;
+            background: #fff;
+            border: 1px solid #ccc;
+            font-family: Georgia, serif;
+            font-size: 14px;
+            color: #111;
+            line-height: 1.6;
+        }
+        .admin-diagnosis-loading {
+            font-style: italic;
+            color: #666;
+        }
+        .admin-diagnosis-meta {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .admin-diagnosis-markdown {
+            white-space: normal;
+        }
+        .admin-diagnosis-pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: Georgia, serif;
+            font-size: 14px;
+            color: #111;
+            line-height: 1.6;
+            margin: 0;
+        }
         .admin-back-link {
             display: inline-block;
             margin-bottom: 12px;
@@ -1238,6 +1296,74 @@
                 .replace(/'/g, '&#39;');
         }
 
+        function renderMarkdown(text) {
+            if (!text) return '';
+            return `<pre class="admin-diagnosis-pre">${escapeHtml(text)}</pre>`;
+        }
+
+        async function loadDiagnosis(userId) {
+            const btn = document.getElementById('generate-diagnosis-btn');
+            const resultDiv = document.getElementById('diagnosis-result');
+
+            if (!btn || !resultDiv) return;
+
+            btn.disabled = true;
+            btn.textContent = '診斷中...（約 10-15 秒）';
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<div class="admin-diagnosis-loading">AI 正在分析學生的所有練習記錄...</div>';
+
+            try {
+                if (!sb) {
+                    resultDiv.innerHTML = '<div class="admin-error-text">登入已過期，請重新登入</div>';
+                    return;
+                }
+
+                const { data: { session } } = await sb.auth.getSession();
+                const accessToken = session && session.access_token;
+                if (!accessToken) {
+                    resultDiv.innerHTML = '<div class="admin-error-text">登入已過期，請重新登入</div>';
+                    return;
+                }
+
+                const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}/diagnosis`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                const data = await res.json();
+
+                if (res.status === 403) {
+                    resultDiv.innerHTML = '<div class="admin-error-text">你沒有管理員權限</div>';
+                    return;
+                }
+                if (res.status === 401) {
+                    resultDiv.innerHTML = '<div class="admin-error-text">登入已過期，請重新登入</div>';
+                    return;
+                }
+                if (!res.ok) {
+                    resultDiv.innerHTML = `<div class="admin-error-text">${escapeHtml(data.detail || '診斷失敗，請稍後再試')}</div>`;
+                    return;
+                }
+
+                resultDiv.innerHTML = `
+                    <div class="admin-diagnosis-meta">
+                        生成時間：${escapeHtml(formatAdminTimestamp(data.generated_at))} |
+                        基於 ${escapeHtml(String(data.total_records))} 筆記錄
+                    </div>
+                    <div class="admin-diagnosis-markdown">${renderMarkdown(data.diagnosis_markdown)}</div>
+                `;
+
+            } catch (err) {
+                console.error('loadDiagnosis error:', err);
+                resultDiv.innerHTML = '<div class="admin-error-text">診斷失敗，請稍後再試</div>';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🧠 重新生成 AI 診斷報告';
+            }
+        }
+
         function renderAdminRecords(records) {
             adminList.innerHTML = '';
             if (!Array.isArray(records) || records.length === 0) {
@@ -1349,15 +1475,31 @@
             const emailOrUser = payload.email || payload.user_id || '-';
             const total = payload.total_records || 0;
             const records = Array.isArray(payload.records) ? payload.records : [];
+            const diagnosisSection = `
+                <div class="admin-diagnosis-section">
+                    <button class="admin-diagnosis-btn" id="generate-diagnosis-btn">
+                        🧠 生成 AI 診斷報告
+                    </button>
+                    <div id="diagnosis-result" class="admin-diagnosis-result" style="display: none;"></div>
+                </div>
+            `;
+            const attachDiagnosisHandler = () => {
+                const diagnosisBtn = document.getElementById('generate-diagnosis-btn');
+                if (diagnosisBtn) {
+                    diagnosisBtn.addEventListener('click', () => loadDiagnosis(payload.user_id));
+                }
+            };
 
             if (records.length === 0) {
                 adminList.innerHTML = `
                     <div class="admin-plain-view">
                         <a class="admin-back-link" href="?admin=1">← 返回 admin dashboard</a>
                         <div class="admin-detail-header">User: ${escapeHtml(emailOrUser)} | Total: ${total} records</div>
+                        ${diagnosisSection}
                         <div class="admin-error-text">這個使用者還沒有練習記錄</div>
                     </div>
                 `;
+                attachDiagnosisHandler();
                 return;
             }
 
@@ -1469,6 +1611,7 @@
                 <div class="admin-plain-view">
                     <a class="admin-back-link" href="?admin=1">← 返回 admin dashboard</a>
                     <div class="admin-detail-header">User: ${escapeHtml(emailOrUser)} | Total: ${total} records</div>
+                    ${diagnosisSection}
                     <div class="admin-deep-observation">
                         <div class="admin-observation-block">
                             <h3 class="admin-observation-title">Weak Words 累積變化</h3>
@@ -1501,6 +1644,7 @@
                     </table>
                 </div>
             `;
+            attachDiagnosisHandler();
         }
 
         async function loadAdminUserDetail(userId) {

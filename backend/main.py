@@ -290,6 +290,62 @@ def run_groq(messages):
     raise HTTPException(status_code=502, detail="Coach response parsing failed") from last_error
 
 
+def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
+    """
+    Build system + user prompt for AI diagnosis.
+    records: list of practice_records dicts, sorted by created_at ASC
+    Returns (system_prompt, user_prompt)
+    """
+    history_text = ""
+    for i, r in enumerate(records, 1):
+        history_text += f"\n【第 {i} 筆】\n"
+        history_text += f"題目：{r.get('question', '-')}\n"
+        history_text += f"學生回答：{r.get('user_transcript', '-')}\n"
+        history_text += f"Blabby 教練回饋：{r.get('coach_response', '-')}\n"
+        history_text += f"---\n"
+
+    system_prompt = """你是一位資深 IELTS 口說教練，專門診斷 Band 4-6 台灣學生的口說弱點。
+
+你的任務是讀完這位學生所有的練習記錄，用繁體中文產出一份診斷報告。
+
+報告格式（必須嚴格遵守）：
+
+## 程度判斷
+- 預估 Band（4-7）
+- 主要依據（2-3 句）
+
+## 前三大卡點（按嚴重度排序）
+1. [卡點名稱，例如「詞彙貧乏」]
+   - 具體證據（引用哪一筆的哪一句話）
+   - 發生頻率（N/N 筆出現）
+2. ...
+3. ...
+
+## 她在哪裡停住
+- 她每次講話停止的模式（2-3 個觀察）
+- 例如：「講完一個事實後就停」、「想到要舉例就卡」
+
+## 下一步建議
+- 下一題該用什麼類型的題目
+- 為什麼（教學邏輯）
+
+## 危險訊號
+- 重複模式 / 套模板 / 應付式回答
+- 沒有則寫「無」
+
+規則：
+- 不打分數（Band 只是教練參考，不是成績）
+- 不給空泛建議（像「多練習」這種不要寫）
+- 每個卡點要有具體 transcript 段落當證據
+- 語氣直接，像對一個同事講話，不要客氣
+- 整份報告控制在 500 字內，精簡
+"""
+
+    user_prompt = f"以下是學生的練習記錄：\n{history_text}\n\n請產出診斷報告。"
+
+    return system_prompt, user_prompt
+
+
 def build_system_prompt(topic="General", memory_block="", repeated_weak_words: Optional[list[str]] = None):
     repeated_weak_words = repeated_weak_words or []
     repeated_line = (
@@ -576,6 +632,68 @@ async def admin_user_records(
     except Exception as exc:
         logger.exception("admin user records endpoint failed", extra={"target_user_id": user_id})
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
+
+
+@app.post("/admin/user/{user_id}/diagnosis")
+@limiter.limit("10/minute")
+async def admin_user_diagnosis(
+    request: Request,
+    user_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        verify_admin(authorization)
+
+        try:
+            uuid.UUID(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+        response = (
+            supabase_admin.table("practice_records")
+            .select("question, user_transcript, coach_response, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+
+        records = response.data or []
+
+        if len(records) == 0:
+            return {
+                "user_id": user_id,
+                "total_records": 0,
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "diagnosis_markdown": "（這位使用者還沒有練習記錄，無法診斷）",
+            }
+
+        system_prompt, user_prompt = build_diagnosis_prompt(records)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.3,
+            max_tokens=800,
+        )
+
+        diagnosis_text = completion.choices[0].message.content
+
+        return {
+            "user_id": user_id,
+            "total_records": len(records),
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "diagnosis_markdown": diagnosis_text,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin diagnosis endpoint failed", extra={"target_user_id": user_id})
+        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(exc)}") from exc
 
 
 if __name__ == "__main__":
