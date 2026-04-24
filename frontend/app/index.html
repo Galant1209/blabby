@@ -2112,6 +2112,35 @@
             adminRefreshBtn.addEventListener('click', loadAdminData);
         }
 
+        // Hidden admin entry: three quick clicks on the Blabby crown logo
+        // jump to ?admin=1. No visual cue on purpose — the counter resets
+        // 1500ms after each click, so incidental taps don't accumulate.
+        (function initAdminEasterEgg() {
+            const logos = document.querySelectorAll('.logo-svg');
+            if (!logos.length) return;
+
+            let clickCount = 0;
+            let resetTimer = null;
+
+            const handleClick = () => {
+                clickCount += 1;
+                if (resetTimer) clearTimeout(resetTimer);
+                resetTimer = setTimeout(() => {
+                    clickCount = 0;
+                    resetTimer = null;
+                }, 1500);
+
+                if (clickCount >= 3) {
+                    clickCount = 0;
+                    clearTimeout(resetTimer);
+                    resetTimer = null;
+                    window.location.href = '?admin=1';
+                }
+            };
+
+            logos.forEach((el) => el.addEventListener('click', handleClick));
+        })();
+
     </script>
 </body>
 </html>
