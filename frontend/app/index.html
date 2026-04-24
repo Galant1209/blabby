@@ -1346,29 +1346,6 @@
             }
         });
 
-        async function savePracticeRecord(data) {
-            if (!sb) return;
-            try {
-                const { data: { user } } = await sb.auth.getUser();
-                if (!user) return;
-                const { error } = await sb.from('practice_records').insert({
-                    user_id:              user.id,
-                    topic:                currentTopic,
-                    question:             currentQuestion,
-                    user_transcript:      data.text,
-                    coach_response:       data.coach_response,
-                    better_expression:    data.better_expression,
-                    better_expression_zh: data.better_expression_zh,
-                    next_question:        data.next_question,
-                    weakness_tag:         data.weakness_tag || null,
-                    memory_snapshot:      data.memory_snapshot || null,
-                });
-                if (error) console.error('practice_records insert error:', error);
-            } catch (err) {
-                console.error('savePracticeRecord error:', err);
-            }
-        }
-
         let mediaRecorder = null;
         let chunks        = [];
         let isRecording   = false;
@@ -1416,6 +1393,7 @@
             form.append('audio', blob, 'recording.webm');
             form.append('level', 'Band 5');
             form.append('topic', currentTopic || 'General');
+            form.append('question', currentQuestion || '');
             form.append('history', '[]');
 
             try {
@@ -1540,8 +1518,13 @@
             feedbackSection.classList.add('visible');
             statusText.textContent = '批改完成';
 
-            // Persist the practice session (fire-and-forget; don't block UI).
-            savePracticeRecord(data);
+            // Persistence is handled server-side inside /process. If the
+            // server reported it failed to write, surface a warning so
+            // missing rows in admin dashboards are traceable. Do NOT
+            // fall back to a client-side insert — we want one source of truth.
+            if (data.persisted === false) {
+                console.warn('Practice record was not persisted on server');
+            }
         }
 
         recordBtn.addEventListener('click', () => {

@@ -449,6 +449,7 @@ async def process(
     audio: UploadFile = File(...),
     level: str = Form("Band 5"),
     topic: str = Form("Free Time"),
+    question: str = Form(""),
     history: str = Form("[]"),
     authorization: Optional[str] = Header(None),
 ):
@@ -471,12 +472,6 @@ async def process(
         except json.JSONDecodeError:
             history_list = []
 
-        memory_snapshot = {
-            "weak_words": weak_words,
-            "weak_patterns": weak_patterns,
-            "history_count": len(recent_transcripts),
-        }
-
         # Step 1: Whisper transcription — isolated temp file per request
         audio_bytes = await audio.read()
         if len(audio_bytes) > 25 * 1024 * 1024:
@@ -494,6 +489,12 @@ async def process(
             os.unlink(tmp_path)
         user_text = transcript.text
         weakness_tag, repeated_weak_words = detect_weakness_tag(user_text, weak_patterns)
+
+        memory_snapshot = {
+            "weak_words":          weak_words,
+            "weak_patterns":       weak_patterns,
+            "repeated_weak_words": repeated_weak_words,
+        }
 
         # Step 2: Groq chat (no extra round-trip to browser in between)
         messages = [{
@@ -516,15 +517,48 @@ async def process(
         if not single_issue and not correction:
             raise HTTPException(status_code=502, detail="Coach response was empty, please retry")
         coach_response = "\n".join(part for part in [single_issue, correction] if part)
+        next_question        = parsed.get("next_question", "") or ""
+        better_expression    = parsed.get("better_expression", "") or ""
+        better_expression_zh = parsed.get("better_expression_zh", "") or ""
+        on_topic             = parsed.get("on_topic", True)
+
+        # Server-side persistence (was previously done client-side).
+        # Uses supabase_admin (service_role) to bypass RLS. Failures are logged
+        # but do NOT fail the response — the student still gets their feedback
+        # even if the write breaks. `persisted` surfaces the state for the
+        # client (or test harness) to act on.
+        persisted = False
+        if supabase_admin is not None:
+            try:
+                supabase_admin.table("practice_records").insert({
+                    "user_id":              user_id,
+                    "topic":                topic or "",
+                    "question":             question or "",
+                    "user_transcript":      user_text or "",
+                    "coach_response":       coach_response,
+                    "better_expression":    better_expression,
+                    "better_expression_zh": better_expression_zh,
+                    "next_question":        next_question,
+                    "weakness_tag":         weakness_tag,
+                    "memory_snapshot":      memory_snapshot,
+                }).execute()
+                persisted = True
+            except Exception:
+                logger.exception(
+                    "failed to insert practice_record",
+                    extra={"user_id": user_id},
+                )
+
         return {
             "text":                 user_text,
             "coach_response":       coach_response,
-            "next_question":        parsed.get("next_question", ""),
-            "better_expression":    parsed.get("better_expression", ""),
-            "better_expression_zh": parsed.get("better_expression_zh", ""),
-            "on_topic":             parsed.get("on_topic", True),
+            "next_question":        next_question,
+            "better_expression":    better_expression,
+            "better_expression_zh": better_expression_zh,
+            "on_topic":             on_topic,
             "weakness_tag":         weakness_tag,
             "memory_snapshot":      memory_snapshot,
+            "persisted":            persisted,
         }
     except HTTPException:
         raise
