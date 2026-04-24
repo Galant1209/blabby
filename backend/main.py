@@ -233,17 +233,52 @@ def detect_repeated_weak_words(
     ]
 
 
-def build_memory_block(weak_patterns: list[str]) -> str:
-    if not weak_patterns:
-        return ""
+def count_weak_patterns(
+    transcripts: list[str], words: list[str]
+) -> dict[str, int]:
+    """
+    Count the total number of times each weak word appears across the user's
+    past transcripts. Preserves the input ordering of `words` in the returned
+    dict so Groq sees the most-frequent-first ordering from extract_weak_patterns.
+    """
+    if not words:
+        return {}
+    word_set = set(words)
+    totals: dict[str, int] = {word: 0 for word in words}
+    for transcript in transcripts:
+        if not transcript:
+            continue
+        for token in tokenize_words(transcript):
+            if token in word_set:
+                totals[token] += 1
+    return totals
 
-    repeated_words = ", ".join(weak_patterns)
+
+def build_memory_block(weak_pattern_counts: dict[str, int]) -> str:
+    """
+    Render the 【使用者歷史弱點】 block that gets stitched into the system prompt.
+
+    The count next to each word is what lets the LLM switch tone tiers:
+      - count >= 3 + user uses it again → tier C (ask, don't lecture)
+      - user avoided a historied word this turn → tier B (specific praise)
+      - otherwise → tier A (default)
+
+    These rules are spelled out textually here so the few-shot examples aren't
+    the only carrier.
+    """
+    if not weak_pattern_counts:
+        return ""
+    lines = [
+        f"- '{word}' 已出現 {count} 次"
+        for word, count in weak_pattern_counts.items()
+    ]
     return (
         "\n【使用者歷史弱點】\n"
-        f"- This user tends to overuse these weak words: {repeated_words}\n"
-        "- If the user uses one of them again in this answer, point it out directly.\n"
-        "- Repeated mistakes should be addressed more directly than first-time mistakes.\n"
-        "- Keep the Blabby rule: choose only one main problem to correct.\n"
+        + "\n".join(lines) + "\n"
+        "- 若某個詞的 count 已達 3 次以上，且學生這次又用了 → 使用層級 C（直球問，不要訓話）\n"
+        "- 若某個詞在歷史出現過，但學生這次沒再用 → 使用層級 B（具體肯定那個改變）\n"
+        "- 其他情況 → 使用層級 A（預設語氣）\n"
+        "- Blabby 鐵律不變：一次只點一個最關鍵的問題。\n"
     )
 
 
@@ -377,10 +412,50 @@ Your job is to find the single most painful blockage in this answer and give one
 4. 文法小錯
 
 【語氣規則】
-- 第一次犯 → 自然、簡短、像教練提醒
-- 重複犯 → 更直接，不要客氣，但不要羞辱
-- 如果 memory 顯示這是 repeated weakness，而且這次又用了，直接指出這是重複問題
-- 禁止空話，例如「你做得不錯」「可以再更好」「很棒喔」「整體來說還不錯」
+你的語氣是「紳士的物理治療師」。精準，有溫度，不慌不急，但也不拖泥帶水。
+
+- 像一個真的在觀察的人，不是冷冰冰的批改機
+- 溫暖 ≠ 鼓勵。不要用「你做得不錯」「加油」「很棒」這類套話
+- 不要「優點+缺點+鼓勵」三段式（feedback sandwich）
+- 不要用 emoji，任何情境都不用
+- 不要用驚嘆號結尾
+- 具體、簡短、有分量
+
+【三種語氣層級】
+
+層級 A：預設語氣（first-time mistake 或一般情境）
+→ 直接點出問題，但用「在觀察」的語氣，不是「在糾正」的語氣
+→ 例如「又出現 very 了，這個詞太模糊」而不是「你用了 very good，這是錯的」
+
+層級 B：看到真實進步 → 具體肯定
+觸發條件：
+- 使用者過去歷史有某個 weak word 反覆出現
+- 這次的答案沒再用那個 weak word
+- 或使用者使用了過去 better_expression 教過的詞
+
+回饋方式：
+- 先肯定那個**具體改變**，再進入本次要點出的問題（如果有的話）
+- 例如：「memorable 這個詞用得好，上次我們聊過 very 太模糊，你記住了。」
+- 禁止：泛稱「你今天表現不錯」「很棒繼續努力」這類套話
+- 必須：提到**具體的詞**或**具體的行為變化**
+
+層級 C：連續卡關 → 直球問使用者
+觸發條件：
+- 同一個 weak word 在歷史中已出現 3 次或更多（memory_block 會告訴你）
+- 這次又用同一個 weak word
+
+回饋方式：
+- 不要再訓話（不要說「你又來了」「這是第 N 次」）
+- 像真的在關心「卡在哪裡」，把問題丟回給使用者
+- 例如：「very 這個詞你已經用很多次了，每次提醒好像都卡住。是詞彙不夠？還是習慣問題？下次講話前停一下，想想有沒有其他說法。」
+- 核心精神：物理治療師會停下來問「這動作為什麼做不了，是痛還是沒力？」，不會一直訓你
+
+【選擇層級的判斷流程】
+
+1. 如果 memory_block 顯示使用者某 weak word 歷史出現 ≥ 3 次，且這次又用了 → 層級 C（直球問）
+2. 如果 memory_block 顯示某 weak word 歷史 < 3 次，且這次又用了 → 層級 A（預設）+ 提一次「又出現」
+3. 如果 memory_block 有 weak word 但這次**沒用** → 層級 B（具體肯定）
+4. 其他情況 → 層級 A（預設）
 
 【輸出規則】
 - coach_response 必須用繁體中文
@@ -466,6 +541,40 @@ Output:
   "on_topic": false
 }
 
+Example 5 — real progress (層級 B)
+Memory:
+- History weak words: very (出現 3 次)
+- Past feedback taught: "memorable"
+User's answer this time:
+"One place that stuck with me is Kyoto. The quiet streets left a really memorable feeling."
+Output:
+{
+  "single_issue": "memorable 這個詞用得好，上次我們聊過 very 太模糊，你記住了。這次接著挑戰：用一個動詞讓畫面更具體。",
+  "correction": "把「stuck with me」延伸下去 — 什麼動作、什麼畫面卡在腦中？給一個動詞，例如 wandered、lingered、stood still。",
+  "next_question": "What exactly were you doing when that feeling hit you?",
+  "better_expression": "the stillness lingered",
+  "better_expression_zh": "lingered 比 memorable 更有畫面感，描繪「停留不散」的氛圍。",
+  "weakness_tag": "lack_detail",
+  "on_topic": true
+}
+
+Example 6 — stuck pattern, direct question (層級 C)
+Memory:
+- History weak words: very (出現 5 次)
+- This is the 6th time user uses "very"
+User's answer this time:
+"The food is very good and the restaurant is very nice."
+Output:
+{
+  "single_issue": "very 這個詞你已經用很多次了，每次提醒好像都卡住。是詞彙不夠，還是習慣問題？",
+  "correction": "下次講話前停一下，想想有沒有其他說法。好吃 → delicious、mouth-watering、rich；喜歡的氛圍 → cozy、lively、relaxed。先挑一個記住。",
+  "next_question": "Let's pause here. What's one word other than 'very' you could try next time?",
+  "better_expression": "mouth-watering",
+  "better_expression_zh": "比 very good 更精準，直接傳達「看了就想吃」。",
+  "weakness_tag": "weak_vocab",
+  "on_topic": true
+}
+
 【JSON 回應格式，不得偏離】
 {
   "single_issue": "用繁體中文，一句話點名唯一痛點",
@@ -518,7 +627,8 @@ async def process(
         ]
         weak_words = extract_dynamic_weak_words_from_history(recent_transcripts)
         weak_patterns = extract_weak_patterns(recent_transcripts)
-        memory_block = build_memory_block(weak_patterns)
+        weak_pattern_counts = count_weak_patterns(recent_transcripts, weak_patterns)
+        memory_block = build_memory_block(weak_pattern_counts)
 
         try:
             history_list = json.loads(history) if history else []

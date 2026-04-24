@@ -277,6 +277,88 @@ def case_4_memory_repeated_detection() -> TestResult:
     )
 
 
+def case_6_stuck_pattern_direct_question() -> TestResult:
+    """
+    Case 6: Same weak word has appeared >= 3 times in history; this turn uses
+    it again. Layer C behaviour: AI should ask the user instead of lecturing.
+    """
+    cleanup_test_user()
+    seed_history([
+        {
+            "user_transcript": "The food was very good yesterday.",
+            "topic":           "Food",
+            "question":        "What did you eat?",
+        },
+        {
+            "user_transcript": "The movie is very interesting.",
+            "topic":           "Entertainment",
+            "question":        "What movie did you watch?",
+        },
+        {
+            "user_transcript": "My hometown is very beautiful.",
+            "topic":           "Home",
+            "question":        "Tell me about your hometown.",
+        },
+        {
+            "user_transcript": "I think my best friend is very kind.",
+            "topic":           "Friends",
+            "question":        "Describe a friend.",
+        },
+        {
+            "user_transcript": "The weather today is very nice.",
+            "topic":           "Weather",
+            "question":        "How's the weather?",
+        },
+    ])
+    time.sleep(0.5)
+
+    result = call_process(
+        topic="Food",
+        question="What is your favorite restaurant?",
+        user_transcript="The food is very good and the restaurant is very nice.",
+    )
+
+    failures: list[str] = []
+    coach_response = result.get("coach_response", "") or ""
+
+    # Assertion 1: coach_response must carry a question-like marker (AI asking,
+    # not lecturing).
+    question_markers = ["?", "？", "是不是", "還是", "為什麼", "卡在", "怎麼", "有沒有"]
+    has_question = any(m in coach_response for m in question_markers)
+    if not has_question:
+        failures.append(
+            f"LAYER C FAILURE: coach_response doesn't contain question-like markers. "
+            f"Expected any of {question_markers}. "
+            f"coach_response={coach_response!r}"
+        )
+
+    # Assertion 2: no scolding-style recurrence language.
+    scolding_phrases = ["這是第", "又用了", "又來了", "這是你的舊問題"]
+    found_scolding = [p for p in scolding_phrases if p in coach_response]
+    if found_scolding:
+        failures.append(
+            f"LAYER C FAILURE: coach_response contains scolding language {found_scolding}. "
+            f"Should ask user, not lecture them."
+        )
+
+    # Assertion 3: tag stays weak_vocab.
+    if result.get("weakness_tag") != "weak_vocab":
+        failures.append(
+            f"weakness_tag expected 'weak_vocab', got {result.get('weakness_tag')!r}"
+        )
+
+    return TestResult(
+        name="Case 6: Stuck pattern direct question (LAYER C)",
+        passed=not failures,
+        reason=(
+            "; ".join(failures)
+            if failures
+            else "all assertions passed — AI asks user instead of lecturing"
+        ),
+        ai_response=result,
+    )
+
+
 # ─── Runner ───────────────────────────────────────────────────────────────────
 
 def run_all() -> None:
@@ -292,6 +374,7 @@ def run_all() -> None:
         case_2_off_topic_plus_weak_word,
         case_3_normal_weak_vocab,
         case_4_memory_repeated_detection,
+        case_6_stuck_pattern_direct_question,
     ]
 
     results: list[TestResult] = []
