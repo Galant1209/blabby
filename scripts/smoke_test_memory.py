@@ -33,7 +33,13 @@ import requests
 from dotenv import load_dotenv
 from supabase import create_client
 
-load_dotenv()
+# Load the repo's canonical secrets file so the script works the same whether
+# it's run from repo root or from inside scripts/. Any env var already set in
+# the shell wins (override=False is the python-dotenv default).
+_BACKEND_ENV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", ".env")
+if os.path.exists(_BACKEND_ENV):
+    load_dotenv(_BACKEND_ENV)
+load_dotenv()  # also honour a .env sitting in the current working directory
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
