@@ -451,6 +451,60 @@
             letter-spacing: 0.08em;
             margin-bottom: 14px;
         }
+        .admin-plain-view {
+            background: #fff;
+            color: #111;
+            border: 1px solid #111;
+            padding: 14px;
+        }
+        .admin-detail-header {
+            font-family: Georgia, serif;
+            font-size: 15px;
+            margin-bottom: 12px;
+            color: #111;
+        }
+        .admin-back-link {
+            display: inline-block;
+            margin-bottom: 12px;
+            color: #111;
+            text-decoration: underline;
+            text-underline-offset: 3px;
+            font-family: Georgia, serif;
+            font-size: 14px;
+        }
+        .admin-error-text {
+            font-family: Georgia, serif;
+            font-size: 14px;
+            color: #111;
+        }
+        .admin-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            color: #111;
+            table-layout: fixed;
+        }
+        .admin-table th,
+        .admin-table td {
+            border: 1px solid #111;
+            padding: 8px;
+            vertical-align: top;
+            text-align: left;
+            font-family: Georgia, serif;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .admin-table th {
+            background: #f7f7f7;
+        }
+        .admin-memory-pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: Menlo, Monaco, monospace;
+            font-size: 12px;
+        }
         #admin-list {
             display: flex;
             flex-direction: column;
@@ -720,6 +774,7 @@
         const authLoginBtn  = document.getElementById('auth-login-btn');
         const authSignupBtn = document.getElementById('auth-signup-btn');
         const authMessage   = document.getElementById('auth-message');
+        const adminParams   = new URLSearchParams(window.location.search);
 
         let currentTopic    = '';
         let currentQuestion = '';
@@ -746,6 +801,14 @@
             authMessage.textContent = msg || '';
             authMessage.style.color = ok ? '#1A3550' : '#dc2626';
         }
+
+        const originalShowMain = showMain;
+        showMain = async function (...args) {
+            await originalShowMain(...args);
+            if (adminParams.get('admin') === '1') {
+                handleAdminRoute();
+            }
+        };
 
         function pickRandomFromBank(exclude) {
             const pool = exclude
@@ -898,6 +961,7 @@
                     better_expression_zh: data.better_expression_zh,
                     next_question:        data.next_question,
                     weakness_tag:         data.weakness_tag || null,
+                    memory_snapshot:      data.memory_snapshot || null,
                 });
                 if (error) console.error('practice_records insert error:', error);
             } catch (err) {
@@ -1069,6 +1133,15 @@
             }).format(date);
         }
 
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function renderAdminRecords(records) {
             adminList.innerHTML = '';
             if (!Array.isArray(records) || records.length === 0) {
@@ -1114,11 +1187,17 @@
                 pill.className = 'admin-pill';
                 pill.textContent = formatWeaknessTag(record.weakness_tag);
 
+                const detailLink = document.createElement('a');
+                detailLink.className = 'admin-snippet';
+                detailLink.href = `?admin=1&user_id=${encodeURIComponent(record.user_id || '')}`;
+                detailLink.textContent = '看這個使用者全部';
+
                 item.appendChild(topLine);
                 item.appendChild(summary);
                 item.appendChild(said);
                 item.appendChild(coach);
                 item.appendChild(pill);
+                item.appendChild(detailLink);
                 adminList.appendChild(item);
             });
         }
@@ -1126,6 +1205,7 @@
         async function loadAdminData() {
             if (!adminSection || !adminList) return;
             adminSection.style.display = '';
+            adminRefreshBtn.style.display = '';
             adminList.textContent = '載入中...';
 
             try {
@@ -1169,20 +1249,122 @@
             }
         }
 
+        function renderAdminUserDetail(payload) {
+            const emailOrUser = payload.email || payload.user_id || '-';
+            const total = payload.total_records || 0;
+            const records = Array.isArray(payload.records) ? payload.records : [];
+
+            if (records.length === 0) {
+                adminList.innerHTML = `
+                    <div class="admin-plain-view">
+                        <a class="admin-back-link" href="?admin=1">← 返回 admin dashboard</a>
+                        <div class="admin-detail-header">User: ${escapeHtml(emailOrUser)} | Total: ${total} records</div>
+                        <div class="admin-error-text">這個使用者還沒有練習記錄</div>
+                    </div>
+                `;
+                return;
+            }
+
+            const rows = records.map((record) => {
+                const memoryText = record.memory_snapshot
+                    ? JSON.stringify(record.memory_snapshot, null, 2)
+                    : '（舊資料，無快照）';
+                return `
+                    <tr>
+                        <td>${escapeHtml(record.sequence)}</td>
+                        <td>${escapeHtml(formatAdminTimestamp(record.created_at))}</td>
+                        <td>${escapeHtml(record.topic || '-')}</td>
+                        <td>${escapeHtml(record.user_transcript || '-')}</td>
+                        <td>${escapeHtml(record.coach_response || '-')}</td>
+                        <td>${escapeHtml(record.weakness_tag || '-')}</td>
+                        <td><pre class="admin-memory-pre">${escapeHtml(memoryText)}</pre></td>
+                    </tr>
+                `;
+            }).join('');
+
+            adminList.innerHTML = `
+                <div class="admin-plain-view">
+                    <a class="admin-back-link" href="?admin=1">← 返回 admin dashboard</a>
+                    <div class="admin-detail-header">User: ${escapeHtml(emailOrUser)} | Total: ${total} records</div>
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Seq</th>
+                                <th>Time</th>
+                                <th>Topic</th>
+                                <th>Transcript</th>
+                                <th>Coach Response</th>
+                                <th>Tag</th>
+                                <th>Memory Snapshot</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        async function loadAdminUserDetail(userId) {
+            if (!adminSection || !adminList) return;
+            adminSection.style.display = '';
+            adminRefreshBtn.style.display = 'none';
+            adminList.textContent = '載入中...';
+
+            try {
+                if (!sb) {
+                    adminList.textContent = '登入已過期，請重新登入';
+                    return;
+                }
+
+                const { data: { session } } = await sb.auth.getSession();
+                const accessToken = session && session.access_token;
+                if (!accessToken) {
+                    adminList.textContent = '登入已過期，請重新登入';
+                    return;
+                }
+
+                const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                const data = await res.json();
+
+                if (res.status === 403) {
+                    adminList.innerHTML = '<div class="admin-error-text">你沒有管理員權限</div>';
+                    return;
+                }
+                if (res.status === 401) {
+                    adminList.innerHTML = '<div class="admin-error-text">登入已過期，請重新登入</div>';
+                    return;
+                }
+                if (!res.ok) {
+                    adminList.innerHTML = `<div class="admin-error-text">${escapeHtml(data.detail || '載入失敗，請稍後再試')}</div>`;
+                    return;
+                }
+
+                renderAdminUserDetail(data);
+            } catch (err) {
+                console.error('loadAdminUserDetail error:', err);
+                adminList.innerHTML = '<div class="admin-error-text">載入失敗，請稍後再試</div>';
+            }
+        }
+
+        function handleAdminRoute() {
+            if (adminParams.get('admin') !== '1') return;
+            const userId = adminParams.get('user_id');
+            if (userId) {
+                loadAdminUserDetail(userId);
+            } else {
+                loadAdminData();
+            }
+        }
+
         if (adminRefreshBtn) {
             adminRefreshBtn.addEventListener('click', loadAdminData);
         }
 
-        (async () => {
-            const params = new URLSearchParams(window.location.search);
-            if (params.get('admin') !== '1') return;
-            if (!sb) return;
-
-            const { data: { session } } = await sb.auth.getSession();
-            if (session) {
-                loadAdminData();
-            }
-        })();
     </script>
 </body>
 </html>

@@ -16,6 +16,7 @@ import json
 import tempfile
 import re
 import time
+import uuid
 from collections import Counter
 
 load_dotenv()
@@ -403,8 +404,22 @@ async def process(
             for record in recent_records
             if record.get("user_transcript")
         ]
+        weak_words = extract_dynamic_weak_words_from_history(recent_transcripts)
         weak_patterns = extract_weak_patterns(recent_transcripts)
         memory_block = build_memory_block(weak_patterns)
+
+        try:
+            history_list = json.loads(history) if history else []
+            if not isinstance(history_list, list):
+                history_list = []
+        except json.JSONDecodeError:
+            history_list = []
+
+        memory_snapshot = {
+            "weak_words": weak_words,
+            "weak_patterns": weak_patterns,
+            "history_count": len(recent_transcripts),
+        }
 
         # Step 1: Whisper transcription — isolated temp file per request
         audio_bytes = await audio.read()
@@ -425,12 +440,6 @@ async def process(
         weakness_tag, repeated_weak_words = detect_weakness_tag(user_text, weak_patterns)
 
         # Step 2: Groq chat (no extra round-trip to browser in between)
-        try:
-            history_list = json.loads(history) if history else []
-            if not isinstance(history_list, list):
-                history_list = []
-        except json.JSONDecodeError:
-            history_list = []
         messages = [{
             "role": "system",
             "content": build_system_prompt(topic, memory_block, repeated_weak_words)
@@ -459,6 +468,7 @@ async def process(
             "better_expression_zh": parsed.get("better_expression_zh", ""),
             "on_topic":             parsed.get("on_topic", True),
             "weakness_tag":         weakness_tag,
+            "memory_snapshot":      memory_snapshot,
         }
     except HTTPException:
         raise
@@ -512,6 +522,59 @@ async def admin_recent(
         raise
     except Exception as exc:
         logger.exception("admin recent endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
+
+
+@app.get("/admin/user/{user_id}")
+@limiter.limit("30/minute")
+async def admin_user_records(
+    request: Request,
+    user_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        verify_admin(authorization)
+        try:
+            uuid.UUID(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+        email = None
+        try:
+            user_response = supabase_admin.auth.admin.get_user_by_id(user_id)
+            user = getattr(user_response, "user", None)
+            email = getattr(user, "email", None)
+        except Exception:
+            email = None
+
+        response = (
+            supabase_admin.table("practice_records")
+            .select(
+                "topic, question, user_transcript, coach_response, "
+                "better_expression, better_expression_zh, next_question, "
+                "weakness_tag, memory_snapshot, created_at"
+            )
+            .eq("user_id", user_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+
+        records = []
+        for index, record in enumerate(response.data or [], start=1):
+            record_with_sequence = dict(record)
+            record_with_sequence["sequence"] = index
+            records.append(record_with_sequence)
+
+        return {
+            "user_id": user_id,
+            "email": email,
+            "total_records": len(records),
+            "records": records,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin user records endpoint failed", extra={"target_user_id": user_id})
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
 
 
