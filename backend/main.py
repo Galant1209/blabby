@@ -581,6 +581,59 @@ async def admin_recent(
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
 
 
+@app.get("/admin/users")
+@limiter.limit("30/minute")
+async def admin_users(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        verify_admin(authorization)
+
+        # PostgREST doesn't expose aggregate SQL via the Python client,
+        # so pull the cheap columns and group in memory.
+        response = (
+            supabase_admin.table("practice_records")
+            .select("user_id, created_at")
+            .execute()
+        )
+
+        aggregates: dict[str, dict] = {}
+        for row in response.data or []:
+            uid = row.get("user_id")
+            if not uid:
+                continue
+            created = row.get("created_at")
+            slot = aggregates.get(uid)
+            if slot is None:
+                aggregates[uid] = {
+                    "user_id": uid,
+                    "record_count": 1,
+                    "first_seen": created,
+                    "last_seen": created,
+                }
+            else:
+                slot["record_count"] += 1
+                # ISO-8601 strings sort lexicographically — safe without parsing.
+                if created:
+                    if slot["first_seen"] is None or created < slot["first_seen"]:
+                        slot["first_seen"] = created
+                    if slot["last_seen"] is None or created > slot["last_seen"]:
+                        slot["last_seen"] = created
+
+        users = sorted(
+            aggregates.values(),
+            key=lambda u: u["last_seen"] or "",
+            reverse=True,
+        )
+        return {"users": users}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin users endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load admin users") from exc
+
+
 @app.get("/admin/user/{user_id}")
 @limiter.limit("30/minute")
 async def admin_user_records(

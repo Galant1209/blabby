@@ -586,6 +586,80 @@
             font-size: 14px;
             color: #111;
         }
+        .admin-users-list {
+            margin-bottom: 24px;
+        }
+        .admin-users-list h2 {
+            margin: 0 0 12px;
+            font-family: Georgia, serif;
+            font-size: 18px;
+            font-weight: bold;
+            color: #111;
+        }
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            color: #111;
+            font-family: Georgia, serif;
+            font-size: 13px;
+        }
+        .users-table th,
+        .users-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e5e5e5;
+            text-align: left;
+            vertical-align: middle;
+        }
+        .users-table th {
+            background: var(--green);
+            color: var(--gold);
+            font-weight: bold;
+        }
+        .users-table td.users-count,
+        .users-table th.users-count {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .user-id-short {
+            font-family: Menlo, Monaco, 'Courier New', monospace;
+            font-size: 12px;
+            background: #f6f6f2;
+            padding: 2px 6px;
+            border-radius: 3px;
+            cursor: help;
+        }
+        .btn-view-detail {
+            display: inline-block;
+            border: 1px solid var(--green);
+            color: var(--green);
+            padding: 4px 12px;
+            border-radius: 3px;
+            text-decoration: none;
+            font-size: 13px;
+            font-family: Georgia, serif;
+            transition: background 0.15s, color 0.15s;
+        }
+        .btn-view-detail:hover {
+            background: var(--green);
+            color: #F5F0E8;
+        }
+        .admin-users-empty,
+        .admin-users-error {
+            margin: 0;
+            padding: 12px;
+            font-family: Georgia, serif;
+            font-size: 13px;
+            color: #666;
+            background: #f9f9f9;
+            border: 1px solid #e5e5e5;
+        }
+        .admin-users-error {
+            color: #8a1f1f;
+            background: #fdf2f2;
+            border-color: #f2c3c3;
+        }
+
         .admin-records-list {
             margin-top: 24px;
         }
@@ -1001,6 +1075,7 @@
         <footer class="footer">Blabby · AI IELTS Speaking Practice</footer>
 
         <section id="admin-section" class="admin-card" style="display:none">
+            <div id="admin-users"></div>
             <div class="label">ADMIN · RECENT PRACTICES</div>
             <div id="admin-list"></div>
             <button id="admin-refresh-btn">Refresh</button>
@@ -1667,11 +1742,60 @@
             });
         }
 
+        function renderAdminUsers(users) {
+            const container = document.getElementById('admin-users');
+            if (!container) return;
+            if (!Array.isArray(users) || users.length === 0) {
+                container.innerHTML = `
+                    <section class="admin-users-list">
+                        <h2>使用者列表</h2>
+                        <div class="admin-users-empty">尚無使用者記錄</div>
+                    </section>
+                `;
+                return;
+            }
+            const rows = users.map((user) => {
+                const uid = String(user.user_id || '');
+                const short = uid.slice(0, 8) || '-';
+                const href = `?admin=1&user_id=${encodeURIComponent(uid)}`;
+                return `
+                    <tr>
+                        <td><code class="user-id-short" title="${escapeHtml(uid)}">${escapeHtml(short)}</code></td>
+                        <td class="users-count">${escapeHtml(user.record_count ?? 0)}</td>
+                        <td>${escapeHtml(formatAdminTableTimestamp(user.first_seen))}</td>
+                        <td>${escapeHtml(formatAdminTableTimestamp(user.last_seen))}</td>
+                        <td><a class="btn-view-detail" href="${href}">查看詳情</a></td>
+                    </tr>
+                `;
+            }).join('');
+            container.innerHTML = `
+                <section class="admin-users-list">
+                    <h2>使用者列表</h2>
+                    <table class="users-table">
+                        <thead>
+                            <tr>
+                                <th>User ID</th>
+                                <th class="users-count">記錄數</th>
+                                <th>首次使用</th>
+                                <th>最近使用</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </section>
+            `;
+        }
+
         async function loadAdminData() {
             if (!adminSection || !adminList) return;
             adminSection.style.display = '';
             adminRefreshBtn.style.display = '';
             adminList.textContent = '載入中...';
+            const usersContainer = document.getElementById('admin-users');
+            if (usersContainer) {
+                usersContainer.innerHTML = '<div class="admin-users-empty">載入使用者列表中...</div>';
+            }
 
             try {
                 if (!sb) {
@@ -1686,27 +1810,50 @@
                     return;
                 }
 
-                const res = await fetch(`${API_BASE}/admin/recent`, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`
-                    }
-                });
-                const data = await res.json();
+                // Fire both admin fetches in parallel; failures in one shouldn't block the other.
+                const authHeaders = { 'Authorization': `Bearer ${accessToken}` };
+                const [usersResult, recentResult] = await Promise.allSettled([
+                    fetch(`${API_BASE}/admin/users`, { headers: authHeaders }).then(async (r) => ({ status: r.status, body: await r.json() })),
+                    fetch(`${API_BASE}/admin/recent`, { headers: authHeaders }).then(async (r) => ({ status: r.status, body: await r.json() })),
+                ]);
 
-                if (res.status === 403) {
+                // Users list (non-blocking — only writes into #admin-users).
+                if (usersContainer) {
+                    if (usersResult.status === 'rejected') {
+                        console.error('admin users fetch rejected:', usersResult.reason);
+                        usersContainer.innerHTML = '<div class="admin-users-error">使用者列表載入失敗，請稍後再試</div>';
+                    } else {
+                        const { status, body } = usersResult.value;
+                        if (status === 403 || status === 401 || !body) {
+                            // Let the recent block surface the auth error; just clear the users area.
+                            usersContainer.innerHTML = '';
+                        } else if (status < 200 || status >= 300) {
+                            usersContainer.innerHTML = `<div class="admin-users-error">${escapeHtml(body.detail || '使用者列表載入失敗')}</div>`;
+                        } else {
+                            renderAdminUsers(body.users || []);
+                        }
+                    }
+                }
+
+                // Recent records (existing behavior).
+                if (recentResult.status === 'rejected') {
+                    console.error('admin recent fetch rejected:', recentResult.reason);
+                    adminList.textContent = '載入失敗，請稍後再試';
+                    return;
+                }
+                const { status, body: data } = recentResult.value;
+                if (status === 403) {
                     adminList.textContent = '你沒有管理員權限';
                     return;
                 }
-                if (res.status === 401) {
+                if (status === 401) {
                     adminList.textContent = '登入已過期，請重新登入';
                     return;
                 }
-                if (!res.ok) {
-                    adminList.textContent = data.detail || '載入失敗，請稍後再試';
+                if (status < 200 || status >= 300) {
+                    adminList.textContent = (data && data.detail) || '載入失敗，請稍後再試';
                     return;
                 }
-
                 renderAdminRecords(data.records);
             } catch (err) {
                 console.error('loadAdminData error:', err);
