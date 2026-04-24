@@ -346,7 +346,12 @@ def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
     return system_prompt, user_prompt
 
 
-def build_system_prompt(topic="General", memory_block="", repeated_weak_words: Optional[list[str]] = None):
+def build_system_prompt(
+    topic: str = "General",
+    question: str = "",
+    memory_block: str = "",
+    repeated_weak_words: Optional[list[str]] = None,
+) -> str:
     repeated_weak_words = repeated_weak_words or []
     repeated_line = (
         f"- The user repeated these weak words again in this answer: {', '.join(repeated_weak_words)}\n"
@@ -391,6 +396,12 @@ Your job is to find the single most painful blockage in this answer and give one
 - 不要給三種版本，不要一次給很多替代答案
 - 請用 JSON 的 single_issue 和 correction 強迫自己只處理一個問題
 
+【on_topic 判斷規則】
+- 如果有提供【本題題目】，判斷學生的回答是否真的在回答這個題目
+- 只要學生的回答跟題目主軸對得上，即使細節薄弱也算 on_topic: true
+- 只有明顯離題（例如題目問地點，學生講的完全是別的話題）才 on_topic: false
+- 如果判斷 on_topic: false，single_issue 要把「答非所問」當作首要問題，優先於 weak words
+
 【絕對禁止】
 - 不給總分
 - 不給超過三個建議
@@ -423,6 +434,21 @@ Output:
   "on_topic": true
 }
 
+Example 3 — off-topic answer
+Question:
+"Where is the most interesting place you have visited?"
+User answer:
+"I think reading books is very good and I like stories a lot."
+Output:
+{
+  "single_issue": "你這次沒回到題目。題目問的是你去過最有印象的地方，但你整段在講閱讀和故事。",
+  "correction": "先把題目接回來。丟一個具體的地點就好 — 一個城市、一條街、一間博物館都可以 — 然後用一句話說為什麼那裡留在你腦海裡。",
+  "next_question": "What was the most memorable moment you had there?",
+  "better_expression": "the place that stuck with me most",
+  "better_expression_zh": "這種說法比 interesting 更精準，能直接把情感連結帶出來。",
+  "on_topic": false
+}
+
 【JSON 回應格式，不得偏離】
 {
   "single_issue": "用繁體中文，一句話點名唯一痛點",
@@ -439,7 +465,16 @@ Output:
         + "- Diagnose the most painful issue from the transcript itself.\n"
         + "- Use memory only as context, not as a forced label.\n"
     )
-    return base + memory_block + diagnosis_context_block + f"\n【本題主題】\n{topic}\n"
+    # 具體題目放在主題之前 — 精確的 context 先於概括的標籤。
+    # 沒有題目時完全省略這個 block，避免 prompt 出現空白頭尾。
+    question_block = f"\n【本題題目】\n{question}\n" if question else ""
+    return (
+        base
+        + memory_block
+        + diagnosis_context_block
+        + question_block
+        + f"\n【本題主題】\n{topic}\n"
+    )
 
 
 @app.post("/process")
@@ -499,7 +534,12 @@ async def process(
         # Step 2: Groq chat (no extra round-trip to browser in between)
         messages = [{
             "role": "system",
-            "content": build_system_prompt(topic, memory_block, repeated_weak_words)
+            "content": build_system_prompt(
+                topic=topic,
+                question=question,
+                memory_block=memory_block,
+                repeated_weak_words=repeated_weak_words,
+            )
         }]
         for msg in history_list[-10:]:
             role    = msg.get("role", "")
