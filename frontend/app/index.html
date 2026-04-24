@@ -505,6 +505,102 @@
             font-family: Menlo, Monaco, monospace;
             font-size: 12px;
         }
+        .admin-deep-observation {
+            margin-bottom: 24px;
+        }
+        .admin-observation-block {
+            margin-top: 24px;
+        }
+        .admin-observation-block:first-of-type {
+            margin-top: 0;
+        }
+        .admin-observation-title {
+            margin: 0 0 12px;
+            font-family: Georgia, serif;
+            font-size: 16px;
+            font-weight: bold;
+            color: #111;
+        }
+        .admin-observation-line {
+            margin: 0 0 10px;
+            font-family: Georgia, serif;
+            font-size: 13px;
+            color: #111;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .admin-badge {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 2px 6px;
+            border: 1px solid #111;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        .admin-badge-repeat {
+            background: #fbe4e4;
+            color: #8a1f1f;
+        }
+        .admin-badge-no-repeat {
+            background: #e7f6e7;
+            color: #1f6b2f;
+        }
+        .admin-comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .admin-comparison-card {
+            border: 1px solid #111;
+            padding: 12px;
+            background: #fff;
+        }
+        .admin-comparison-card-title {
+            margin: 0 0 10px;
+            font-family: Georgia, serif;
+            font-size: 14px;
+            font-weight: bold;
+            color: #111;
+        }
+        .admin-comparison-label {
+            display: block;
+            margin: 10px 0 4px;
+            font-family: Georgia, serif;
+            font-size: 12px;
+            font-weight: bold;
+            color: #111;
+        }
+        .admin-comparison-text {
+            margin: 0;
+            font-family: Georgia, serif;
+            font-size: 13px;
+            color: #111;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .admin-expression-item {
+            margin-bottom: 14px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #ddd;
+        }
+        .admin-expression-item:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        .admin-expression-line {
+            margin: 0 0 6px;
+            font-family: Georgia, serif;
+            font-size: 13px;
+            color: #111;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        @media (max-width: 860px) {
+            .admin-comparison-grid {
+                grid-template-columns: 1fr;
+            }
+        }
         #admin-list {
             display: flex;
             flex-direction: column;
@@ -1265,6 +1361,93 @@
                 return;
             }
 
+            const renderComparisonCard = (record, label) => {
+                if (!record) return '';
+                return `
+                    <div class="admin-comparison-card">
+                        <div class="admin-comparison-card-title">${escapeHtml(label)} (Seq ${escapeHtml(record.sequence)}, ${escapeHtml(formatAdminTimestamp(record.created_at))})</div>
+                        <span class="admin-comparison-label">Transcript:</span>
+                        <p class="admin-comparison-text">${escapeHtml(record.user_transcript || '-')}</p>
+                        <span class="admin-comparison-label">Coach Response:</span>
+                        <p class="admin-comparison-text">${escapeHtml(record.coach_response || '-')}</p>
+                        <span class="admin-comparison-label">Weakness Tag:</span>
+                        <p class="admin-comparison-text">${escapeHtml(record.weakness_tag || '-')}</p>
+                    </div>
+                `;
+            };
+
+            const weakPatternLines = records.map((record, index) => {
+                const currentPatterns = Array.isArray(record.memory_snapshot?.weak_patterns)
+                    ? record.memory_snapshot.weak_patterns
+                    : null;
+                const previousPatterns = index > 0 && Array.isArray(records[index - 1].memory_snapshot?.weak_patterns)
+                    ? records[index - 1].memory_snapshot.weak_patterns
+                    : null;
+
+                let badge = '';
+                if (currentPatterns && currentPatterns.length > 0 && previousPatterns && previousPatterns.length > 0) {
+                    const repeated = currentPatterns.filter((word) => previousPatterns.includes(word));
+                    if (repeated.length > 0) {
+                        const repeatCount = records
+                            .slice(0, index + 1)
+                            .reverse()
+                            .reduce((count, item) => {
+                                const patterns = Array.isArray(item.memory_snapshot?.weak_patterns)
+                                    ? item.memory_snapshot.weak_patterns
+                                    : [];
+                                return repeated.some((word) => patterns.includes(word)) ? count + 1 : count;
+                            }, 0);
+                        badge = `<span class="admin-badge admin-badge-repeat">repeat: ${escapeHtml(repeated.join(', '))} × ${escapeHtml(repeatCount)}</span>`;
+                    } else {
+                        badge = '<span class="admin-badge admin-badge-no-repeat">no repeat</span>';
+                    }
+                }
+
+                const weakPatternText = currentPatterns === null
+                    ? '(無快照)'
+                    : `[${currentPatterns.join(', ')}]`;
+
+                return `
+                    <div class="admin-observation-line">
+                        Seq ${escapeHtml(record.sequence)} (${escapeHtml(formatAdminTimestamp(record.created_at))}) | weak_patterns: ${escapeHtml(weakPatternText)}${badge}
+                    </div>
+                `;
+            }).join('');
+
+            const firstRecord = records[0];
+            const latestRecord = records[records.length - 1];
+            let comparisonBlock = '';
+            if (records.length < 2) {
+                comparisonBlock = `
+                    <div class="admin-error-text">需要至少 2 筆記錄才能比較</div>
+                    ${renderComparisonCard(firstRecord, '第 1 次')}
+                `;
+            } else {
+                comparisonBlock = `
+                    <div class="admin-comparison-grid">
+                        ${renderComparisonCard(firstRecord, '第 1 次')}
+                        ${renderComparisonCard(latestRecord, '最新')}
+                    </div>
+                `;
+            }
+
+            const expressionLines = records.map((record) => {
+                const hasExpression = record.better_expression && record.better_expression.trim();
+                if (!hasExpression) {
+                    return `
+                        <div class="admin-expression-item">
+                            <div class="admin-expression-line">Seq ${escapeHtml(record.sequence)} (${escapeHtml(formatAdminTimestamp(record.created_at))}): (無金句)</div>
+                        </div>
+                    `;
+                }
+                return `
+                    <div class="admin-expression-item">
+                        <div class="admin-expression-line">Seq ${escapeHtml(record.sequence)} (${escapeHtml(formatAdminTimestamp(record.created_at))}): "${escapeHtml(record.better_expression)}"</div>
+                        <div class="admin-expression-line">→ ${escapeHtml(record.better_expression_zh || '-')}</div>
+                    </div>
+                `;
+            }).join('');
+
             const rows = records.map((record) => {
                 const memoryText = record.memory_snapshot
                     ? JSON.stringify(record.memory_snapshot, null, 2)
@@ -1286,6 +1469,22 @@
                 <div class="admin-plain-view">
                     <a class="admin-back-link" href="?admin=1">← 返回 admin dashboard</a>
                     <div class="admin-detail-header">User: ${escapeHtml(emailOrUser)} | Total: ${total} records</div>
+                    <div class="admin-deep-observation">
+                        <div class="admin-observation-block">
+                            <h3 class="admin-observation-title">Weak Words 累積變化</h3>
+                            ${weakPatternLines}
+                        </div>
+                        <hr>
+                        <div class="admin-observation-block">
+                            <h3 class="admin-observation-title">第 1 次 vs 最新 Coach 語氣並排</h3>
+                            ${comparisonBlock}
+                        </div>
+                        <hr>
+                        <div class="admin-observation-block">
+                            <h3 class="admin-observation-title">📌 AI 教過的金句</h3>
+                            ${expressionLines}
+                        </div>
+                    </div>
                     <table class="admin-table">
                         <thead>
                             <tr>
