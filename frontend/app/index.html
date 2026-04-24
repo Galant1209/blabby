@@ -242,6 +242,13 @@
             border-bottom: 1px dashed var(--border);
         }
         .feedback-item:last-of-type { border-bottom: 1px dashed var(--border); }
+        .feedback-item-primary {
+            margin: 10px -10px 0;
+            padding: 18px 16px;
+            border: 1.5px solid var(--red);
+            border-left: 4px solid var(--green);
+            background: rgba(107, 26, 26, 0.045);
+        }
 
         .feedback-label {
             font-family: 'Libre Baskerville', serif;
@@ -264,6 +271,16 @@
             letter-spacing: 0.06em;
             text-transform: none;
         }
+        .repeat-reminder {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-left: 2px solid var(--red);
+            background: rgba(107, 26, 26, 0.06);
+            color: var(--red);
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 14px;
+            line-height: 1.55;
+        }
 
         .transcript-text {
             font-family: 'EB Garamond', 'Noto Serif TC', serif;
@@ -280,6 +297,7 @@
             color: var(--ink);
             line-height: 1.7;
             white-space: pre-wrap;
+            word-break: break-word;
         }
         .expression-en {
             font-family: 'Playfair Display', serif;
@@ -295,6 +313,12 @@
             color: var(--muted);
             line-height: 1.55;
         }
+        .session-insight-text {
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 15px;
+            color: var(--ink);
+            line-height: 1.65;
+        }
 
         .feedback-next {
             padding: 18px 0 22px;
@@ -309,21 +333,48 @@
             line-height: 1.5;
         }
 
+        .feedback-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-top: 6px;
+        }
+
+        #retry-question-btn,
         #next-btn {
             margin-top: 8px;
             padding: 14px 32px;
-            background: var(--green);
-            color: var(--gold);
-            border: none;
             border-radius: 0;
             font-family: 'Playfair Display', serif;
             font-size: 14px;
             letter-spacing: 0.1em;
             cursor: pointer;
-            transition: background 0.2s ease, color 0.2s ease;
             align-self: stretch;
+            transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
         }
-        #next-btn:hover { background: var(--green-dark); color: var(--gold-warm); }
+
+        #retry-question-btn {
+            background: var(--green);
+            color: var(--gold);
+            border: 1px solid var(--green);
+            font-weight: 700;
+        }
+        #retry-question-btn:hover {
+            background: var(--green-dark);
+            color: var(--gold-warm);
+            border-color: var(--green-dark);
+        }
+
+        #next-btn {
+            background: transparent;
+            color: var(--green);
+            border: 1px solid var(--border);
+        }
+        #next-btn:hover {
+            border-color: var(--green);
+            background: rgba(27, 58, 45, 0.06);
+            color: var(--green-dark);
+        }
 
         /* Footer */
         .footer {
@@ -829,26 +880,34 @@
 
         <div id="feedback-section" class="feedback-card" aria-live="polite">
             <div class="feedback-item">
-                <div class="feedback-label">你說的</div>
+                <div class="feedback-label">你剛剛說：</div>
                 <div id="user-transcript" class="transcript-text"></div>
             </div>
-            <div class="feedback-item">
-                <div class="feedback-label">物理治療師說</div>
+            <div class="feedback-item feedback-item-primary">
+                <div class="feedback-label">這一題真正的問題</div>
                 <div id="coach-response" class="coach-text"></div>
             </div>
             <div class="feedback-item">
-                <div class="feedback-label">這次主要卡點</div>
+                <div class="feedback-label">你這次卡住的類型</div>
                 <div id="weakness-tag" class="weakness-chip"></div>
+                <div id="repeat-reminder" class="repeat-reminder" style="display:none"></div>
             </div>
             <div class="feedback-item">
-                <div class="feedback-label">值得偷走的說法</div>
+                <div class="feedback-label">你應該偷走的說法</div>
                 <div id="better-expression" class="expression-en"></div>
                 <div id="better-expression-zh" class="expression-zh"></div>
+            </div>
+            <div class="feedback-item">
+                <div class="feedback-label">這一輪你學到什麼</div>
+                <div id="session-insight" class="session-insight-text"></div>
             </div>
             <div class="feedback-next">
                 <div class="feedback-label">下一題</div>
                 <div id="next-question-text" class="next-question"></div>
-                <button id="next-btn">繼續練習 →</button>
+                <div class="feedback-actions">
+                    <button id="retry-question-btn">再講一次這題</button>
+                    <button id="next-btn">下一題</button>
+                </div>
             </div>
         </div>
 
@@ -915,6 +974,7 @@
         const recordBtn       = document.getElementById('record-btn');
         const statusText      = document.getElementById('status-text');
         const feedbackSection = document.getElementById('feedback-section');
+        const retryQuestionBtn = document.getElementById('retry-question-btn');
         const nextBtn         = document.getElementById('next-btn');
         const questionText    = document.getElementById('question-text');
         const questionMeta    = document.getElementById('question-meta');
@@ -930,8 +990,32 @@
         const authMessage   = document.getElementById('auth-message');
         const adminParams   = new URLSearchParams(window.location.search);
 
+        const WEAKNESS_LABELS = {
+            weak_vocab: '模糊用詞',
+            lack_detail: '細節不足',
+            safe_answer: '回答太安全',
+            grammar_minor: '小型文法問題'
+        };
+
+        const SESSION_INSIGHT = {
+            weak_vocab: '你今天不是缺單字，而是太習慣用安全、模糊的詞。下一次請把形容詞換成具體畫面。',
+            lack_detail: '你今天的問題不是英文錯，而是答案太短。下一次請補一個具體場景、人物或原因。',
+            safe_answer: '你今天的問題是太保守。下一次不要閃問題，直接選一個立場或經驗講下去。',
+            grammar_minor: '你今天的重點是把句子講穩。先不要追求漂亮，先把一個完整句講清楚。'
+        };
+
+        const WEAKNESS_PATTERN_HINTS = {
+            weak_vocab: ['very', 'good', 'interesting', 'thing', 'things', 'stuff'],
+            lack_detail: ['lack_detail'],
+            safe_answer: ['safe_answer', 'it depends', 'i think so'],
+            grammar_minor: ['grammar_minor']
+        };
+
         let currentTopic    = '';
         let currentQuestion = '';
+        let lastWeaknessTag = '';
+        let lastCoachResponse = '';
+        let retryingCurrentQuestion = false;
 
         async function showMain() {
             authSection.style.display = 'none';
@@ -1195,8 +1279,14 @@
                 const data = await res.json();
                 if (data.error) {
                     statusText.textContent = `錯誤：${data.error}`;
+                    if (retryingCurrentQuestion && lastCoachResponse) {
+                        feedbackSection.classList.add('visible');
+                    }
                 } else if (!res.ok) {
                     statusText.textContent = `錯誤：${data.detail || '請稍後再試'}`;
+                    if (retryingCurrentQuestion && lastCoachResponse) {
+                        feedbackSection.classList.add('visible');
+                    }
                 } else {
                     renderFeedback(data);
                     statusText.textContent = '批改完成，準備好再按錄音';
@@ -1204,19 +1294,46 @@
             } catch (err) {
                 console.error('submit error:', err);
                 statusText.textContent = '網路錯誤，請稍後再試';
+                if (retryingCurrentQuestion && lastCoachResponse) {
+                    feedbackSection.classList.add('visible');
+                }
             } finally {
+                retryingCurrentQuestion = false;
                 recordBtn.disabled = false;
             }
         }
 
+        function getWeaknessLabel(tag) {
+            return WEAKNESS_LABELS[tag] || '待觀察';
+        }
+
+        function getSessionInsight(tag) {
+            return SESSION_INSIGHT[tag] || '這一輪先記住一件事：回答要更具體，不要只給安全答案。';
+        }
+
         function formatWeaknessTag(tag) {
-            const labels = {
-                weak_vocab: '弱點類型：模糊用詞',
-                lack_detail: '弱點類型：細節不足',
-                safe_answer: '弱點類型：回答太安全',
-                grammar_minor: '弱點類型：小型文法問題'
-            };
-            return labels[tag] || '弱點類型：待確認';
+            return `弱點類型：${getWeaknessLabel(tag)}`;
+        }
+
+        function shouldShowRepeatReminder(data) {
+            const patterns = Array.isArray(data?.memory_snapshot?.weak_patterns)
+                ? data.memory_snapshot.weak_patterns
+                : [];
+            if (patterns.length === 0) return false;
+
+            const normalizedPatterns = patterns
+                .filter(Boolean)
+                .map((item) => String(item).trim().toLowerCase())
+                .filter(Boolean);
+            if (normalizedPatterns.length === 0) return false;
+
+            const betterExpression = String(data?.better_expression || '').trim().toLowerCase();
+            if (betterExpression && normalizedPatterns.includes(betterExpression)) {
+                return true;
+            }
+
+            const tagHints = WEAKNESS_PATTERN_HINTS[data?.weakness_tag] || [];
+            return tagHints.some((hint) => normalizedPatterns.includes(hint));
         }
 
         function renderFeedback(data) {
@@ -1224,6 +1341,9 @@
                 statusText.textContent = '發生錯誤，請再試一次';
                 return;
             }
+
+            lastWeaknessTag = data.weakness_tag || '';
+            lastCoachResponse = data.coach_response || '';
 
             // 顯示用戶說的話
             document.getElementById('user-transcript').textContent = data.text || '';
@@ -1234,9 +1354,23 @@
             // 主要弱點標籤
             document.getElementById('weakness-tag').textContent = formatWeaknessTag(data.weakness_tag);
 
+            const repeatReminder = document.getElementById('repeat-reminder');
+            if (repeatReminder) {
+                if (shouldShowRepeatReminder(data)) {
+                    repeatReminder.textContent = '你已經不是第一次卡在這裡了。下一輪不要急著講快，先把這個問題修掉。';
+                    repeatReminder.style.display = '';
+                } else {
+                    repeatReminder.textContent = '';
+                    repeatReminder.style.display = 'none';
+                }
+            }
+
             // 更好的說法
             document.getElementById('better-expression').textContent = data.better_expression || '';
             document.getElementById('better-expression-zh').textContent = data.better_expression_zh || '';
+
+            // 本輪學習重點
+            document.getElementById('session-insight').textContent = getSessionInsight(data.weakness_tag);
 
             // 下一題
             document.getElementById('next-question-text').textContent = data.next_question || '';
@@ -1253,6 +1387,13 @@
             else startRecording();
         });
 
+        retryQuestionBtn.addEventListener('click', () => {
+            retryingCurrentQuestion = true;
+            feedbackSection.classList.remove('visible');
+            recordBtn.disabled = false;
+            statusText.textContent = '準備好了就按錄音';
+        });
+
         nextBtn.addEventListener('click', () => {
             // Prefer AI's next_question (natural continuation of current topic).
             // Fall back to a random bank question, excluding the current one.
@@ -1263,6 +1404,9 @@
                 const pick = pickRandomFromBank(currentQuestion);
                 setQuestion(pick.question, pick.topic);
             }
+            lastWeaknessTag = '';
+            lastCoachResponse = '';
+            retryingCurrentQuestion = false;
             feedbackSection.classList.remove('visible');
             statusText.textContent = '準備好了就按錄音';
         });
