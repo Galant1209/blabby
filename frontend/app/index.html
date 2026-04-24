@@ -1516,6 +1516,7 @@
             document.getElementById('next-question-text').textContent = data.next_question || '';
 
             feedbackSection.classList.add('visible');
+            feedbackSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
             statusText.textContent = '批改完成';
 
             // Persistence is handled server-side inside /process. If the
