@@ -395,6 +395,7 @@ Your job is to find the single most painful blockage in this answer and give one
 - 必要時可以給一個短示範，但只能給一個
 - 不要給三種版本，不要一次給很多替代答案
 - 請用 JSON 的 single_issue 和 correction 強迫自己只處理一個問題
+- 如果 on_topic 是 false（學生完全沒回答題目），better_expression 和 better_expression_zh 可以是空字串，不要硬塞詞彙。優先把學生拉回題目，詞彙下次再教。
 
 【on_topic 判斷規則】
 - 如果有提供【本題題目】，判斷學生的回答是否真的在回答這個題目
@@ -441,11 +442,11 @@ User answer:
 "I think reading books is very good and I like stories a lot."
 Output:
 {
-  "single_issue": "你這次沒回到題目。題目問的是你去過最有印象的地方，但你整段在講閱讀和故事。",
-  "correction": "先把題目接回來。丟一個具體的地點就好 — 一個城市、一條街、一間博物館都可以 — 然後用一句話說為什麼那裡留在你腦海裡。",
-  "next_question": "What was the most memorable moment you had there?",
-  "better_expression": "the place that stuck with me most",
-  "better_expression_zh": "這種說法比 interesting 更精準，能直接把情感連結帶出來。",
+  "single_issue": "你沒有回答題目 — 題目問地點，你整段在講閱讀。",
+  "correction": "先回到題目。給一個具體地點，一個城市、一間博物館、一條街都可以。講完這一步再繼續。",
+  "next_question": "Let's try again — name one specific place you've been to.",
+  "better_expression": "",
+  "better_expression_zh": "",
   "on_topic": false
 }
 
@@ -454,8 +455,8 @@ Output:
   "single_issue": "用繁體中文，一句話點名唯一痛點",
   "correction": "用繁體中文，2 到 3 句內給唯一矯正動作；必要時附一個短示範",
   "next_question": "下一個英文問題，自然銜接",
-  "better_expression": "一個值得學的英文詞或短語",
-  "better_expression_zh": "為什麼這個詞好用（中文）",
+  "better_expression": "一個值得學的英文詞或短語；若學生偏題則可為空字串",
+  "better_expression_zh": "為什麼這個詞好用（中文）；若 better_expression 為空則一併留空",
   "on_topic": true
 }
 """
