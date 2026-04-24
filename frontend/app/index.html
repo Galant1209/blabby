@@ -651,13 +651,6 @@
             padding: 8px 12px;
             border-left: 3px solid var(--gold);
         }
-        .record-memory {
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            color: #666;
-            background: #f9f9f9;
-            padding: 8px 12px;
-        }
         .admin-deep-observation {
             margin-bottom: 24px;
         }
@@ -1852,11 +1845,6 @@
             }).join('');
 
             const recordCards = records.map((record) => {
-                const hasMemory = !!record.memory_snapshot;
-                const memoryText = hasMemory
-                    ? JSON.stringify(record.memory_snapshot, null, 2)
-                    : '(舊資料，無快照)';
-
                 const transcriptRaw = (record.user_transcript || '').trim();
                 const transcriptHtml = transcriptRaw
                     ? escapeHtml(record.user_transcript)
@@ -1868,8 +1856,6 @@
                     ? escapeHtml(record.coach_response)
                     : '(無 coach response)';
                 const coachEmptyClass = coachRaw ? '' : ' is-empty';
-
-                const memoryEmptyClass = hasMemory ? '' : ' is-empty';
 
                 return `
                     <article class="record-card">
@@ -1887,10 +1873,6 @@
                             <div class="record-field">
                                 <div class="record-label">Coach Response</div>
                                 <div class="record-value record-coach${coachEmptyClass}">${coachHtml}</div>
-                            </div>
-                            <div class="record-field">
-                                <div class="record-label">Memory Snapshot</div>
-                                <div class="record-value record-memory${memoryEmptyClass}">${escapeHtml(memoryText)}</div>
                             </div>
                         </div>
                     </article>
