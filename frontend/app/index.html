@@ -897,6 +897,7 @@
                     better_expression:    data.better_expression,
                     better_expression_zh: data.better_expression_zh,
                     next_question:        data.next_question,
+                    weakness_tag:         data.weakness_tag || null,
                 });
                 if (error) console.error('practice_records insert error:', error);
             } catch (err) {
