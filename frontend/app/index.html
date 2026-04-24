@@ -586,33 +586,77 @@
             font-size: 14px;
             color: #111;
         }
-        .admin-table {
-            width: 100%;
-            border-collapse: collapse;
+        .admin-records-list {
+            margin-top: 24px;
+        }
+        .record-card {
+            border: 1px solid #e5e5e5;
+            border-radius: 4px;
+            padding: 16px;
+            margin-bottom: 16px;
             background: #fff;
-            color: #111;
-            table-layout: fixed;
         }
-        .admin-table th,
-        .admin-table td {
-            border: 1px solid #111;
-            padding: 8px;
-            vertical-align: top;
-            text-align: left;
-            font-family: Georgia, serif;
+        .record-card-header {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            align-items: center;
+            padding-bottom: 12px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #e5e5e5;
             font-size: 13px;
-            white-space: pre-wrap;
-            word-break: break-word;
+            color: #666;
         }
-        .admin-table th {
-            background: #f7f7f7;
+        .record-seq {
+            font-weight: 700;
+            color: var(--green);
+            font-size: 14px;
         }
-        .admin-memory-pre {
-            margin: 0;
-            white-space: pre-wrap;
+        .record-card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .record-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .record-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #999;
+            font-weight: 600;
+        }
+        .record-value {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #222;
             word-break: break-word;
-            font-family: Menlo, Monaco, monospace;
+            white-space: pre-wrap;
+        }
+        .record-value.is-empty {
+            opacity: 0.5;
+        }
+        .record-transcript {
+            font-family: Georgia, serif;
+            background: #faf5ec;
+            padding: 8px 12px;
+            border-left: 3px solid var(--green);
+        }
+        .record-coach {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: #f5f7f2;
+            padding: 8px 12px;
+            border-left: 3px solid var(--gold);
+        }
+        .record-memory {
+            font-family: 'Courier New', monospace;
             font-size: 12px;
+            color: #666;
+            background: #f9f9f9;
+            padding: 8px 12px;
         }
         .admin-deep-observation {
             margin-bottom: 24px;
@@ -1807,20 +1851,49 @@
                 `;
             }).join('');
 
-            const rows = records.map((record) => {
-                const memoryText = record.memory_snapshot
+            const recordCards = records.map((record) => {
+                const hasMemory = !!record.memory_snapshot;
+                const memoryText = hasMemory
                     ? JSON.stringify(record.memory_snapshot, null, 2)
-                    : '（舊資料，無快照）';
+                    : '(舊資料，無快照)';
+
+                const transcriptRaw = (record.user_transcript || '').trim();
+                const transcriptHtml = transcriptRaw
+                    ? escapeHtml(record.user_transcript)
+                    : '(無 transcript)';
+                const transcriptEmptyClass = transcriptRaw ? '' : ' is-empty';
+
+                const coachRaw = (record.coach_response || '').trim();
+                const coachHtml = coachRaw
+                    ? escapeHtml(record.coach_response)
+                    : '(無 coach response)';
+                const coachEmptyClass = coachRaw ? '' : ' is-empty';
+
+                const memoryEmptyClass = hasMemory ? '' : ' is-empty';
+
                 return `
-                    <tr>
-                        <td>${escapeHtml(record.sequence)}</td>
-                        <td>${escapeHtml(formatAdminTimestamp(record.created_at))}</td>
-                        <td>${escapeHtml(record.topic || '-')}</td>
-                        <td>${escapeHtml(record.user_transcript || '-')}</td>
-                        <td>${escapeHtml(record.coach_response || '-')}</td>
-                        <td>${escapeHtml(record.weakness_tag || '-')}</td>
-                        <td><pre class="admin-memory-pre">${escapeHtml(memoryText)}</pre></td>
-                    </tr>
+                    <article class="record-card">
+                        <div class="record-card-header">
+                            <span class="record-seq">Seq ${escapeHtml(record.sequence)}</span>
+                            <span class="record-time">${escapeHtml(formatAdminTableTimestamp(record.created_at))}</span>
+                            <span class="record-topic">${escapeHtml(record.topic || '—')}</span>
+                            <span class="record-tag">${escapeHtml(record.weakness_tag || '—')}</span>
+                        </div>
+                        <div class="record-card-body">
+                            <div class="record-field">
+                                <div class="record-label">Transcript</div>
+                                <div class="record-value record-transcript${transcriptEmptyClass}">${transcriptHtml}</div>
+                            </div>
+                            <div class="record-field">
+                                <div class="record-label">Coach Response</div>
+                                <div class="record-value record-coach${coachEmptyClass}">${coachHtml}</div>
+                            </div>
+                            <div class="record-field">
+                                <div class="record-label">Memory Snapshot</div>
+                                <div class="record-value record-memory${memoryEmptyClass}">${escapeHtml(memoryText)}</div>
+                            </div>
+                        </div>
+                    </article>
                 `;
             }).join('');
 
@@ -1857,20 +1930,10 @@
                             ${expressionLines}
                         </div>
                     </div>
-                    <table class="admin-table">
-                        <thead>
-                            <tr>
-                                <th>Seq</th>
-                                <th>Time</th>
-                                <th>Topic</th>
-                                <th>Transcript</th>
-                                <th>Coach Response</th>
-                                <th>Tag</th>
-                                <th>Memory Snapshot</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
+                    <section class="admin-records-list">
+                        <h3 class="admin-observation-title">所有練習記錄</h3>
+                        ${recordCards}
+                    </section>
                 </div>
             `;
             attachDiagnosisHandler();
