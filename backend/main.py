@@ -499,11 +499,13 @@ Output:
 @limiter.limit("20/minute")
 async def process(
     request: Request,
-    audio: UploadFile = File(...),
+    audio: Optional[UploadFile] = File(None),
     level: str = Form("Band 5"),
     topic: str = Form("Free Time"),
     question: str = Form(""),
     history: str = Form("[]"),
+    text_override: str = Form(""),
+    dev_bypass_secret: str = Form(""),
     authorization: Optional[str] = Header(None),
 ):
     try:
@@ -525,22 +527,46 @@ async def process(
         except json.JSONDecodeError:
             history_list = []
 
-        # Step 1: Whisper transcription — isolated temp file per request
-        audio_bytes = await audio.read()
-        if len(audio_bytes) > 25 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="Audio file too large, please re-record")
-        ext = os.path.splitext(audio.filename or "")[1] or ".webm"
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        try:
-            with open(tmp_path, "rb") as f:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1", file=f, language="en"
+        # Dev-only bypass: skip Whisper and use text_override as the transcript.
+        # Gated behind DEV_BYPASS_SECRET env var — when that env is unset or empty,
+        # bypass is impossible even if a request happens to send a matching secret.
+        expected_secret = os.getenv("DEV_BYPASS_SECRET", "").strip()
+        use_text_override = bool(
+            expected_secret
+            and dev_bypass_secret
+            and dev_bypass_secret == expected_secret
+            and text_override
+        )
+
+        if use_text_override:
+            user_text = text_override
+            logger.info(
+                "DEV BYPASS active for user %s: using text_override (len=%d)",
+                user_id,
+                len(text_override),
+            )
+        else:
+            if audio is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="audio is required when not using text_override",
                 )
-        finally:
-            os.unlink(tmp_path)
-        user_text = transcript.text
+            # Step 1: Whisper transcription — isolated temp file per request
+            audio_bytes = await audio.read()
+            if len(audio_bytes) > 25 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="Audio file too large, please re-record")
+            ext = os.path.splitext(audio.filename or "")[1] or ".webm"
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                tmp.write(audio_bytes)
+                tmp_path = tmp.name
+            try:
+                with open(tmp_path, "rb") as f:
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1", file=f, language="en"
+                    )
+            finally:
+                os.unlink(tmp_path)
+            user_text = transcript.text
         # weakness_tag is now produced by Groq in the JSON response below;
         # here we only need the repeat-detection to feed the prompt.
         repeated_weak_words = detect_repeated_weak_words(user_text, weak_patterns)
