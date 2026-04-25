@@ -1668,23 +1668,22 @@
         }
 
         async function showPracticeHub() {
-            if (practiceHub) practiceHub.style.display = '';
+            if (practiceHub) practiceHub.style.display = 'none';
             if (speakingPractice) speakingPractice.classList.remove('visible');
-            // Render Scenario B fallback first so the hub appears instantly;
-            // then overwrite once the APIs reply.
+            // Hold the hub hidden until the three loaders settle so the user
+            // never sees a fallback flash before the real Scenario A/B
+            // content lands. Each loader still swallows its own errors;
+            // allSettled is the explicit guarantee that one rejecting
+            // won't short-circuit the others.
             pendingResume = null;
             weaknessSummary = null;
             dailyQuestion = null;
-            updatePracticeHubState();
-            renderWeaknessSummary();
-            // allSettled instead of Promise.all: each loader already swallows
-            // its own errors, but allSettled is the explicit guarantee that
-            // one rejecting won't short-circuit the others.
             await Promise.allSettled([
                 loadPendingResume(),
                 loadWeaknessSummary(),
                 loadDailyQuestion(),
             ]);
+            if (practiceHub) practiceHub.style.display = '';
             updatePracticeHubState();
             renderWeaknessSummary();
         }
