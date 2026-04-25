@@ -5,7 +5,7 @@ from openai import OpenAI
 from groq import Groq
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -13,6 +13,7 @@ from slowapi.errors import RateLimitExceeded
 import logging
 import os
 import json
+import random
 import tempfile
 import re
 import time
@@ -52,6 +53,7 @@ ALLOWED_WEAKNESS_TAGS = {
     "weak_vocab", "safe_answer", "lack_detail", "grammar_minor", "off_topic",
 }
 WEAKNESS_SUMMARY_WINDOW = 20
+QUESTION_EXCLUSION_DAYS = 3
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "because", "but", "by",
     "do", "for", "from", "get", "go", "had", "has", "have", "he", "her",
@@ -950,6 +952,98 @@ async def practice_records_weakness_summary(
             "weakness-summary query failed", extra={"user_id": user_id}
         )
         raise HTTPException(status_code=500, detail="Failed to load weakness summary")
+
+
+@app.get("/api/questions/next")
+@limiter.limit("10/minute")
+async def next_question(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Return one part=2 question for the caller, biased away from anything they've
+    practiced in the last QUESTION_EXCLUSION_DAYS days. Selection is purely
+    diversity-driven (no weakness_tag-based recommendation):
+
+      Tier 1 — not recently practiced AND on a topic the user has never touched
+      Tier 2 — not recently practiced (any topic)
+      Tier 3 — pure random across the whole pool (theoretical fallback only)
+
+    503 if the questions pool is empty; generic 500 on unexpected failure.
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=QUESTION_EXCLUSION_DAYS)
+        ).isoformat()
+        recent_resp = (
+            supabase_admin.table("practice_records")
+            .select("question")
+            .eq("user_id", user_id)
+            .gte("created_at", cutoff)
+            .execute()
+        )
+        recent_practiced_set = {
+            (row.get("question") or "").strip()
+            for row in (recent_resp.data or [])
+            if (row.get("question") or "").strip()
+        }
+
+        topics_resp = (
+            supabase_admin.table("practice_records")
+            .select("topic")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        historical_topics_set = {
+            (row.get("topic") or "").strip()
+            for row in (topics_resp.data or [])
+            if (row.get("topic") or "").strip()
+        }
+
+        questions_resp = (
+            supabase_admin.table("questions")
+            .select("id, text, topic, part")
+            .eq("part", 2)
+            .execute()
+        )
+        questions = questions_resp.data or []
+        if not questions:
+            raise HTTPException(
+                status_code=503, detail="Question pool not initialized"
+            )
+
+        not_recent = [
+            q for q in questions
+            if (q.get("text") or "").strip() not in recent_practiced_set
+        ]
+        tier1 = [
+            q for q in not_recent
+            if (q.get("topic") or "").strip() not in historical_topics_set
+        ]
+
+        if tier1:
+            chosen = random.choice(tier1)
+        elif not_recent:
+            chosen = random.choice(not_recent)
+        else:
+            chosen = random.choice(questions)
+
+        return {
+            "id": chosen.get("id"),
+            "text": chosen.get("text"),
+            "topic": chosen.get("topic"),
+            "part": chosen.get("part"),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "next-question selection failed", extra={"user_id": user_id}
+        )
+        raise HTTPException(status_code=500, detail="Failed to load next question")
 
 
 @app.patch("/api/practice-records/{record_id}/resolve", status_code=204)
