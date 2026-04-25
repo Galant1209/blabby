@@ -302,8 +302,21 @@ app.add_middleware(
 
 
 def run_groq(messages):
+    """
+    Call Groq with bounded retries for JSON-shaped failures only.
+
+    Retry budget: 3 attempts total (initial + 2 retries) with exponential
+    backoff 1s → 2s between attempts. We retry two failure modes:
+      (a) the response body fails our local JSON parse / shape check
+      (b) Groq's server-side validator rejects the model output with
+          error code `json_validate_failed` (raised as a Groq API error)
+
+    Other Groq errors (auth, rate limit, network, server) propagate
+    immediately — those won't be fixed by retrying with the same prompt.
+    """
+    max_attempts = 3
     last_error = None
-    for attempt in range(2):
+    for attempt in range(max_attempts):
         try:
             response = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -317,10 +330,31 @@ def run_groq(messages):
             return parsed
         except (json.JSONDecodeError, ValueError, AttributeError, IndexError, TypeError) as exc:
             last_error = exc
-            logger.warning("run_groq parse attempt %s failed: %s", attempt + 1, exc)
-            if attempt == 0:
-                time.sleep(0.3)
-    raise HTTPException(status_code=502, detail="Coach response parsing failed") from last_error
+            logger.warning(
+                "run_groq parse attempt %s/%s failed: %s",
+                attempt + 1, max_attempts, exc,
+            )
+        except Exception as exc:
+            # Groq raises BadRequestError(code="json_validate_failed") when
+            # the model's output fails server-side json_object validation.
+            # Treat that the same as a local parse failure for retry; let
+            # everything else (auth, 429, 5xx, network) bubble up so callers
+            # see the real cause instead of a coerced 503.
+            error_code = getattr(exc, "code", "") or ""
+            if error_code != "json_validate_failed" and "json_validate_failed" not in str(exc):
+                raise
+            last_error = exc
+            logger.warning(
+                "run_groq json_validate_failed attempt %s/%s: %s",
+                attempt + 1, max_attempts, exc,
+            )
+        if attempt < max_attempts - 1:
+            # Exponential backoff between attempts: 1s before retry #1,
+            # 2s before retry #2. No sleep after the final attempt.
+            time.sleep(2 ** attempt)
+    raise HTTPException(
+        status_code=503, detail="批改服務暫時不可用，請重試"
+    ) from last_error
 
 
 def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
