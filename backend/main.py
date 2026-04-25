@@ -51,6 +51,7 @@ WEAK_WORDS = {"very", "good", "interesting", "thing", "things", "stuff"}
 ALLOWED_WEAKNESS_TAGS = {
     "weak_vocab", "safe_answer", "lack_detail", "grammar_minor", "off_topic",
 }
+WEAKNESS_SUMMARY_WINDOW = 20
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "because", "but", "by",
     "do", "for", "from", "get", "go", "had", "has", "have", "he", "her",
@@ -884,6 +885,71 @@ async def last_unresolved_practice_record(
 
     rows = response.data or []
     return rows[0] if rows else None
+
+
+@app.get("/api/practice-records/weakness-summary")
+@limiter.limit("10/minute")
+async def practice_records_weakness_summary(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Aggregate the caller's last WEAKNESS_SUMMARY_WINDOW practice_records by
+    weakness_tag, returning total eligible rows + tag counts sorted by count
+    desc (ties broken by the tag's most recent created_at).
+
+    Below the 5-row threshold the response is shaped {"total": N, "tag_counts": []}
+    so the client can decide rendering without a second round-trip.
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        response = (
+            supabase_admin.table("practice_records")
+            .select("id, weakness_tag, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(WEAKNESS_SUMMARY_WINDOW)
+            .execute()
+        )
+        rows = response.data or []
+
+        eligible = [
+            row for row in rows
+            if (row.get("weakness_tag") or "") in ALLOWED_WEAKNESS_TAGS
+        ]
+        total = len(eligible)
+        if total < 5:
+            return {"total": total, "tag_counts": []}
+
+        counts: Counter = Counter()
+        # ISO-8601 strings sort lexicographically, so the lex max is the most
+        # recent timestamp — no need to parse datetimes for the tie-breaker.
+        latest_seen: dict[str, str] = {}
+        for row in eligible:
+            tag = row["weakness_tag"]
+            counts[tag] += 1
+            ts = row.get("created_at") or ""
+            if tag not in latest_seen or ts > latest_seen[tag]:
+                latest_seen[tag] = ts
+
+        ordered = sorted(
+            counts.items(),
+            key=lambda kv: (kv[1], latest_seen.get(kv[0], "")),
+            reverse=True,
+        )
+        return {
+            "total": total,
+            "tag_counts": [{"tag": tag, "count": count} for tag, count in ordered],
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "weakness-summary query failed", extra={"user_id": user_id}
+        )
+        raise HTTPException(status_code=500, detail="Failed to load weakness summary")
 
 
 @app.patch("/api/practice-records/{record_id}/resolve", status_code=204)

@@ -64,3 +64,6 @@ out/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local-only working notes (release-note for 3a1e568, never tracked)
+CHANGES.md

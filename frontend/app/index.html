@@ -207,6 +207,41 @@
             background: var(--green-dark);
             color: var(--gold-warm);
         }
+        .weakness-summary {
+            margin-top: 22px;
+            padding: 22px 22px 20px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-left: 2px solid var(--gold);
+        }
+        .weakness-summary__header {
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-size: 17px;
+            font-weight: 500;
+            color: var(--ink);
+            margin-bottom: 16px;
+            letter-spacing: 0.01em;
+        }
+        .weakness-summary__list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .weakness-summary__list li {
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 15px;
+            color: var(--ink);
+            line-height: 1.55;
+            padding: 9px 0;
+            border-top: 1px dashed var(--border);
+        }
+        .weakness-summary__list li:first-child {
+            border-top: none;
+        }
+
         .skill-entry-list {
             display: grid;
             gap: 8px;
@@ -1134,6 +1169,7 @@
                 <div class="practice-hub-focus" id="practice-hub-focus">今天我們先抓一個你最常犯的錯</div>
             </div>
             <button id="start-practice-btn" class="practice-hub-btn">開始今天的練習</button>
+            <section id="weakness-summary" class="weakness-summary" style="display:none" aria-label="近期練習弱點摘要"></section>
             <div class="skill-entry-list" aria-label="技能入口">
                 <div class="skill-entry skill-entry-open">
                     <span>Speaking</span>
@@ -1330,6 +1366,7 @@
         // populated from GET /api/practice-records/last-unresolved on hub load.
         // NOT window-global, NOT localStorage — the server owns the state now.
         let pendingResume = null;
+        let weaknessSummary = null;
 
         let currentTopic    = '';
         let currentQuestion = '';
@@ -1419,15 +1456,100 @@
             }
         }
 
+        async function loadWeaknessSummary() {
+            // Mirror loadPendingResume: any failure silently sets
+            // weaknessSummary = null so the hub still renders cleanly.
+            if (!sb) {
+                weaknessSummary = null;
+                return;
+            }
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                const token = session && session.access_token;
+                if (!token) {
+                    weaknessSummary = null;
+                    return;
+                }
+                const res = await fetch(`${API_BASE}/api/practice-records/weakness-summary`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) {
+                    console.warn('weakness-summary fetch non-OK:', res.status);
+                    weaknessSummary = null;
+                    return;
+                }
+                const body = await res.json();
+                weaknessSummary = body || null;
+            } catch (err) {
+                console.warn('weakness-summary fetch failed:', err);
+                weaknessSummary = null;
+            }
+        }
+
+        function renderWeaknessSummary() {
+            const container = document.getElementById('weakness-summary');
+            if (!container) return;
+            container.innerHTML = '';
+
+            // Threshold gate is enforced server-side too (returns tag_counts: []
+            // when total < 5), but check both here so a stale cached payload
+            // can't slip past.
+            if (!weaknessSummary || typeof weaknessSummary.total !== 'number'
+                || weaknessSummary.total < 5) {
+                container.style.display = 'none';
+                return;
+            }
+            const rawCounts = Array.isArray(weaknessSummary.tag_counts)
+                ? weaknessSummary.tag_counts : [];
+            const top = [];
+            for (const item of rawCounts) {
+                if (top.length >= 3) break;
+                if (!item || typeof item !== 'object') continue;
+                const tag = item.tag;
+                const count = item.count;
+                // Defensive: silently drop any tag missing from WEAKNESS_LABELS
+                // (e.g. a future backend tag the frontend hasn't shipped yet).
+                if (!tag || !WEAKNESS_LABELS[tag]) continue;
+                if (typeof count !== 'number' || count <= 0) continue;
+                top.push({ label: WEAKNESS_LABELS[tag], count });
+            }
+            if (top.length === 0) {
+                container.style.display = 'none';
+                return;
+            }
+
+            const header = document.createElement('div');
+            header.className = 'weakness-summary__header';
+            header.textContent = `你最近 ${weaknessSummary.total} 次練習`;
+
+            const list = document.createElement('ul');
+            list.className = 'weakness-summary__list';
+            for (const entry of top) {
+                const li = document.createElement('li');
+                li.textContent = `${entry.label} ×${entry.count}`;
+                list.appendChild(li);
+            }
+
+            container.appendChild(header);
+            container.appendChild(list);
+            container.style.display = '';
+        }
+
         async function showPracticeHub() {
             if (practiceHub) practiceHub.style.display = '';
             if (speakingPractice) speakingPractice.classList.remove('visible');
             // Render Scenario B first so the hub appears instantly; then
-            // overwrite once the API replies.
+            // overwrite once the APIs reply.
             pendingResume = null;
+            weaknessSummary = null;
             updatePracticeHubState();
-            await loadPendingResume();
+            renderWeaknessSummary();
+            // Promise.all is safe here because both loaders catch their own
+            // errors and resolve to undefined; one failing won't reject the
+            // other or block the second render pass.
+            await Promise.all([loadPendingResume(), loadWeaknessSummary()]);
             updatePracticeHubState();
+            renderWeaknessSummary();
         }
 
         function showSpeakingPractice() {
