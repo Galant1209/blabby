@@ -242,6 +242,38 @@
             border-top: none;
         }
 
+        .daily-question {
+            margin-top: 22px;
+            padding: 26px 24px 24px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+        }
+        .daily-question__header {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            margin-bottom: 14px;
+        }
+        .daily-question__text {
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-weight: 500;
+            font-size: 21px;
+            color: var(--ink);
+            line-height: 1.5;
+            white-space: pre-wrap;
+            margin-bottom: 14px;
+        }
+        .daily-question__meta {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 22px;
+        }
+
         .skill-entry-list {
             display: grid;
             gap: 8px;
@@ -298,6 +330,7 @@
             font-size: 22px;
             color: var(--ink);
             line-height: 1.4;
+            white-space: pre-wrap;
         }
         .question-card .meta {
             margin-top: 14px;
@@ -1169,6 +1202,12 @@
                 <div class="practice-hub-focus" id="practice-hub-focus">今天我們先抓一個你最常犯的錯</div>
             </div>
             <button id="start-practice-btn" class="practice-hub-btn">開始今天的練習</button>
+            <section id="daily-question" class="daily-question" style="display:none" aria-label="今天的練習題目">
+                <div class="daily-question__header">今天的題目</div>
+                <div class="daily-question__text" id="daily-question-text"></div>
+                <div class="daily-question__meta" id="daily-question-meta"></div>
+                <button id="daily-question-btn" class="practice-hub-btn daily-question__cta">開始練習</button>
+            </section>
             <section id="weakness-summary" class="weakness-summary" style="display:none" aria-label="近期練習弱點摘要"></section>
             <div class="skill-entry-list" aria-label="技能入口">
                 <div class="skill-entry skill-entry-open">
@@ -1312,6 +1351,11 @@
         const practiceHubCopy = document.getElementById('practice-hub-copy');
         const practiceHubLabel = document.getElementById('practice-hub-label');
         const practiceHubFocus = document.getElementById('practice-hub-focus');
+        const practiceHubWeakness = document.querySelector('.practice-hub-weakness');
+        const dailyQuestionEl = document.getElementById('daily-question');
+        const dailyQuestionTextEl = document.getElementById('daily-question-text');
+        const dailyQuestionMetaEl = document.getElementById('daily-question-meta');
+        const dailyQuestionBtn = document.getElementById('daily-question-btn');
         const recordBtn       = document.getElementById('record-btn');
         const statusText      = document.getElementById('status-text');
         const recorderSection = document.querySelector('.recorder-card');
@@ -1367,6 +1411,7 @@
         // NOT window-global, NOT localStorage — the server owns the state now.
         let pendingResume = null;
         let weaknessSummary = null;
+        let dailyQuestion = null;
 
         let currentTopic    = '';
         let currentQuestion = '';
@@ -1415,14 +1460,45 @@
                 practiceHubLabel.textContent = '你上次卡在：';
                 practiceHubFocus.textContent = label;
                 startPracticeBtn.textContent = '繼續修這個問題';
+                if (practiceHubWeakness) practiceHubWeakness.style.display = '';
+                startPracticeBtn.style.display = '';
+                if (dailyQuestionEl) dailyQuestionEl.style.display = 'none';
                 return;
             }
 
-            // Scenario B: no unresolved session — start fresh.
+            // Scenario B with daily question: hide the original weakness card
+            // + start button so the rotation question is the only CTA. The
+            // copy line stays as the section's framing.
+            if (dailyQuestion && dailyQuestion.text) {
+                practiceHubCopy.textContent = '不用全面批改，先讓一句話變準。';
+                if (practiceHubWeakness) practiceHubWeakness.style.display = 'none';
+                startPracticeBtn.style.display = 'none';
+                if (dailyQuestionEl) {
+                    if (dailyQuestionTextEl) {
+                        dailyQuestionTextEl.textContent = dailyQuestion.text;
+                    }
+                    if (dailyQuestionMetaEl) {
+                        const part = dailyQuestion.part || 2;
+                        const topic = (dailyQuestion.topic || '').trim();
+                        dailyQuestionMetaEl.textContent = topic
+                            ? `Part ${part} · ${topic}`
+                            : `Part ${part}`;
+                    }
+                    dailyQuestionEl.style.display = '';
+                }
+                return;
+            }
+
+            // Scenario B fallback: no unresolved session AND no rotation
+            // question (API failure or empty pool) — keep the original
+            // generic copy so the hub never looks broken.
             practiceHubCopy.textContent = '不用全面批改，先讓一句話變準。';
             practiceHubLabel.textContent = '今天我們先抓：';
             practiceHubFocus.textContent = '今天我們先抓一個你最常犯的錯';
             startPracticeBtn.textContent = '開始今天的練習';
+            if (practiceHubWeakness) practiceHubWeakness.style.display = '';
+            startPracticeBtn.style.display = '';
+            if (dailyQuestionEl) dailyQuestionEl.style.display = 'none';
         }
 
         async function loadPendingResume() {
@@ -1486,6 +1562,37 @@
             }
         }
 
+        async function loadDailyQuestion() {
+            // Mirror the other loaders: any failure (network, 401, 503, 500,
+            // empty pool, timeout) silently sets dailyQuestion = null so
+            // Scenario B falls back to the generic copy.
+            if (!sb) {
+                dailyQuestion = null;
+                return;
+            }
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                const token = session && session.access_token;
+                if (!token) {
+                    dailyQuestion = null;
+                    return;
+                }
+                const res = await fetch(`${API_BASE}/api/questions/next`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) {
+                    console.warn('questions/next fetch non-OK:', res.status);
+                    dailyQuestion = null;
+                    return;
+                }
+                const body = await res.json();
+                dailyQuestion = body || null;
+            } catch (err) {
+                console.warn('questions/next fetch failed:', err);
+                dailyQuestion = null;
+            }
+        }
+
         function renderWeaknessSummary() {
             const container = document.getElementById('weakness-summary');
             if (!container) return;
@@ -1538,16 +1645,21 @@
         async function showPracticeHub() {
             if (practiceHub) practiceHub.style.display = '';
             if (speakingPractice) speakingPractice.classList.remove('visible');
-            // Render Scenario B first so the hub appears instantly; then
-            // overwrite once the APIs reply.
+            // Render Scenario B fallback first so the hub appears instantly;
+            // then overwrite once the APIs reply.
             pendingResume = null;
             weaknessSummary = null;
+            dailyQuestion = null;
             updatePracticeHubState();
             renderWeaknessSummary();
-            // Promise.all is safe here because both loaders catch their own
-            // errors and resolve to undefined; one failing won't reject the
-            // other or block the second render pass.
-            await Promise.all([loadPendingResume(), loadWeaknessSummary()]);
+            // allSettled instead of Promise.all: each loader already swallows
+            // its own errors, but allSettled is the explicit guarantee that
+            // one rejecting won't short-circuit the others.
+            await Promise.allSettled([
+                loadPendingResume(),
+                loadWeaknessSummary(),
+                loadDailyQuestion(),
+            ]);
             updatePracticeHubState();
             renderWeaknessSummary();
         }
@@ -1971,6 +2083,18 @@
             }
             showSpeakingPractice();
         });
+
+        if (dailyQuestionBtn) {
+            dailyQuestionBtn.addEventListener('click', () => {
+                // Defensive: if the user somehow taps before dailyQuestion is
+                // populated (or after it cleared), do nothing rather than
+                // sending an empty question into the recorder flow.
+                if (!dailyQuestion || !dailyQuestion.text) return;
+                setQuestion(dailyQuestion.text, dailyQuestion.topic || '');
+                showSpeakingPractice();
+                setRecorderStatus('準備好就開始');
+            });
+        }
 
         recordBtn.addEventListener('click', () => {
             if (isRecording) stopRecording();
