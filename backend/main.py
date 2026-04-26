@@ -499,11 +499,10 @@ Your job is to find the single most painful blockage in this answer and give one
 - 長度控制在 2 到 4 句
 - 不要寫成小作文
 - 一定要可執行，讓學生知道下一句要怎麼講得更好
-- 必要時可以給一個短示範，但只能給一個
-- 示範句必須是英文，絕對不能給中文示範句
-- 不要給三種版本，不要一次給很多替代答案
-- correction 裡絕對禁止出現頓號或逗號分隔的詞彙清單（例如「A、B、C」或「A，B，C」）
-- 如果你想給例子，只能給一個。給了一個就停。
+- correction 的結構只能是這樣，不得偏離：
+  第一句：用中文說這個動作要怎麼做（不含任何示範）
+  第二句（選填）：「試試：'[一個英文示範句]'」——只能一句，必須英文，必須用單引號包住
+- correction 裡絕對禁止：頓號或逗號分隔的詞彙清單、中文示範句、超過一個示範、「另外」「同時」「也可以」等連接詞
 - 請用 JSON 的 single_issue 和 correction 強迫自己只處理一個問題
 - 如果 on_topic 是 false（學生完全沒回答題目），better_expression 和 better_expression_zh 可以是空字串，不要硬塞詞彙。優先把學生拉回題目，詞彙下次再教。
 
@@ -558,7 +557,7 @@ User answer:
 Output:
 {
   "single_issue": "你沒有回答題目 — 題目問地點，你整段在講閱讀。",
-  "correction": "先回到題目。給一個具體地點，一個城市、一間博物館、一條街都可以。講完這一步再繼續。",
+  "correction": "先回到題目。給一個具體地點。試試：'I went to Jiufen last summer.'",
   "next_question": "Let's try again — name one specific place you've been to.",
   "better_expression": "",
   "better_expression_zh": "",
@@ -574,7 +573,7 @@ User answer:
 Output:
 {
   "single_issue": "你沒有回答題目 — 題目問垃圾種類，你整段在講閱讀。",
-  "correction": "先回到題目。給一個具體的垃圾種類，例如塑膠瓶、紙箱、廚餘。weak word 這次不處理，下次再說。",
+  "correction": "先回到題目。給一個具體的垃圾種類。試試：'I see a lot of plastic bottles in my neighborhood.'",
   "next_question": "Let's come back to the question — name one kind of trash you see.",
   "better_expression": "",
   "better_expression_zh": "",
@@ -591,7 +590,7 @@ User's answer this time:
 Output:
 {
   "single_issue": "memorable 這個詞用得好，上次我們聊過 very 太模糊，你記住了。這次接著挑戰：用一個動詞讓畫面更具體。",
-  "correction": "把「stuck with me」延伸下去 — 什麼動作卡在腦中？把它換成一個動詞，例如 lingered。",
+  "correction": "把「stuck with me」延伸下去 — 換成一個動詞。試試：'The stillness of the streets lingered.'",
   "next_question": "What exactly were you doing when that feeling hit you?",
   "better_expression": "the stillness lingered",
   "better_expression_zh": "lingered 比 memorable 更有畫面感，描繪「停留不散」的氛圍。",
@@ -608,7 +607,7 @@ User's answer this time:
 Output:
 {
   "single_issue": "very 這個詞你已經用很多次了，每次提醒好像都卡住。是詞彙不夠，還是習慣問題？",
-  "correction": "下次講話前停一下，想想 very 之外還能怎麼講。先記住一個詞 — 例如 mouth-watering，下次形容食物時用它，看看感覺。",
+  "correction": "下次講話前停一下，想想 very 之外還能怎麼講。試試：'The food was absolutely mouth-watering.'",
   "next_question": "Let's pause here. What's one word other than 'very' you could try next time?",
   "better_expression": "mouth-watering",
   "better_expression_zh": "比 very good 更精準，直接傳達「看了就想吃」。",
