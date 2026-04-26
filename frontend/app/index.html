@@ -1488,6 +1488,7 @@
         // NOT window-global, NOT localStorage — the server owns the state now.
         let pendingResume = null;
         let currentTopicSession = null; // { topic, count }
+        let practisedInSession = new Set(); // questions seen this session
         let weaknessSummary = null;
         let dailyQuestion = null;
 
@@ -1769,15 +1770,15 @@
         };
 
         function pickRandomFromBank(exclude) {
-            const pool = exclude
-                ? QUESTION_BANK.filter(q => q.question !== exclude)
-                : QUESTION_BANK;
+            const notSeen = QUESTION_BANK.filter(q => !practisedInSession.has(q.question));
+            const pool = notSeen.length > 0 ? notSeen : QUESTION_BANK;
             return pool[Math.floor(Math.random() * pool.length)];
         }
 
         function setQuestion(question, topic) {
             currentQuestion = question;
             currentTopic    = topic;
+            practisedInSession.add(question);
             questionText.textContent = question;
             questionMeta.textContent = `Part 1 · Topic: ${topic}`;
         }
@@ -2219,7 +2220,7 @@
             if (currentTopicSession && currentTopicSession.count < TOPIC_SESSION_LIMIT) {
                 // Stay in same topic
                 const sameTopicBank = QUESTION_BANK.filter(
-                    q => q.topic === currentTopicSession.topic && q.question !== currentQuestion
+                    q => q.topic === currentTopicSession.topic && !practisedInSession.has(q.question)
                 );
                 pick = sameTopicBank.length > 0
                     ? sameTopicBank[Math.floor(Math.random() * sameTopicBank.length)]
