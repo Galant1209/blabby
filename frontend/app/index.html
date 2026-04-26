@@ -2143,7 +2143,7 @@
             document.getElementById('session-insight').textContent = getSessionInsight(data.weakness_tag);
 
             // 下一題
-            document.getElementById('next-question-text').textContent = data.next_question || '';
+            document.getElementById('next-question-text').textContent = '';
             renderSoftLockNote(data);
 
             feedbackSection.classList.add('visible');
