@@ -491,7 +491,7 @@ Your job is to find the single most painful blockage in this answer and give one
 
 1. 如果 memory_block 顯示使用者某 weak word 歷史出現 ≥ 3 次，且這次又用了 → 層級 C（直球問）
 2. 如果 memory_block 顯示某 weak word 歷史 < 3 次，且這次又用了 → 層級 A（預設）+ 提一次「又出現」
-3. 如果 memory_block 有 weak word 但這次**沒用** → 層級 B（具體肯定）
+3. 如果 memory_block 有 weak word 記錄，且這次的回答裡**看不到那個 weak word**，也**有具體細節出現** → 層級 B（具體肯定）；肯定那個具體細節，再處理其他問題
 4. 其他情況 → 層級 A（預設）
 
 【輸出規則】
