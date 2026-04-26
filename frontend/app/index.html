@@ -1390,29 +1390,28 @@
         // Warm up Render backend so the first /process call doesn't pay the cold-start tax.
         fetch(`${API_BASE}/health`).catch(() => { /* silent */ });
 
-        const QUESTION_BANK = [
-            { topic: "Hometown",      question: "Where are you from?" },
-            { topic: "Hometown",      question: "What do you like most about your hometown?" },
-            { topic: "Hometown",      question: "Has your hometown changed much in recent years?" },
-            { topic: "Family",        question: "Do you have a large or small family?" },
-            { topic: "Family",        question: "How much time do you spend with your family?" },
-            { topic: "Family",        question: "Who are you closest to in your family?" },
-            { topic: "Daily Routine", question: "What do you usually do in the morning?" },
-            { topic: "Daily Routine", question: "Has your daily routine changed recently?" },
-            { topic: "Daily Routine", question: "Do you prefer to plan your day or be spontaneous?" },
-            { topic: "Reading",       question: "Do you enjoy reading?" },
-            { topic: "Reading",       question: "What kind of books do you like to read?" },
-            { topic: "Reading",       question: "Do you prefer reading physical books or e-books?" },
-            { topic: "Travel",        question: "Do you like travelling?" },
-            { topic: "Travel",        question: "Where is the most interesting place you have visited?" },
-            { topic: "Travel",        question: "Do you prefer travelling alone or with others?" },
-            { topic: "Technology",    question: "How often do you use the internet?" },
-            { topic: "Technology",    question: "How has technology changed your daily life?" },
-            { topic: "Technology",    question: "Do you think people rely too much on technology?" },
-            { topic: "Nature",        question: "Do you like spending time in nature?" },
-            { topic: "Nature",        question: "Are there any environmental problems in your area?" },
-            { topic: "Nature",        question: "What can individuals do to help protect the environment?" },
-        ];
+        let QUESTION_BANK = [];
+
+        async function loadQuestionBank() {
+            try {
+                const res = await fetch(`${API_BASE}/api/questions/bank`);
+                if (!res.ok) throw new Error('bank fetch failed');
+                const data = await res.json();
+                if (data.questions && data.questions.length > 0) {
+                    QUESTION_BANK = data.questions;
+                }
+            } catch (err) {
+                console.warn('Question bank load failed, using fallback:', err);
+                QUESTION_BANK = [
+                    { topic: "Hometown", question: "Where are you from?" },
+                    { topic: "Hometown", question: "What do you like most about your hometown?" },
+                    { topic: "Daily Routine", question: "What do you usually do in the morning?" },
+                    { topic: "Travel", question: "Do you like travelling?" },
+                    { topic: "Technology", question: "How often do you use the internet?" },
+                    { topic: "Nature", question: "Do you like spending time in nature?" },
+                ];
+            }
+        }
 
         const practiceHub     = document.getElementById('practice-hub');
         const speakingPractice = document.getElementById('speaking-practice');
@@ -1724,6 +1723,7 @@
         }
 
         async function showPracticeHub() {
+            if (QUESTION_BANK.length === 0) await loadQuestionBank();
             if (practiceHub) practiceHub.style.display = 'none';
             if (speakingPractice) speakingPractice.classList.remove('visible');
             // Hold the hub hidden until the three loaders settle so the user
@@ -1808,8 +1808,13 @@
             recorderSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
 
-        // Initial question from bank
-        {
+        // Initial question from bank — only runs if QUESTION_BANK is already
+        // populated. With the bank now async-loaded inside showPracticeHub(),
+        // it's empty at script-eval time on a fresh page-load; the guard
+        // skips this block in that case (showPracticeHub will run later and
+        // every CTA path overwrites the question before the speaking UI
+        // becomes visible).
+        if (QUESTION_BANK.length > 0) {
             const initial = pickRandomFromBank();
             currentTopicSession = { topic: initial.topic, count: 1 };
             setQuestion(initial.question, initial.topic);

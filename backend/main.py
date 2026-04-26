@@ -1056,6 +1056,24 @@ async def practice_records_weakness_summary(
         raise HTTPException(status_code=500, detail="Failed to load weakness summary")
 
 
+@app.get("/api/questions/bank")
+async def get_question_bank():
+    """Return all Part 1 questions for client-side bank (no auth required)."""
+    try:
+        resp = supabase_admin.table("questions") \
+            .select("text, topic, part") \
+            .eq("part", 1) \
+            .execute()
+        questions = [
+            {"question": r["text"], "topic": r["topic"]}
+            for r in (resp.data or [])
+        ]
+        return {"questions": questions}
+    except Exception as exc:
+        logger.exception("Failed to fetch question bank")
+        raise HTTPException(status_code=500, detail="Failed to fetch question bank")
+
+
 @app.get("/api/questions/next")
 @limiter.limit("10/minute")
 async def next_question(
