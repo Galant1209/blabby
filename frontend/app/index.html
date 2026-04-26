@@ -462,6 +462,34 @@
             white-space: pre-wrap;
             word-break: break-word;
         }
+        .demo-pullquote {
+            margin: 16px -4px 0;
+            padding: 14px 18px;
+            border-left: 3px solid var(--gold);
+            background: rgba(201, 168, 76, 0.06);
+        }
+        .pullquote-mark {
+            font-family: 'Playfair Display', 'EB Garamond', serif;
+            font-size: 36px;
+            color: var(--gold);
+            line-height: 0.8;
+            display: block;
+            margin-bottom: 6px;
+        }
+        .pullquote-sentence {
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+            font-size: 16px;
+            color: var(--green);
+            line-height: 1.6;
+            margin: 0 0 8px;
+        }
+        .pullquote-caption {
+            font-family: 'EB Garamond', serif;
+            font-size: 12px;
+            color: var(--muted);
+            letter-spacing: 0.08em;
+        }
         .expression-en {
             font-family: 'Playfair Display', serif;
             font-style: italic;
@@ -1282,6 +1310,11 @@
                 <div class="feedback-item feedback-item-primary">
                     <div class="feedback-label">這一題真正的問題</div>
                     <div id="coach-response" class="coach-text"></div>
+                    <figure id="demo-pullquote" class="demo-pullquote" style="display:none">
+                        <span class="pullquote-mark" aria-hidden="true">"</span>
+                        <p id="demo-sentence" class="pullquote-sentence"></p>
+                        <figcaption class="pullquote-caption">— 試試這樣說</figcaption>
+                    </figure>
                 </div>
                 <div class="feedback-item">
                     <div class="feedback-label">你這次卡住的類型</div>
@@ -2054,7 +2087,17 @@
             document.getElementById('user-transcript').textContent = data.text || '';
 
             // 批改回饋
-            document.getElementById('coach-response').textContent = data.coach_response || '';
+            const fullResponse = data.coach_response || '';
+            const demoMatch = fullResponse.match(/試試：'([^']+)'/);
+            if (demoMatch) {
+                const cleanResponse = fullResponse.replace(/試試：'[^']+'/, '').trim();
+                document.getElementById('coach-response').textContent = cleanResponse;
+                document.getElementById('demo-sentence').textContent = demoMatch[1];
+                document.getElementById('demo-pullquote').style.display = '';
+            } else {
+                document.getElementById('coach-response').textContent = fullResponse;
+                document.getElementById('demo-pullquote').style.display = 'none';
+            }
 
             // 主要弱點標籤
             document.getElementById('weakness-tag').textContent = formatWeaknessTag(data.weakness_tag);
