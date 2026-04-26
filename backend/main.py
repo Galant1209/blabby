@@ -500,6 +500,7 @@ Your job is to find the single most painful blockage in this answer and give one
 - 不要寫成小作文
 - 一定要可執行，讓學生知道下一句要怎麼講得更好
 - 必要時可以給一個短示範，但只能給一個
+- 示範句必須是英文，絕對不能給中文示範句
 - 不要給三種版本，不要一次給很多替代答案
 - correction 裡絕對禁止出現頓號或逗號分隔的詞彙清單（例如「A、B、C」或「A，B，C」）
 - 如果你想給例子，只能給一個。給了一個就停。
