@@ -237,6 +237,22 @@
             line-height: 1.55;
             padding: 9px 0;
             border-top: 1px dashed var(--border);
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+        .ledger-key {
+            flex-shrink: 0;
+        }
+        .ledger-dots {
+            flex: 1;
+            border-bottom: 1px dotted var(--border);
+            margin: 0 6px 3px;
+        }
+        .ledger-val {
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+            color: var(--muted);
         }
         .weakness-summary__list li:first-child {
             border-top: none;
@@ -1686,7 +1702,18 @@
             list.className = 'weakness-summary__list';
             for (const entry of top) {
                 const li = document.createElement('li');
-                li.textContent = `${entry.label} ×${entry.count}`;
+                const key = document.createElement('span');
+                key.className = 'ledger-key';
+                key.textContent = entry.label;
+                const dots = document.createElement('span');
+                dots.className = 'ledger-dots';
+                dots.setAttribute('aria-hidden', 'true');
+                const val = document.createElement('span');
+                val.className = 'ledger-val';
+                val.textContent = entry.count;
+                li.appendChild(key);
+                li.appendChild(dots);
+                li.appendChild(val);
                 list.appendChild(li);
             }
 
