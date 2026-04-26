@@ -1479,6 +1479,7 @@
         // populated from GET /api/practice-records/last-unresolved on hub load.
         // NOT window-global, NOT localStorage — the server owns the state now.
         let pendingResume = null;
+        let currentTopicSession = null; // { topic, count }
         let weaknessSummary = null;
         let dailyQuestion = null;
 
@@ -1810,6 +1811,7 @@
         // Initial question from bank
         {
             const initial = pickRandomFromBank();
+            currentTopicSession = { topic: initial.topic, count: 1 };
             setQuestion(initial.question, initial.topic);
         }
 
@@ -2195,8 +2197,38 @@
         });
 
         nextBtn.addEventListener('click', () => {
-            // Always pick from Part 1 question bank (ignore AI-generated next_question).
-            const pick = pickRandomFromBank(currentQuestion);
+            const TOPIC_SESSION_LIMIT = 3;
+            let pick;
+
+            if (currentTopicSession && currentTopicSession.count < TOPIC_SESSION_LIMIT) {
+                // Stay in same topic
+                const sameTopicBank = QUESTION_BANK.filter(
+                    q => q.topic === currentTopicSession.topic && q.question !== currentQuestion
+                );
+                pick = sameTopicBank.length > 0
+                    ? sameTopicBank[Math.floor(Math.random() * sameTopicBank.length)]
+                    : pickRandomFromBank(currentQuestion);
+                currentTopicSession.count += 1;
+            } else {
+                // Switch topic
+                const newTopicBank = QUESTION_BANK.filter(
+                    q => !currentTopicSession || q.topic !== currentTopicSession.topic
+                );
+                pick = newTopicBank.length > 0
+                    ? newTopicBank[Math.floor(Math.random() * newTopicBank.length)]
+                    : pickRandomFromBank(currentQuestion);
+                const oldTopic = currentTopicSession ? currentTopicSession.topic : null;
+                currentTopicSession = { topic: pick.topic, count: 1 };
+                if (oldTopic) {
+                    const softLock = document.getElementById('soft-lock-note');
+                    if (softLock) {
+                        softLock.textContent = `你已經在「${oldTopic}」練了 ${TOPIC_SESSION_LIMIT} 題，換個角度繼續。`;
+                        softLock.style.display = '';
+                        setTimeout(() => { softLock.style.display = 'none'; }, 4000);
+                    }
+                }
+            }
+
             setQuestion(pick.question, pick.topic);
             lastFeedbackData = null;
             isRetryingSameQuestion = false;
