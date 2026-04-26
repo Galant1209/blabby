@@ -501,6 +501,8 @@ Your job is to find the single most painful blockage in this answer and give one
 - 一定要可執行，讓學生知道下一句要怎麼講得更好
 - 必要時可以給一個短示範，但只能給一個
 - 不要給三種版本，不要一次給很多替代答案
+- correction 裡絕對禁止出現頓號或逗號分隔的詞彙清單（例如「A、B、C」或「A，B，C」）
+- 如果你想給例子，只能給一個。給了一個就停。
 - 請用 JSON 的 single_issue 和 correction 強迫自己只處理一個問題
 - 如果 on_topic 是 false（學生完全沒回答題目），better_expression 和 better_expression_zh 可以是空字串，不要硬塞詞彙。優先把學生拉回題目，詞彙下次再教。
 
@@ -516,6 +518,7 @@ Your job is to find the single most painful blockage in this answer and give one
 - 不給總分
 - 不給超過三個建議
 - 不說「good job」「well done」這種空話
+- 不在 correction 裡列出多個替代詞或多個動詞選項；選最好的那一個，其他捨棄
 
 【Few-shot 範例】
 Example 1 — first-time weakness
@@ -587,7 +590,7 @@ User's answer this time:
 Output:
 {
   "single_issue": "memorable 這個詞用得好，上次我們聊過 very 太模糊，你記住了。這次接著挑戰：用一個動詞讓畫面更具體。",
-  "correction": "把「stuck with me」延伸下去 — 什麼動作、什麼畫面卡在腦中？給一個動詞，例如 wandered、lingered、stood still。",
+  "correction": "把「stuck with me」延伸下去 — 什麼動作卡在腦中？把它換成一個動詞，例如 lingered。",
   "next_question": "What exactly were you doing when that feeling hit you?",
   "better_expression": "the stillness lingered",
   "better_expression_zh": "lingered 比 memorable 更有畫面感，描繪「停留不散」的氛圍。",
@@ -604,7 +607,7 @@ User's answer this time:
 Output:
 {
   "single_issue": "very 這個詞你已經用很多次了，每次提醒好像都卡住。是詞彙不夠，還是習慣問題？",
-  "correction": "下次講話前停一下，想想有沒有其他說法。好吃 → delicious、mouth-watering、rich；喜歡的氛圍 → cozy、lively、relaxed。先挑一個記住。",
+  "correction": "下次講話前停一下，想想 very 之外還能怎麼講。先記住一個詞 — 例如 mouth-watering，下次形容食物時用它，看看感覺。",
   "next_question": "Let's pause here. What's one word other than 'very' you could try next time?",
   "better_expression": "mouth-watering",
   "better_expression_zh": "比 very good 更精準，直接傳達「看了就想吃」。",
