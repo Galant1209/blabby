@@ -684,6 +684,22 @@ async def process(
         weak_patterns = extract_weak_patterns(recent_transcripts)
         weak_pattern_counts = count_weak_patterns(recent_transcripts, weak_patterns)
         tag_counts = count_tag_patterns(recent_records)
+
+        # Tier-B injection: if last session's weakness_tag is NOT the top historical tag,
+        # user has broken their worst pattern — force tier B in this turn.
+        # recent_records is sorted DESC by created_at (newest first), so iterating
+        # in natural order + taking the first non-empty tag gives the user's most
+        # recent session — the one they're "comparing this turn against".
+        tier_b_override = ""
+        if tag_counts and recent_records:
+            top_tag = max(tag_counts, key=tag_counts.get)
+            last_tag = next(
+                (r.get("weakness_tag") for r in recent_records if r.get("weakness_tag")),
+                None
+            )
+            if last_tag and last_tag != top_tag:
+                tier_b_override = f"\n【本次層級強制指令】使用層級 B：使用者上一次沒有犯歷史最常見的問題（{top_tag}）。本次回饋必須先肯定這個具體進步，再處理其他問題。這條指令優先於所有其他層級判斷。\n"
+
         memory_block = build_memory_block(weak_pattern_counts, tag_counts)
 
         try:
@@ -750,7 +766,7 @@ async def process(
             "content": build_system_prompt(
                 topic=topic,
                 question=question,
-                memory_block=memory_block,
+                memory_block=memory_block + tier_b_override,
                 repeated_weak_words=repeated_weak_words,
             )
         }]
