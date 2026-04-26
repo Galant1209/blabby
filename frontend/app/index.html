@@ -2195,15 +2195,9 @@
         });
 
         nextBtn.addEventListener('click', () => {
-            // Prefer AI's next_question (natural continuation of current topic).
-            // Fall back to a random bank question, excluding the current one.
-            const aiNext = nextQuestionEl.textContent.trim();
-            if (aiNext) {
-                setQuestion(aiNext, currentTopic);
-            } else {
-                const pick = pickRandomFromBank(currentQuestion);
-                setQuestion(pick.question, pick.topic);
-            }
+            // Always pick from Part 1 question bank (ignore AI-generated next_question).
+            const pick = pickRandomFromBank(currentQuestion);
+            setQuestion(pick.question, pick.topic);
             lastFeedbackData = null;
             isRetryingSameQuestion = false;
             feedbackSection.classList.remove('visible');
