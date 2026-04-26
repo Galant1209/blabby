@@ -634,7 +634,7 @@ Output:
 {
   "single_issue": "用繁體中文，一句話點名唯一痛點",
   "correction": "用繁體中文，2 到 3 句內給唯一矯正動作；必要時附一個短示範",
-  "next_question": "下一個英文問題，自然銜接",
+  "next_question": "下一個問題，必須是英文，不可以用中文，自然銜接這次的話題",
   "better_expression": "一個值得學的英文詞或短語；若學生偏題則可為空字串",
   "better_expression_zh": "為什麼這個詞好用（中文）；若 better_expression 為空則一併留空",
   "weakness_tag": "本次回答最主要的問題分類，只能從這五個值選一個：weak_vocab（用 very/good/interesting 等空泛詞）、safe_answer（回答太空泛）、lack_detail（缺乏細節）、grammar_minor（文法小錯）、off_topic（完全沒回答題目）。若同時有多個問題，選最嚴重的那一個；若是 off_topic 必定選 off_topic，優先於所有其他 tag。",
