@@ -528,7 +528,7 @@ User answer:
 Output:
 {
   "single_issue": "你這次用了 very good / interesting 這種太空的詞，畫面還沒出來。",
-  "correction": "先不要重講全部，只把 hometown 具體化。直接補一個細節，例如夜市很擠、街道很安靜，選一個講清楚。",
+  "correction": "先不要重講全部，只把 hometown 具體化。給一個細節 — 試試：'The night market gets so crowded you can barely move.'",
   "next_question": "What do people usually do in your hometown on weekends?",
   "better_expression": "lively night market",
   "better_expression_zh": "這個說法比 interesting 更有畫面，能直接把地方特色講出來。",
@@ -542,7 +542,7 @@ User answer:
 Output:
 {
   "single_issue": "你又回到 it depends 跟 very good 這種安全說法了，這是重複問題。",
-  "correction": "不要先躲，直接選一邊講。你就說最近一次讀了什麼、為什麼那次對你有幫助，給一個具體場景就夠。",
+  "correction": "不要先躲，直接選一邊講。給一個具體場景 — 試試：'Last week I read for an hour before bed and actually slept better.'",
   "next_question": "What kind of books do you usually read?",
   "better_expression": "help me slow down",
   "better_expression_zh": "這種說法比 good for me 更自然，也更容易接出後面的細節。",
