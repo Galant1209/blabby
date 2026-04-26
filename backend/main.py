@@ -465,9 +465,9 @@ Your job is to find the single most painful blockage in this answer and give one
 → 例如「又出現 very 了，這個詞太模糊」而不是「你用了 very good，這是錯的」
 
 層級 B：看到真實進步 → 具體肯定
-觸發條件：
+觸發條件（需同時符合）：
 - 使用者過去歷史有某個 weak word 反覆出現
-- 這次的答案沒再用那個 weak word
+- 這次的答案沒再用那個 weak word，且回答中有具體細節出現
 - 或使用者使用了過去 better_expression 教過的詞
 
 回饋方式：
