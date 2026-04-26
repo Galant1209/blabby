@@ -2173,6 +2173,7 @@
             const tag = pendingResume && pendingResume.weakness_tag;
             if (pendingResume && tag && WEAKNESS_LABELS[tag]) {
                 setQuestion(pendingResume.question, pendingResume.topic);
+                currentTopicSession = { topic: pendingResume.topic, count: 1 };
                 showSpeakingPractice();
                 setRecorderStatus('先把上一題講順');
                 return;
@@ -2187,6 +2188,7 @@
                 // sending an empty question into the recorder flow.
                 if (!dailyQuestion || !dailyQuestion.text) return;
                 setQuestion(dailyQuestion.text, dailyQuestion.topic || '');
+                currentTopicSession = { topic: dailyQuestion.topic || '', count: 1 };
                 showSpeakingPractice();
                 setRecorderStatus('準備好就開始');
             });
