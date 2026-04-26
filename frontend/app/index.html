@@ -373,6 +373,14 @@
             margin-bottom: 22px;
             min-height: 22px;
         }
+        .topic-switch-hint {
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 14px;
+            color: var(--gold);
+            text-align: center;
+            padding: 6px 0 2px;
+            letter-spacing: 0.03em;
+        }
         .record-btn {
             width: 84px;
             height: 84px;
@@ -1304,6 +1312,7 @@
 
             <section class="recorder-card">
                 <div class="status-text" id="status-text">準備好了就按錄音</div>
+                <div id="topic-switch-hint" class="topic-switch-hint" style="display:none"></div>
                 <button class="record-btn" id="record-btn" aria-label="錄音">
                     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                         <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z" fill="currentColor"/>
@@ -2227,11 +2236,11 @@
                 const oldTopic = currentTopicSession ? currentTopicSession.topic : null;
                 currentTopicSession = { topic: pick.topic, count: 1 };
                 if (oldTopic) {
-                    const softLock = document.getElementById('soft-lock-note');
-                    if (softLock) {
-                        softLock.textContent = `你已經在「${oldTopic}」練了 ${TOPIC_SESSION_LIMIT} 題，換個角度繼續。`;
-                        softLock.style.display = '';
-                        setTimeout(() => { softLock.style.display = 'none'; }, 4000);
+                    const hint = document.getElementById('topic-switch-hint');
+                    if (hint) {
+                        hint.textContent = `你已經在「${oldTopic}」練了 ${TOPIC_SESSION_LIMIT} 題，換個角度繼續。`;
+                        hint.style.display = '';
+                        setTimeout(() => { hint.style.display = 'none'; }, 4000);
                     }
                 }
             }
