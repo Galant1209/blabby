@@ -1076,7 +1076,7 @@ async def next_question(
         questions_resp = (
             supabase_admin.table("questions")
             .select("id, text, topic, part")
-            .eq("part", 2)
+            .eq("part", 1)
             .execute()
         )
         questions = questions_resp.data or []
