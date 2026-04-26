@@ -141,7 +141,7 @@ def get_user_recent_records(user_id: str, limit: int = 10) -> list[dict]:
     try:
         response = (
             supabase_admin.table("practice_records")
-            .select("user_transcript, topic, question, created_at")
+            .select("user_transcript, topic, question, created_at, weakness_tag")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .limit(limit)
@@ -257,7 +257,17 @@ def count_weak_patterns(
     return totals
 
 
-def build_memory_block(weak_pattern_counts: dict[str, int]) -> str:
+def count_tag_patterns(records: list[dict]) -> dict[str, int]:
+    valid_tags = {"weak_vocab", "safe_answer", "lack_detail", "grammar_minor", "off_topic"}
+    counts = {}
+    for r in records:
+        tag = r.get("weakness_tag")
+        if tag in valid_tags:
+            counts[tag] = counts.get(tag, 0) + 1
+    return counts
+
+
+def build_memory_block(weak_pattern_counts: dict[str, int], tag_counts: dict[str, int] | None = None) -> str:
     """
     Render the 【使用者歷史弱點】 block that gets stitched into the system prompt.
 
@@ -269,20 +279,25 @@ def build_memory_block(weak_pattern_counts: dict[str, int]) -> str:
     These rules are spelled out textually here so the few-shot examples aren't
     the only carrier.
     """
-    if not weak_pattern_counts:
-        return ""
-    lines = [
-        f"- '{word}' 已出現 {count} 次"
-        for word, count in weak_pattern_counts.items()
-    ]
-    return (
-        "\n【使用者歷史弱點】\n"
-        + "\n".join(lines) + "\n"
-        "- 若某個詞的 count 已達 3 次以上，且學生這次又用了 → 使用層級 C（直球問，不要訓話）\n"
-        "- 若某個詞在歷史出現過，但學生這次沒再用 → 使用層級 B（具體肯定那個改變）\n"
-        "- 其他情況 → 使用層級 A（預設語氣）\n"
-        "- Blabby 鐵律不變：一次只點一個最關鍵的問題。\n"
-    )
+    block = ""
+    if weak_pattern_counts:
+        lines = [
+            f"- '{word}' 已出現 {count} 次"
+            for word, count in weak_pattern_counts.items()
+        ]
+        block += (
+            "\n【使用者歷史弱點】\n"
+            + "\n".join(lines) + "\n"
+            "- 若某個詞的 count 已達 3 次以上，且學生這次又用了 → 使用層級 C（直球問，不要訓話）\n"
+            "- 若某個詞在歷史出現過，但學生這次沒再用，且回答中有具體細節出現 → 使用層級 B（具體肯定那個改變）\n"
+            "- 其他情況 → 使用層級 A（預設語氣）\n"
+            "- Blabby 鐵律不變：一次只點一個最關鍵的問題。\n"
+        )
+    if tag_counts:
+        sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
+        tag_lines = "\n".join(f"- {tag}: {count} 次" for tag, count in sorted_tags)
+        block += f"\n【使用者歷史弱點類型】\n{tag_lines}\n如果這次的回答沒有犯最常見的弱點類型，且有具體細節，優先使用層級 B 肯定這個進步。\n"
+    return block
 
 
 def _err_resp(message: str, status: int = 500):
@@ -668,7 +683,8 @@ async def process(
         weak_words = extract_dynamic_weak_words_from_history(recent_transcripts)
         weak_patterns = extract_weak_patterns(recent_transcripts)
         weak_pattern_counts = count_weak_patterns(recent_transcripts, weak_patterns)
-        memory_block = build_memory_block(weak_pattern_counts)
+        tag_counts = count_tag_patterns(recent_records)
+        memory_block = build_memory_block(weak_pattern_counts, tag_counts)
 
         try:
             history_list = json.loads(history) if history else []
@@ -725,6 +741,7 @@ async def process(
             "weak_words":          weak_words,
             "weak_patterns":       weak_patterns,
             "repeated_weak_words": repeated_weak_words,
+            "tag_counts":          tag_counts,
         }
 
         # Step 2: Groq chat (no extra round-trip to browser in between)
