@@ -870,8 +870,40 @@ async def process(
                     prior_query = prior_query.neq("id", new_record_id)
                 prior_resp = prior_query.execute()
                 candidates = prior_resp.data or []
-
                 target = (question or "").strip()
+
+                # Count total attempts on this question (resolved + unresolved,
+                # including the just-inserted current record). Python-side
+                # whitespace-normalized matching keeps the count and the match
+                # below logically aligned, so a question string that drifted by
+                # whitespace / curly-vs-straight apostrophe doesn't undercount.
+                attempts_resp = (
+                    supabase_admin.table("practice_records")
+                    .select("id, question")
+                    .eq("user_id", user_id)
+                    .execute()
+                )
+                total_attempts = sum(
+                    1 for r in (attempts_resp.data or [])
+                    if (r.get("question") or "").strip() == target
+                )
+
+                # Force-resolve after 3 attempts on the same question, regardless
+                # of tag progression. Takes priority over the tag-comparison logic
+                # below: picks the most recent unresolved match from the
+                # candidates already pulled (DESC by created_at) and flips it.
+                if total_attempts >= 3:
+                    for rec in candidates:
+                        if (rec.get("question") or "").strip() == target:
+                            supabase_admin.table("practice_records").update(
+                                {"resolved": True}
+                            ).eq("id", rec["id"]).execute()
+                            logger.info(
+                                "force-resolved after %s attempts: %s",
+                                total_attempts, rec["id"],
+                            )
+                            break
+
                 prior = next(
                     (
                         c for c in candidates
