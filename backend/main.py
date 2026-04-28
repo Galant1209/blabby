@@ -52,6 +52,71 @@ WEAK_WORDS = {"very", "good", "interesting", "thing", "things", "stuff"}
 ALLOWED_WEAKNESS_TAGS = {
     "weak_vocab", "safe_answer", "lack_detail", "grammar_minor", "off_topic",
 }
+
+# Tag-specific drill prompts. Keyed by weakness_tag; each entry has:
+#   - expected_axis:    the axis name the LLM must return in drill_score.axis
+#   - system_injection: prompt text appended verbatim to the system prompt
+#                       when /process is called with mode=drill + drill_tag
+# Adding a tag here automatically makes mode=drill+drill_tag=<tag> valid.
+# system_injection text is treated as a tested artifact — do not paraphrase
+# or collapse whitespace; replace as a whole when iterating.
+DRILL_PROMPTS: dict[str, dict] = {
+    "weak_vocab": {
+        "expected_axis": "vocab_precision_score",
+        "system_injection": """This turn is a VOCABULARY PRECISION DRILL.
+
+The user has been overusing safe, low-precision words like "very", "good", "nice", "interesting", "thing", "stuff". Your job this turn is to give feedback that makes them feel — viscerally — that their word choice just leveled up.
+
+After the user speaks, you MUST do these things in your feedback:
+
+1. COUNT the B2+ vocabulary items they used. List them by name. Be specific: "你這次用了 3 個進階詞:particularly, distinctive, overwhelming." Numbers carry more weight than adjectives.
+
+2. NAME any safe-word slips. If they used "very X" or "good", quote it directly and offer ONE precise replacement. Format:
+「`very tasty` → 試試 `mouth-watering`」
+Give the replacement, not a vague "try stronger words".
+
+3. PRAISE specifically when they replaced a "very + adj" with a single stronger word. This is the win condition. Make them feel it: "你把 'very tired' 換成 'exhausted' 這一招很乾淨."
+
+4. END with ONE concrete next-move. Format:
+「下次試試把 `it was good` 直接換成一個動詞.例如 `it stood out` 或 `it surprised me`.」
+
+DO NOT write generic encouragements like "Great effort!" or "Keep practicing!" — they are forbidden in drill mode. Every sentence in your feedback must point to a specific word the user said or a specific word they should try next.
+
+Output the drill_score with axis="vocab_precision_score". Score 0-100 based on density of B2+ vocabulary AND absence of forbidden safe-words. threshold_passed = (score >= 70)."""
+    },
+    "lack_detail": {
+        "expected_axis": "detail_density_score",
+        "system_injection": """This turn is a CONCRETE DETAIL DRILL.
+
+The user has been giving abstract, generic answers — empty of scene, numbers, sensory texture. Your job this turn is to make them feel that their answer just gained physical weight.
+
+After the user speaks, you MUST do these things in your feedback:
+
+1. COUNT the concrete details they included. Categorize them:
+   - 時間 (when, how long, what year)
+   - 地點 (specific place names, not "somewhere")
+   - 數字 (price, quantity, frequency)
+   - 感官 (smell, sound, texture, color)
+   - 人物 (named people, not "my friend")
+
+Format: "你這次給了 5 個具體細節:2018 年(時間)、台中夜市(地點)、80 塊(數字)、肉桂的味道(感官)、阿嬤(人物)."
+
+Numbers and named specifics carry more weight than adjectives.
+
+2. NAME any abstract slips. If they said "it was nice" or "we had fun", quote it and ask for the missing dimension:
+「`it was nice` ← 缺感官細節.當下你聞到什麼?聽到什麼?」
+Give the missing dimension, not vague "add more details".
+
+3. PRAISE specifically when they used multi-sensory description. This is the win condition. Make them feel it: "你說 `the smell of cinnamon hit me first` 這種寫法是滿分等級的,讀者立刻聞到."
+
+4. END with ONE concrete next-move. Format:
+「下次試試在第一句就丟一個數字或地名.例如不要說 `I went to a restaurant`,直接說 `Last Tuesday I went to 鼎泰豐 in 信義區`.」
+
+DO NOT write generic encouragements like "Good job!" or "Add more details!" — they are forbidden in drill mode. Every sentence in your feedback must reference a specific moment in the user's answer or a specific dimension they should add next.
+
+Output the drill_score with axis="detail_density_score". Score 0-100 based on count and variety of concrete details across the 5 dimensions (time/place/number/sense/person). threshold_passed = (score >= 70)."""
+    },
+}
 WEAKNESS_SUMMARY_WINDOW = 20
 QUESTION_EXCLUSION_DAYS = 3
 STOPWORDS = {
@@ -460,7 +525,10 @@ def run_groq(messages):
     ) from last_error
 
 
-def validate_correction_response(data: dict) -> tuple[bool, str]:
+def validate_correction_response(
+    data: dict,
+    expected_drill_axis: Optional[str] = None,
+) -> tuple[bool, str]:
     """
     Validate the LLaMA response shape against the new structured contract.
     Returns (is_valid, error_reason). Reasons are for logging only,
@@ -479,6 +547,11 @@ def validate_correction_response(data: dict) -> tuple[bool, str]:
     6. better_phrasing_en <= 30 characters (when non-empty)
     7. better_phrasing_zh <= 30 characters (when non-empty)
     8. next_task <= 40 characters
+    9. When expected_drill_axis is set (drill mode), data["drill_score"] must
+       exist as a dict with axis (str matching expected), score (int 0-100),
+       feedback (non-empty str), threshold_passed (bool). When
+       expected_drill_axis is None, drill_score is not checked — its presence
+       or absence is ignored for non-drill turns.
 
     This is the inner validation layer. Connection-level / JSON-parse retries
     live inside run_groq() and are independent.
@@ -533,6 +606,35 @@ def validate_correction_response(data: dict) -> tuple[bool, str]:
         return False, f"better_phrasing_zh is {len(better_phrasing_zh)} chars (max 30)"
     if len(next_task) > 40:
         return False, f"next_task is {len(next_task)} chars (max 40)"
+
+    # Drill-mode-only checks. expected_drill_axis is set by /process when
+    # mode=drill; non-drill turns pass None and skip this entire block,
+    # preserving existing behavior for the legacy code path.
+    if expected_drill_axis is not None:
+        drill_score = data.get("drill_score")
+        if drill_score is None:
+            return False, "drill_score field missing (drill mode)"
+        if not isinstance(drill_score, dict):
+            return False, f"drill_score is {type(drill_score).__name__}, not dict"
+        for f in ("axis", "score", "feedback", "threshold_passed"):
+            if f not in drill_score:
+                return False, f"drill_score.{f} missing"
+        if not isinstance(drill_score["axis"], str):
+            return False, f"drill_score.axis is {type(drill_score['axis']).__name__}, not string"
+        if drill_score["axis"] != expected_drill_axis:
+            return False, f"drill_score.axis is {drill_score['axis']!r}, expected {expected_drill_axis!r}"
+        # bool is a subclass of int in Python — exclude it explicitly so
+        # threshold_passed=True doesn't sneak through as a valid score.
+        if not isinstance(drill_score["score"], int) or isinstance(drill_score["score"], bool):
+            return False, f"drill_score.score is {type(drill_score['score']).__name__}, not int"
+        if not (0 <= drill_score["score"] <= 100):
+            return False, f"drill_score.score is {drill_score['score']}, out of range [0,100]"
+        if not isinstance(drill_score["feedback"], str):
+            return False, f"drill_score.feedback is {type(drill_score['feedback']).__name__}, not string"
+        if not drill_score["feedback"].strip():
+            return False, "drill_score.feedback is empty"
+        if not isinstance(drill_score["threshold_passed"], bool):
+            return False, f"drill_score.threshold_passed is {type(drill_score['threshold_passed']).__name__}, not bool"
 
     return True, ""
 
@@ -598,6 +700,7 @@ def build_system_prompt(
     question: str = "",
     memory_block: str = "",
     repeated_weak_words: Optional[list[str]] = None,
+    drill_tag: Optional[str] = None,
 ) -> str:
     repeated_weak_words = repeated_weak_words or []
     repeated_line = (
@@ -867,12 +970,22 @@ Output:
     # 具體題目放在主題之前 — 精確的 context 先於概括的標籤。
     # 沒有題目時完全省略這個 block，避免 prompt 出現空白頭尾。
     question_block = f"\n【本題題目】\n{question}\n" if question else ""
+    # Drill block goes LAST so it's the most authoritative directive the LLM
+    # reads — overrides general A/B/C tier behavior with tag-specific drill
+    # mechanics (count B2+ words, list concrete details, etc.). Empty unless
+    # /process was called with mode=drill AND drill_tag is in DRILL_PROMPTS.
+    drill_block = ""
+    if drill_tag and drill_tag in DRILL_PROMPTS:
+        injection = DRILL_PROMPTS[drill_tag].get("system_injection", "")
+        if injection:
+            drill_block = f"\n\n{injection}\n"
     return (
         base
         + memory_block
         + diagnosis_context_block
         + question_block
         + f"\n【本題主題】\n{topic}\n"
+        + drill_block
     )
 
 
@@ -887,10 +1000,34 @@ async def process(
     history: str = Form("[]"),
     text_override: str = Form(""),
     dev_bypass_secret: str = Form(""),
+    mode: str = Form(""),
+    drill_tag: str = Form(""),
     authorization: Optional[str] = Header(None),
 ):
     try:
         user_id = verify_token(authorization)
+
+        # Drill-mode validation: gate before any expensive op (recent records
+        # pull, audio download, Groq call). 422 is the conventional FastAPI
+        # status for request-shape validation failures.
+        is_drill_mode = (mode == "drill")
+        expected_drill_axis: Optional[str] = None
+        if is_drill_mode:
+            if not drill_tag:
+                raise HTTPException(
+                    status_code=422,
+                    detail="drill_tag is required when mode=drill",
+                )
+            if drill_tag not in DRILL_PROMPTS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"drill_tag {drill_tag!r} not in DRILL_PROMPTS. "
+                        f"Valid values: {sorted(DRILL_PROMPTS.keys())}"
+                    ),
+                )
+            expected_drill_axis = DRILL_PROMPTS[drill_tag]["expected_axis"]
+
         recent_records = get_user_recent_records(user_id)
         recent_transcripts = [
             record.get("user_transcript", "")
@@ -1014,6 +1151,7 @@ async def process(
                 question=question,
                 memory_block=memory_block + tier_b_override + intensity_block,
                 repeated_weak_words=repeated_weak_words,
+                drill_tag=drill_tag if is_drill_mode else None,
             )
         }]
         for msg in history_list[-10:]:
@@ -1037,7 +1175,10 @@ async def process(
             parsed = run_groq(messages)
             if not isinstance(parsed, dict):
                 parsed = {}
-            is_valid, last_validation_reason = validate_correction_response(parsed)
+            is_valid, last_validation_reason = validate_correction_response(
+                parsed,
+                expected_drill_axis=expected_drill_axis,
+            )
             if is_valid:
                 break
             logger.warning(
@@ -1238,7 +1379,7 @@ async def process(
                     extra={"user_id": user_id, "question": question},
                 )
 
-        return {
+        response_payload = {
             "text":                 user_text,
             "coach_response":       coach_response,
             "next_question":        next_question,
@@ -1250,6 +1391,19 @@ async def process(
             "progress_note":        progress_note,
             "persisted":            persisted,
         }
+        # Drill mode adds drill_score; non-drill turns return identical shape
+        # to the previous version (acceptance: existing /process callers
+        # unaffected when mode != "drill").
+        if is_drill_mode:
+            drill_score_data = parsed.get("drill_score")
+            if isinstance(drill_score_data, dict):
+                response_payload["drill_score"] = {
+                    "axis":              drill_score_data.get("axis"),
+                    "score":             drill_score_data.get("score"),
+                    "feedback":          (drill_score_data.get("feedback") or "").strip(),
+                    "threshold_passed":  drill_score_data.get("threshold_passed"),
+                }
+        return response_payload
     except HTTPException:
         raise
     except Exception as e:
