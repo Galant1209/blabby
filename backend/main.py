@@ -63,58 +63,411 @@ ALLOWED_WEAKNESS_TAGS = {
 DRILL_PROMPTS: dict[str, dict] = {
     "weak_vocab": {
         "expected_axis": "vocab_precision_score",
-        "system_injection": """This turn is a VOCABULARY PRECISION DRILL.
+        "system_injection": """This is DRILL MODE: vocabulary precision drill.
 
-The user has been overusing safe, low-precision words like "very", "good", "nice", "interesting", "thing", "stuff". Your job this turn is to give feedback that makes them feel — viscerally — that their word choice just leveled up.
+ALL existing rules in this prompt remain in force. You will still:
+- Return ONE correction object (not multiple)
+- Keep why_it_hurts under 60 characters
+- Keep better_phrasing_en under 30 characters
+- Keep next_task under 40 characters
+- Follow on_topic, off-topic, and tone-tier (A/B/C) rules unchanged
+- Use the same JSON schema PLUS the drill_score field
 
-After the user speaks, you MUST do these things in your feedback:
+DRILL MODE ADDS three sharpening constraints to your correction:
 
-1. COUNT the B2+ vocabulary items they used. List them by name. Be specific: "你這次用了 3 個進階詞:particularly, distinctive, overwhelming." Numbers carry more weight than adjectives.
+1. correction.quoted MUST include at least one safe-word phrase
+   the user actually said. See the safe-word definition below.
+   Quote the user's exact phrasing containing the safe-word.
 
-2. NAME any safe-word slips. If they used "very X" or "good", quote it directly and offer ONE precise replacement. Format:
-「`very tasty` → 試試 `mouth-watering`」
-Give the replacement, not a vague "try stronger words".
+2. correction.better_phrasing_en MUST be a single B2+ word or phrase
+   that directly replaces the safe-word in correction.quoted.
+   No alternatives, no slash-separated options.
 
-3. PRAISE specifically when they replaced a "very + adj" with a single stronger word. This is the win condition. Make them feel it: "你把 'very tired' 換成 'exhausted' 這一招很乾淨."
+3. correction.next_task MUST instruct the user to re-record this
+   answer replacing the specific safe-word with the suggested
+   replacement. Use this format pattern (in 繁中):
+   「重講一次,把 `[safe-word phrase]` 換成 `[B2+ replacement]`.」
 
-4. END with ONE concrete next-move. Format:
-「下次試試把 `it was good` 直接換成一個動詞.例如 `it stood out` 或 `it surprised me`.」
+DRILL MODE ADDS one new output field: drill_score.
 
-DO NOT write generic encouragements like "Great effort!" or "Keep practicing!" — they are forbidden in drill mode. Every sentence in your feedback must point to a specific word the user said or a specific word they should try next.
+drill_score is computed in TWO STEPS. Follow them strictly.
 
-Output the drill_score with axis="vocab_precision_score". Score 0-100 based on density of B2+ vocabulary AND absence of forbidden safe-words. threshold_passed = (score >= 70)."""
+================================================================
+SAFE-WORD DEFINITION (read this before STEP 1)
+================================================================
+
+The CORE safe-words are: very, good, nice, interesting, thing, stuff.
+These appear in 90% of weak-vocab cases.
+
+Additionally, IELTS examiners mark down these words when used as
+low-precision filler:
+- "really" used as intensifier (really good, really serious, really tired)
+- "major" used as generic emphasis (major problem, major issue)
+- "a lot of" / "lots of" without specifics
+- "kind of" / "sort of" hedging
+- generic adjectives like "important", "serious" used without
+  concrete framing
+
+If you find any such word being used as low-precision filler in the
+user's transcript, INCLUDE it in safe_words_found.
+
+Threshold for inclusion: would an IELTS examiner mark this word
+down for being too vague in the user's specific context?
+  - Yes → include in safe_words_found
+  - No → do not include
+
+Examples of context-dependent judgment:
+- "It's a major historical landmark" — "major" is precise, EXCLUDE
+- "It's a major problem" — "major" is filler, INCLUDE
+- "I really studied hard" — "really" is precise emphasis, EXCLUDE
+- "I really like it" — "really" is filler, INCLUDE
+
+================================================================
+STEP 1 — EVIDENCE GATHERING (drill_score.evidence)
+================================================================
+
+Before scoring, you MUST list the actual words/phrases you found
+in the user's transcript. Do not estimate. Do not paraphrase.
+Quote exact occurrences.
+
+Discipline: mentally re-read the transcript word by word. For each
+occurrence of a safe-word (core or extended), add it to the array.
+
+Pay special attention to REPEATED forms:
+- "good race" + "Good job" = 2 entries of "good", not 1
+- "very big" + "very huge" = 2 entries of "very", not 1
+- "really sleepy" + "really tired" + "really tired" + "really looks"
+  = 4 entries of "really", not 1 or 2
+Capitalization does not matter ("Good" and "good" are the same safe-word).
+
+  evidence.safe_words_found:
+    Array of strings. List every occurrence of a safe-word
+    (core or extended) in the order they appear.
+    Each occurrence is a separate array entry.
+    Example: ["very", "very", "good", "very", "interesting"]
+    If no safe-words appear, return an empty array [].
+
+  evidence.b2_plus_found:
+    Array of strings. List every B2+ vocabulary item the user
+    actually spoke in their transcript.
+
+    To produce this list: mentally re-read the user's transcript
+    word by word, and identify B2+ vocabulary items present in
+    their speech. Add each one to the array.
+
+    A word counts as B2+ if it would be tagged B2 or above on the
+    CEFR scale (e.g. iconic, distinctive, mesmerising, alarming,
+    captivating, mouth-watering, exhausted, lingering, impressive,
+    enormous, fascinating, adore, appreciate).
+
+    Common words like "good", "nice", "important", "serious",
+    "interesting", "major", "really" are NOT B2+ even if they
+    sound formal. They are safe-words.
+
+    If the transcript contains zero B2+ items, return an empty array [].
+
+================================================================
+JSON STRUCTURE RULE (read before writing evidence)
+================================================================
+
+Each item in the evidence arrays must be a single word or short
+phrase from the transcript. Each entry stands alone — no commentary,
+no annotations, no parenthetical notes attached to entries.
+
+Format guidance:
+"b2_plus_found": ["effective"]
+"b2_plus_found": ["iconic", "lingering"]
+"b2_plus_found": []   ← empty if no B2+ items
+
+If your scoring logic involves nuance (e.g. you decided one word
+is borderline), express that nuance in the feedback string, not
+in the evidence arrays. Evidence arrays are pure listings of
+transcript words — that is their only purpose.
+
+================================================================
+STEP 2 — SCORING (drill_score.score)
+================================================================
+
+Use this rubric and the evidence you gathered:
+
+  Band 90-100 (Mastery)
+  - len(b2_plus_found) >= 4
+  - len(safe_words_found) == 0
+
+  Band 70-89 (Strong)
+  - len(b2_plus_found) is 2 or 3
+  - len(safe_words_found) <= 1
+
+  Band 50-69 (Mixed)
+  - len(b2_plus_found) is 1 or 2
+  - len(safe_words_found) is 2 or 3
+
+  Band 30-49 (Weak)
+  - len(b2_plus_found) <= 1
+  - len(safe_words_found) is 4 or more,
+    OR same safe-word repeated 3+ times
+
+  Band 0-29 (Critical)
+  - len(b2_plus_found) == 0
+  - len(safe_words_found) >= 5
+
+If the transcript falls between two bands, pick the LOWER one.
+Pick a specific number within the chosen band based on severity.
+
+================================================================
+STEP 3 — DERIVE FEEDBACK (drill_score.feedback)
+================================================================
+
+Based on score, the band label is FIXED:
+- score 0-29  → "Critical"
+- score 30-49 → "Weak"
+- score 50-69 → "Mixed"
+- score 70-89 → "Strong"
+- score 90-100 → "Mastery"
+
+The band label MUST match the score range. Do not pick a band
+inconsistent with your score.
+
+feedback format (繁中, 50 字內, strict template):
+"safe-words: <count> 個 (<list>); B2+: <count> 個 (<list 或 無>); 落在 <Band> band."
+
+Examples:
+- "safe-words: 5 個 (very×5); B2+: 0 個 (無); 落在 Critical band."
+- "safe-words: 2 個 (very, good); B2+: 1 個 (impressive); 落在 Mixed band."
+- "safe-words: 0 個; B2+: 3 個 (iconic, mesmerising, lingering); 落在 Strong band."
+
+DO NOT add encouragement. DO NOT add suggestions. Only describe.
+
+threshold_passed = (score >= 70).
+axis = "vocab_precision_score".
+
+================================================================
+OUTPUT SCHEMA IN DRILL MODE
+================================================================
+{
+  "correction": { ... existing fields per baseline rules ... },
+  "tag": "weak_vocab" | "lack_detail" | etc per baseline rules,
+  "progress_note": "" or per Tier-B/First-Touch rules,
+  "on_topic": true | false,
+  "drill_score": {
+    "axis": "vocab_precision_score",
+    "evidence": {
+      "safe_words_found": ["..."],
+      "b2_plus_found": ["..."]
+    },
+    "score": <int 0-100>,
+    "feedback": "<繁中,50字內,strict template>",
+    "threshold_passed": <bool>
+  }
+}
+
+If on_topic is false (off-topic answer), drill_score still outputs
+but score = 0, evidence arrays may be empty, threshold_passed = false.
+Off-topic rule from baseline still wins for correction content."""
     },
     "lack_detail": {
         "expected_axis": "detail_density_score",
-        "system_injection": """This turn is a CONCRETE DETAIL DRILL.
+        "system_injection": """This is DRILL MODE: concrete detail drill.
 
-The user has been giving abstract, generic answers — empty of scene, numbers, sensory texture. Your job this turn is to make them feel that their answer just gained physical weight.
+ALL existing rules in this prompt remain in force. You will still:
+- Return ONE correction object (not multiple)
+- Keep why_it_hurts under 60 characters
+- Keep better_phrasing_en under 30 characters
+- Keep next_task under 40 characters
+- Follow on_topic, off-topic, and tone-tier (A/B/C) rules unchanged
+- Use the same JSON schema PLUS the drill_score field
 
-After the user speaks, you MUST do these things in your feedback:
+DRILL MODE ADDS three sharpening constraints to your correction:
 
-1. COUNT the concrete details they included. Categorize them:
-   - 時間 (when, how long, what year)
-   - 地點 (specific place names, not "somewhere")
-   - 數字 (price, quantity, frequency)
-   - 感官 (smell, sound, texture, color)
-   - 人物 (named people, not "my friend")
+1. correction.quoted MUST be an abstract phrase from the user's
+   transcript that lacks a concrete detail dimension.
+   Quote the user's exact abstract phrasing.
 
-Format: "你這次給了 5 個具體細節:2018 年(時間)、台中夜市(地點)、80 塊(數字)、肉桂的味道(感官)、阿嬤(人物)."
+2. correction.better_phrasing_en MUST inject ONE concrete dimension
+   into the user's phrase. Pick ONE of: time / place / number /
+   sense / person. The replacement must contain a specific element
+   (e.g. "Last Tuesday", "鼎泰豐", "80 dollars", "smell of cinnamon",
+   "my grandmother"). No abstract upgrades.
 
-Numbers and named specifics carry more weight than adjectives.
+3. correction.next_task MUST instruct the user to re-record using
+   that specific dimension. Use this format pattern (in 繁中):
+   「重講一次,在第一句就放一個[時間/地點/數字/感官/人物].」
 
-2. NAME any abstract slips. If they said "it was nice" or "we had fun", quote it and ask for the missing dimension:
-「`it was nice` ← 缺感官細節.當下你聞到什麼?聽到什麼?」
-Give the missing dimension, not vague "add more details".
+DRILL MODE ADDS one new output field: drill_score.
 
-3. PRAISE specifically when they used multi-sensory description. This is the win condition. Make them feel it: "你說 `the smell of cinnamon hit me first` 這種寫法是滿分等級的,讀者立刻聞到."
+drill_score is computed in TWO STEPS. Follow them strictly.
 
-4. END with ONE concrete next-move. Format:
-「下次試試在第一句就丟一個數字或地名.例如不要說 `I went to a restaurant`,直接說 `Last Tuesday I went to 鼎泰豐 in 信義區`.」
+================================================================
+DIMENSION DEFINITION (read this before STEP 1)
+================================================================
 
-DO NOT write generic encouragements like "Good job!" or "Add more details!" — they are forbidden in drill mode. Every sentence in your feedback must reference a specific moment in the user's answer or a specific dimension they should add next.
+A "concrete dimension" is one of these five categories. Each
+category requires a SPECIFIC element from the user's transcript,
+not a generic mention.
 
-Output the drill_score with axis="detail_density_score". Score 0-100 based on count and variety of concrete details across the 5 dimensions (time/place/number/sense/person). threshold_passed = (score >= 70)."""
+  時間 (time): when, year, month, time-of-day, duration
+    SPECIFIC: "Last Tuesday", "in 2018", "around 7am", "for 3 hours"
+    GENERIC (does NOT count): "yesterday", "sometimes", "often"
+
+  地點 (place): named or specifically-described location
+    SPECIFIC: "鼎泰豐", "Shanghai", "the night market in 信義區"
+    GENERIC (does NOT count): "a restaurant", "outside", "somewhere"
+
+  數字 (number): price, quantity, frequency, age, count
+    SPECIFIC: "80 dollars", "40,000 people", "twice a week", "age 25"
+    GENERIC (does NOT count): "many people", "a few times", "expensive"
+
+  感官 (sense): smell, sound, texture, color, taste, sight
+    SPECIFIC: "the smell of cinnamon", "the sound of waves",
+              "creamy texture", "bright red"
+    GENERIC (does NOT count): "it was nice", "it tasted good"
+
+  人物 (person): named or specifically-described individual
+    SPECIFIC: "Charles Lelec", "my grandmother", "the waiter who..."
+    GENERIC (does NOT count): "my friend", "people", "someone"
+
+A dimension counts as PRESENT only when the user's transcript
+contains a specific element, not a generic placeholder.
+
+================================================================
+STEP 1 — EVIDENCE GATHERING (drill_score.evidence)
+================================================================
+
+Before scoring, you MUST list the actual specific elements you
+found in the user's transcript, sorted into the five dimensions.
+
+Discipline: mentally re-read the transcript word by word. For each
+specific element you find, add it to the matching array.
+
+  evidence.time_dimensions_found:
+    Array of strings. List specific time references from the
+    transcript. Each entry is one element from the user's speech.
+    Example: ["last Tuesday", "around 7am"]
+    If no specific time references appear, return [].
+
+  evidence.place_dimensions_found:
+    Array of strings. List specific place references.
+    Example: ["Shanghai", "Monaco"]
+    If none, return [].
+
+  evidence.number_dimensions_found:
+    Array of strings. List specific numeric references.
+    Example: ["40,000", "thousands of motorcycles"]
+    If none, return [].
+
+  evidence.sense_dimensions_found:
+    Array of strings. List specific sensory references.
+    Example: ["smell of cinnamon", "loud traffic noise"]
+    If none, return [].
+
+  evidence.person_dimensions_found:
+    Array of strings. List specific person references.
+    Example: ["Charles Lelec", "my grandmother"]
+    If none, return [].
+
+================================================================
+JSON STRUCTURE RULE (read before writing evidence)
+================================================================
+
+Each item in the evidence arrays must be a single word or short
+phrase from the transcript. Each entry stands alone — no commentary,
+no annotations, no parenthetical notes attached to entries.
+
+Format guidance:
+"time_dimensions_found": ["last Tuesday"]
+"place_dimensions_found": ["Shanghai", "Monaco"]
+"sense_dimensions_found": []   ← empty if no sensory details
+
+If your scoring logic involves nuance (e.g. you decided a phrase
+is borderline-specific), express that nuance in the feedback string,
+not in the evidence arrays. Evidence arrays are pure listings of
+transcript phrases — that is their only purpose.
+
+================================================================
+STEP 2 — SCORING (drill_score.score)
+================================================================
+
+Count how many of the 5 dimensions have at least 1 entry. Call
+this dimensions_present.
+
+Use this rubric:
+
+  Band 90-100 (Mastery)
+  - dimensions_present == 5
+  - At least one dimension has vivid, specific detail
+
+  Band 70-89 (Strong)
+  - dimensions_present == 4
+  - Specifics are reasonably concrete
+
+  Band 50-69 (Mixed)
+  - dimensions_present == 3
+  - Specifics may be thin but real
+
+  Band 30-49 (Weak)
+  - dimensions_present == 2
+  - Otherwise abstract
+
+  Band 0-29 (Critical)
+  - dimensions_present <= 1
+  - Answer is largely abstract ("it was nice", "we had fun")
+
+If the transcript falls between two bands, pick the LOWER one.
+Pick a specific number within the chosen band based on richness.
+
+================================================================
+STEP 3 — DERIVE FEEDBACK (drill_score.feedback)
+================================================================
+
+Based on score, the band label is FIXED:
+- score 0-29  → "Critical"
+- score 30-49 → "Weak"
+- score 50-69 → "Mixed"
+- score 70-89 → "Strong"
+- score 90-100 → "Mastery"
+
+The band label MUST match the score range. Do not pick a band
+inconsistent with your score.
+
+feedback format (繁中, 50 字內, strict template):
+"時間: <count> | 地點: <count> | 數字: <count> | 感官: <count> | 人物: <count> → 落在 <Band> band."
+
+Examples:
+- "時間: 0 | 地點: 0 | 數字: 0 | 感官: 0 | 人物: 0 → 落在 Critical band."
+- "時間: 1 | 地點: 1 | 數字: 1 | 感官: 0 | 人物: 0 → 落在 Mixed band."
+- "時間: 2 | 地點: 1 | 數字: 1 | 感官: 1 | 人物: 1 → 落在 Strong band."
+
+DO NOT add encouragement. DO NOT add suggestions. Only describe.
+
+threshold_passed = (score >= 60).
+axis = "detail_density_score".
+
+================================================================
+OUTPUT SCHEMA IN DRILL MODE
+================================================================
+{
+  "correction": { ... existing fields per baseline rules ... },
+  "tag": "weak_vocab" | "lack_detail" | etc per baseline rules,
+  "progress_note": "" or per Tier-B/First-Touch rules,
+  "on_topic": true | false,
+  "drill_score": {
+    "axis": "detail_density_score",
+    "evidence": {
+      "time_dimensions_found": ["..."],
+      "place_dimensions_found": ["..."],
+      "number_dimensions_found": ["..."],
+      "sense_dimensions_found": ["..."],
+      "person_dimensions_found": ["..."]
+    },
+    "score": <int 0-100>,
+    "feedback": "<繁中,50字內,strict template>",
+    "threshold_passed": <bool>
+  }
+}
+
+If on_topic is false (off-topic answer), drill_score still outputs
+but score = 0, evidence arrays may all be empty, threshold_passed = false.
+Off-topic rule from baseline still wins for correction content."""
     },
 }
 WEAKNESS_SUMMARY_WINDOW = 20
@@ -549,9 +902,21 @@ def validate_correction_response(
     8. next_task <= 40 characters
     9. When expected_drill_axis is set (drill mode), data["drill_score"] must
        exist as a dict with axis (str matching expected), score (int 0-100),
-       feedback (non-empty str), threshold_passed (bool). When
-       expected_drill_axis is None, drill_score is not checked — its presence
-       or absence is ignored for non-drill turns.
+       feedback (non-empty str), threshold_passed (bool), AND a structured
+       evidence sub-object whose required keys depend on the axis:
+        - vocab_precision_score: evidence must be a dict containing
+          "safe_words_found" and "b2_plus_found" (each a list of strings;
+          may be empty).
+        - detail_density_score: evidence must be a dict containing
+          "time_dimensions_found", "place_dimensions_found",
+          "number_dimensions_found", "sense_dimensions_found",
+          "person_dimensions_found" (each a list of strings; may be empty).
+       List items are NOT validated against the user's transcript — we
+       trust the LLM's judgment and accept ~10-20% inaccuracy. List item
+       count is NOT checked against drill_score.score — backend trusts
+       whatever band the LLM picked.
+       When expected_drill_axis is None, drill_score is not checked — its
+       presence or absence is ignored for non-drill turns.
 
     This is the inner validation layer. Connection-level / JSON-parse retries
     live inside run_groq() and are independent.
@@ -635,6 +1000,44 @@ def validate_correction_response(
             return False, "drill_score.feedback is empty"
         if not isinstance(drill_score["threshold_passed"], bool):
             return False, f"drill_score.threshold_passed is {type(drill_score['threshold_passed']).__name__}, not bool"
+
+        # drill_score.evidence — required keys depend on the axis. Per the
+        # v6 spec we validate STRUCTURE only (dict, required keys present,
+        # each value a list of strings, lists may be empty). We deliberately
+        # do NOT cross-check that list items appear verbatim in the user's
+        # transcript — known LLM-judgment slack of ~10-20% is accepted.
+        evidence_schema_by_axis: dict[str, tuple[str, ...]] = {
+            "vocab_precision_score": ("safe_words_found", "b2_plus_found"),
+            "detail_density_score": (
+                "time_dimensions_found",
+                "place_dimensions_found",
+                "number_dimensions_found",
+                "sense_dimensions_found",
+                "person_dimensions_found",
+            ),
+        }
+        required_evidence_keys = evidence_schema_by_axis.get(expected_drill_axis)
+        if required_evidence_keys is not None:
+            evidence = drill_score.get("evidence")
+            if evidence is None:
+                return False, "drill_score.evidence missing"
+            if not isinstance(evidence, dict):
+                return False, f"drill_score.evidence is {type(evidence).__name__}, not dict"
+            for ev_key in required_evidence_keys:
+                if ev_key not in evidence:
+                    return False, f"drill_score.evidence missing required key: {ev_key}"
+                ev_value = evidence[ev_key]
+                if not isinstance(ev_value, list):
+                    return False, (
+                        f"drill_score.evidence.{ev_key} is "
+                        f"{type(ev_value).__name__}, not list"
+                    )
+                for idx, item in enumerate(ev_value):
+                    if not isinstance(item, str):
+                        return False, (
+                            f"drill_score.evidence.{ev_key}[{idx}] is "
+                            f"{type(item).__name__}, not string"
+                        )
 
     return True, ""
 
