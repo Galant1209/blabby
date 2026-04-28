@@ -460,6 +460,83 @@ def run_groq(messages):
     ) from last_error
 
 
+def validate_correction_response(data: dict) -> tuple[bool, str]:
+    """
+    Validate the LLaMA response shape against the new structured contract.
+    Returns (is_valid, error_reason). Reasons are for logging only,
+    not exposed to the user.
+
+    Rules:
+    1. data must be a dict
+    2. data["correction"] must exist and be a dict (NOT array/list/string)
+    3. correction must have all five fields: quoted / why_it_hurts /
+       better_phrasing_en / better_phrasing_zh / next_task, each a string
+    4. quoted, why_it_hurts, next_task must always be non-empty.
+       better_phrasing_en + better_phrasing_zh may be empty ONLY when
+       on_topic=false (off-topic carve-out). When on_topic=true, BOTH
+       phrasing fields must be non-empty.
+    5. why_it_hurts <= 60 characters (len(text), Chinese counts as 1 each)
+    6. better_phrasing_en <= 30 characters (when non-empty)
+    7. better_phrasing_zh <= 30 characters (when non-empty)
+    8. next_task <= 40 characters
+
+    This is the inner validation layer. Connection-level / JSON-parse retries
+    live inside run_groq() and are independent.
+    """
+    if not isinstance(data, dict):
+        return False, f"response is {type(data).__name__}, not dict"
+
+    correction = data.get("correction")
+    if correction is None:
+        return False, "correction field missing"
+    if not isinstance(correction, dict):
+        return False, f"correction is {type(correction).__name__}, not dict"
+
+    required_fields = (
+        "quoted",
+        "why_it_hurts",
+        "better_phrasing_en",
+        "better_phrasing_zh",
+        "next_task",
+    )
+    for field in required_fields:
+        if field not in correction:
+            return False, f"correction.{field} missing"
+        if not isinstance(correction[field], str):
+            return False, f"correction.{field} is {type(correction[field]).__name__}, not string"
+
+    quoted             = correction["quoted"].strip()
+    why_it_hurts       = correction["why_it_hurts"].strip()
+    better_phrasing_en = correction["better_phrasing_en"].strip()
+    better_phrasing_zh = correction["better_phrasing_zh"].strip()
+    next_task          = correction["next_task"].strip()
+
+    on_topic = data.get("on_topic", True)
+
+    if not quoted:
+        return False, "correction.quoted is empty"
+    if not why_it_hurts:
+        return False, "correction.why_it_hurts is empty"
+    if not next_task:
+        return False, "correction.next_task is empty"
+    if on_topic:
+        if not better_phrasing_en:
+            return False, "correction.better_phrasing_en is empty (only allowed when on_topic=false)"
+        if not better_phrasing_zh:
+            return False, "correction.better_phrasing_zh is empty (only allowed when on_topic=false)"
+
+    if len(why_it_hurts) > 60:
+        return False, f"why_it_hurts is {len(why_it_hurts)} chars (max 60)"
+    if better_phrasing_en and len(better_phrasing_en) > 30:
+        return False, f"better_phrasing_en is {len(better_phrasing_en)} chars (max 30)"
+    if better_phrasing_zh and len(better_phrasing_zh) > 30:
+        return False, f"better_phrasing_zh is {len(better_phrasing_zh)} chars (max 30)"
+    if len(next_task) > 40:
+        return False, f"next_task is {len(next_task)} chars (max 40)"
+
+    return True, ""
+
+
 def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
     """
     Build system + user prompt for AI diagnosis.
@@ -946,15 +1023,44 @@ async def process(
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_text})
 
-        # run_groq already json.loads() the response, so `parsed` is a dict.
-        parsed = run_groq(messages)
-        if not isinstance(parsed, dict):
-            parsed = {}
+        # Validation retry layer (2 attempts max): if the LLM returns a
+        # structurally invalid correction (wrong shape, missing fields,
+        # over char-limit), retry once. Independent of run_groq's
+        # connection-level retries (which handle JSON parse / 5xx /
+        # json_validate_failed inside the SDK call). After 2 validation
+        # failures, surface a 503 to the client.
+        max_validation_attempts = 2
+        parsed: dict = {}
+        is_valid = False
+        last_validation_reason = ""
+        for validation_attempt in range(max_validation_attempts):
+            parsed = run_groq(messages)
+            if not isinstance(parsed, dict):
+                parsed = {}
+            is_valid, last_validation_reason = validate_correction_response(parsed)
+            if is_valid:
+                break
+            logger.warning(
+                "correction validation attempt %s/%s failed: %s",
+                validation_attempt + 1,
+                max_validation_attempts,
+                last_validation_reason,
+            )
+        if not is_valid:
+            logger.error(
+                "correction validation exhausted after %s attempts; last reason: %s",
+                max_validation_attempts,
+                last_validation_reason,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="批改服務暫時不穩定，請稍後再試",
+            )
 
         # New structured contract: correction is a dict with four required
         # subfields (quoted / why_it_hurts / better_phrasing / next_task),
-        # plus top-level tag / progress_note / on_topic. The validator in
-        # commit-2 enforces shape; here we just defensively extract.
+        # plus top-level tag / progress_note / on_topic. Validator above
+        # has already confirmed shape + char limits; defensive extract below.
         correction_obj = parsed.get("correction") if isinstance(parsed.get("correction"), dict) else {}
         quoted             = (correction_obj.get("quoted") or "").strip()
         why_it_hurts       = (correction_obj.get("why_it_hurts") or "").strip()
