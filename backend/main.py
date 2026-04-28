@@ -382,7 +382,7 @@ def build_intensity_block(
 使用者已練習 {total_practice_count} 次，這類錯誤已被點過 {historical_top_tag_count} 次。
 - 直接、簡短、不解釋機制。他已經知道為什麼了。
 - 不要說「我們之前提過」「這已經是第 N 次」這種訓話語言。
-- single_issue 一句話到位，correction 不超過兩句。
+- correction.why_it_hurts 一句話到位，correction.next_task 一句帶過，不要展開。
 - progress_note 欄位留空。
 這條指令凌駕於 base prompt 裡的 A 層級指令；B/C 層級的觸發條件如果同時成立，依然優先（見下方協調規則）。
 """
@@ -597,7 +597,7 @@ Your job is to find the single most painful blockage in this answer and give one
 
 協調規則：
 - 如果【本次力道強制指令】是 First Touch → 完全覆蓋層級 A/B/C，使用 First Touch 的格式（必須有 progress_note）
-- 如果【本次力道強制指令】是 Calibration 且層級判斷為 B（看到具體進步）→ Tier-B 優先，先在 progress_note 裡肯定具體進步，再切回 Calibration 力道處理本次痛點。Tier-B 的肯定**不再放進 single_issue**——獨立放在 progress_note。
+- 如果【本次力道強制指令】是 Calibration 且層級判斷為 B（看到具體進步）→ Tier-B 優先，先在 progress_note 裡肯定具體進步，再切回 Calibration 力道處理本次痛點。Tier-B 的肯定**不再放進 correction 任何欄位**——獨立放在 progress_note。
 - 如果【本次力道強制指令】是 Calibration 且層級判斷為 C（連續卡關）→ 層級 C 優先，使用「直球問」的口吻（範例 6 的格式）。
 - 如果【本次力道強制指令】是 Direct 且層級判斷為 B → 依然 Direct，但 progress_note 簡短一句帶過進步即可。
 - 其他組合：以【本次力道強制指令】的力道為主，A/B/C 的觸發語境作為輔助參考。
@@ -610,31 +610,31 @@ Your job is to find the single most painful blockage in this answer and give one
 3. 如果 memory_block 有 weak word 記錄，且這次的回答裡**看不到那個 weak word**，也**有具體細節出現** → 層級 B（具體肯定）；肯定那個具體細節，再處理其他問題
 4. 其他情況 → 層級 A（預設）
 
-【輸出規則】
-- coach_response 必須用繁體中文
-- 長度控制在 2 到 4 句
-- 不要寫成小作文
-- 一定要可執行，讓學生知道下一句要怎麼講得更好
-- correction 的結構只能是這樣，不得偏離：
-  第一句：用中文說這個動作要怎麼做（不含任何示範）
-  第二句（選填）：「試試：'[一個英文示範句]'」——只能一句，必須英文，必須用單引號包住
-- correction 裡絕對禁止：頓號或逗號分隔的詞彙清單、中文示範句、超過一個示範、「另外」「同時」「也可以」等連接詞
-- 請用 JSON 的 single_issue 和 correction 強迫自己只處理一個問題
-- 如果 on_topic 是 false（學生完全沒回答題目），better_expression 和 better_expression_zh 可以是空字串，不要硬塞詞彙。優先把學生拉回題目，詞彙下次再教。
+【輸出規則 — schema enforcement】
+- correction 必須是物件（object），不得是 array、list、或 array of objects。You MUST return exactly ONE correction. Not two. Not three. ONE.
+- correction 物件包含四個欄位，全部必填，缺一個或留空字串都視為違規：
+  - quoted: 從用戶原句直接引用的片段，讓學生看到自己講了什麼
+  - why_it_hurts: 為什麼這個地方傷害表達；繁體中文；最多 60 個字（why_it_hurts must be under 60 Chinese characters. Count before responding.）
+  - better_phrasing_en: 一個更好的講法（英文版本）；最多 30 個字（含字母與標點；better_phrasing_en must be under 30 characters.）
+  - better_phrasing_zh: 上述英文版本的中文對照；最多 30 個中文字
+  - next_task: 下一輪請學生試的具體任務；繁體中文；最多 40 個字（next_task must be under 40 Chinese characters.）
+- If you cannot fit within these limits, shorten until you can. Do not skip fields.
+- 如果 on_topic 是 false（學生完全沒回答題目），better_phrasing_en 與 better_phrasing_zh 都可為空字串，但 quoted / why_it_hurts / next_task 仍然必填——優先把學生拉回題目，詞彙下次再教。
 
 【on_topic 判斷規則】
 - 如果有提供【本題題目】，判斷學生的回答是否真的在回答這個題目
 - 只要學生的回答跟題目主軸對得上，即使細節薄弱也算 on_topic: true
 - 只有明顯離題（例如題目問地點，學生講的完全是別的話題）才 on_topic: false
-- 如果判斷 on_topic: false，single_issue 要把「答非所問」當作首要問題，優先於 weak words
-- 當學生偏題時（on_topic: false），即使他也用了 weak word（very / good / interesting 等），single_issue **只能**提偏題，**不要**同時提 weak word。weak word 下次再處理。
-- 這條是鐵律：偏題時 single_issue 不可出現任何 weak word 的評論。
+- 如果判斷 on_topic: false，correction.why_it_hurts 要把「答非所問」當作首要問題，優先於 weak words
+- 當學生偏題時（on_topic: false），即使他也用了 weak word（very / good / interesting 等），correction.why_it_hurts **只能**提偏題，**不要**同時提 weak word。weak word 下次再處理。
+- 這條是鐵律：偏題時 correction.why_it_hurts 不可出現任何 weak word 的評論。
 
 【絕對禁止】
-- 不給總分
-- 不給超過三個建議
+- 不給總分（任何形式的數字評分一律禁止）
+- 不列出清單式建議；correction 永遠是單一物件，不是建議清單
 - 不說「good job」「well done」這種空話
-- 不在 correction 裡列出多個替代詞或多個動詞選項；選最好的那一個，其他捨棄
+- correction.better_phrasing_en 與 correction.better_phrasing_zh 各自只能是一個說法，不可包含多個替代選項或頓號分隔的詞彙
+- correction.quoted 必須引用學生原句的片段，不可省略，也不可改寫
 
 【Few-shot 範例】
 Example 1 — first-time weakness
@@ -642,13 +642,15 @@ User answer:
 "I think my hometown is very good and interesting."
 Output:
 {
-  "single_issue": "你這次用了 very good / interesting 這種太空的詞，畫面還沒出來。",
-  "correction": "先不要重講全部，只把 hometown 具體化。給一個細節 — 試試：'The night market gets so crowded you can barely move.'",
+  "correction": {
+    "quoted": "very good and interesting",
+    "why_it_hurts": "兩個詞太空，hometown 的畫面沒立起來。",
+    "better_phrasing_en": "lively night market",
+    "better_phrasing_zh": "氣氛熱鬧的夜市",
+    "next_task": "把 hometown 換成一個具體場景，講夜市或街道。"
+  },
+  "tag": "weak_vocab",
   "progress_note": "",
-  "next_question": "What do people usually do in your hometown on weekends?",
-  "better_expression": "lively night market",
-  "better_expression_zh": "這個說法比 interesting 更有畫面，能直接把地方特色講出來。",
-  "weakness_tag": "weak_vocab",
   "on_topic": true
 }
 
@@ -657,13 +659,15 @@ User answer:
 "It depends. Sometimes reading is very good for me."
 Output:
 {
-  "single_issue": "你又回到 it depends 跟 very good 這種安全說法了，這是重複問題。",
-  "correction": "不要先躲，直接選一邊講。給一個具體場景 — 試試：'Last week I read for an hour before bed and actually slept better.'",
+  "correction": {
+    "quoted": "It depends. Sometimes reading is very good",
+    "why_it_hurts": "你又躲回安全說法，沒選邊也沒場景。",
+    "better_phrasing_en": "help me slow down",
+    "better_phrasing_zh": "幫我慢下來",
+    "next_task": "選一邊，講最近一次讀什麼、為何那次有用。"
+  },
+  "tag": "weak_vocab",
   "progress_note": "",
-  "next_question": "What kind of books do you usually read?",
-  "better_expression": "help me slow down",
-  "better_expression_zh": "這種說法比 good for me 更自然，也更容易接出後面的細節。",
-  "weakness_tag": "weak_vocab",
   "on_topic": true
 }
 
@@ -674,13 +678,15 @@ User answer:
 "I think reading books is very good and I like stories a lot."
 Output:
 {
-  "single_issue": "你沒有回答題目 — 題目問地點，你整段在講閱讀。",
-  "correction": "先回到題目。給一個具體地點。試試：'I went to Jiufen last summer.'",
+  "correction": {
+    "quoted": "I think reading books is very good",
+    "why_it_hurts": "題目問地點，你整段在講閱讀，答非所問。",
+    "better_phrasing_en": "",
+    "better_phrasing_zh": "",
+    "next_task": "回到題目，給一個具體去過的地方。"
+  },
+  "tag": "off_topic",
   "progress_note": "",
-  "next_question": "Let's try again — name one specific place you've been to.",
-  "better_expression": "",
-  "better_expression_zh": "",
-  "weakness_tag": "off_topic",
   "on_topic": false
 }
 
@@ -691,13 +697,15 @@ User answer:
 "I think reading books makes me very happy."
 Output:
 {
-  "single_issue": "你沒有回答題目 — 題目問垃圾種類，你整段在講閱讀。",
-  "correction": "先回到題目。給一個具體的垃圾種類。試試：'I see a lot of plastic bottles in my neighborhood.'",
+  "correction": {
+    "quoted": "I think reading books makes me very happy",
+    "why_it_hurts": "題目問垃圾種類，你回答書本，完全沒接到題目。",
+    "better_phrasing_en": "",
+    "better_phrasing_zh": "",
+    "next_task": "回到題目，給一個具體的垃圾種類。"
+  },
+  "tag": "off_topic",
   "progress_note": "",
-  "next_question": "Let's come back to the question — name one kind of trash you see.",
-  "better_expression": "",
-  "better_expression_zh": "",
-  "weakness_tag": "off_topic",
   "on_topic": false
 }
 
@@ -709,13 +717,15 @@ User's answer this time:
 "One place that stuck with me is Kyoto. The quiet streets left a really memorable feeling."
 Output:
 {
-  "single_issue": "stuck with me 已經到位了，但畫面停在這裡，動詞還可以更準。",
-  "correction": "把「left a memorable feeling」換掉——找一個能描繪「停留不散」的動詞。試試：'The stillness of the streets lingered.'",
-  "progress_note": "memorable 這個詞用得好，上次我們聊過 very 太模糊，你記住了。",
-  "next_question": "What exactly were you doing when that feeling hit you?",
-  "better_expression": "the stillness lingered",
-  "better_expression_zh": "lingered 比 memorable 更有畫面感，描繪「停留不散」的氛圍。",
-  "weakness_tag": "lack_detail",
+  "correction": {
+    "quoted": "left a really memorable feeling",
+    "why_it_hurts": "memorable 已經到位，但動詞太弱，畫面停住沒延伸。",
+    "better_phrasing_en": "the stillness lingered",
+    "better_phrasing_zh": "靜謐久久不散",
+    "next_task": "把句子重講一次，動詞換成有畫面的字，例如 lingered。"
+  },
+  "tag": "lack_detail",
+  "progress_note": "memorable 用得好，上次聊過 very 太模糊，你記住了。",
   "on_topic": true
 }
 
@@ -727,13 +737,15 @@ User's answer this time:
 "The food is very good and the restaurant is very nice."
 Output:
 {
-  "single_issue": "very 這個詞你已經用很多次了，每次提醒好像都卡住。是詞彙不夠，還是習慣問題？",
-  "correction": "下次講話前停一下，想想 very 之外還能怎麼講。試試：'The food was absolutely mouth-watering.'",
+  "correction": {
+    "quoted": "very good ... very nice",
+    "why_it_hurts": "very 提醒過很多次，每次卡住——是詞彙不夠還是習慣？",
+    "better_phrasing_en": "mouth-watering",
+    "better_phrasing_zh": "看了就想吃",
+    "next_task": "下次形容食物先停一秒，挑一個比 very 更精準的詞。"
+  },
+  "tag": "weak_vocab",
   "progress_note": "",
-  "next_question": "Let's pause here. What's one word other than 'very' you could try next time?",
-  "better_expression": "mouth-watering",
-  "better_expression_zh": "比 very good 更精準，直接傳達「看了就想吃」。",
-  "weakness_tag": "weak_vocab",
   "on_topic": true
 }
 
@@ -743,25 +755,29 @@ User answer:
 "I reckon my hometown is very good and the food there is very nice."
 Output:
 {
-  "single_issue": "你這 30 秒裡用了兩次 very，把畫面壓平了。",
-  "correction": "選一個 very，把它換成具體的東西。試試：'The night market never really sleeps — even at midnight you can smell the grills.'",
-  "progress_note": "你開頭用了 'I reckon'，這比 'I think' 更口語自然，方向是對的。",
-  "next_question": "What's one specific dish from your hometown you'd recommend?",
-  "better_expression": "never really sleeps",
-  "better_expression_zh": "用擬人化讓場景活起來，比 very good 更有溫度。",
-  "weakness_tag": "weak_vocab",
+  "correction": {
+    "quoted": "very good ... very nice",
+    "why_it_hurts": "兩次 very 把畫面壓平，hometown 跟食物都沒立體感。",
+    "better_phrasing_en": "never really sleeps",
+    "better_phrasing_zh": "從不真正入眠",
+    "next_task": "選一個 very，換成具體場景或感官描述。"
+  },
+  "tag": "weak_vocab",
+  "progress_note": "你開頭用了 'I reckon'，比 'I think' 自然，方向對。",
   "on_topic": true
 }
 
 【JSON 回應格式，不得偏離】
 {
-  "single_issue": "用繁體中文，一句話點名唯一痛點",
-  "correction": "用繁體中文，2 到 3 句內給唯一矯正動作；必要時附一個短示範",
+  "correction": {
+    "quoted": "從用戶原句直接引用的片段（不可省略、不可改寫）",
+    "why_it_hurts": "為什麼這個地方傷害表達；繁中；最多 60 字",
+    "better_phrasing_en": "一個更好的講法（英文版本）；最多 30 字；偏題時可為空字串",
+    "better_phrasing_zh": "上述英文版本的中文對照；最多 30 中文字；偏題時可為空字串",
+    "next_task": "下一輪請學生試的具體任務；繁中；最多 40 字"
+  },
+  "tag": "本次回答最主要的問題分類，只能從這五個值選一個：weak_vocab（用 very/good/interesting 等空泛詞）、safe_answer（回答太空泛）、lack_detail（缺乏細節）、grammar_minor（文法小錯）、off_topic（完全沒回答題目）。若同時有多個問題，選最嚴重的那一個；若是 off_topic 必定選 off_topic，優先於所有其他 tag。",
   "progress_note": "First Touch 力道下必填（具體優點觀察）；看到 Tier-B 進步時必填（具體進步點）；其他情況填空字串。永遠不可省略此欄位。",
-  "next_question": "",
-  "better_expression": "一個值得學的英文詞或短語；若學生偏題則可為空字串",
-  "better_expression_zh": "為什麼這個詞好用（中文）；若 better_expression 為空則一併留空",
-  "weakness_tag": "本次回答最主要的問題分類，只能從這五個值選一個：weak_vocab（用 very/good/interesting 等空泛詞）、safe_answer（回答太空泛）、lack_detail（缺乏細節）、grammar_minor（文法小錯）、off_topic（完全沒回答題目）。若同時有多個問題，選最嚴重的那一個；若是 off_topic 必定選 off_topic，優先於所有其他 tag。",
   "on_topic": true
 }
 """
@@ -934,27 +950,57 @@ async def process(
         parsed = run_groq(messages)
         if not isinstance(parsed, dict):
             parsed = {}
-        single_issue = (parsed.get("single_issue") or "").strip()
-        correction = (parsed.get("correction") or "").strip()
-        if not single_issue and not correction:
-            raise HTTPException(status_code=502, detail="Coach response was empty, please retry")
-        coach_response = "\n".join(part for part in [single_issue, correction] if part)
-        next_question        = parsed.get("next_question", "") or ""
-        better_expression    = parsed.get("better_expression", "") or ""
-        better_expression_zh = parsed.get("better_expression_zh", "") or ""
-        on_topic             = parsed.get("on_topic", True)
+
+        # New structured contract: correction is a dict with four required
+        # subfields (quoted / why_it_hurts / better_phrasing / next_task),
+        # plus top-level tag / progress_note / on_topic. The validator in
+        # commit-2 enforces shape; here we just defensively extract.
+        correction_obj = parsed.get("correction") if isinstance(parsed.get("correction"), dict) else {}
+        quoted             = (correction_obj.get("quoted") or "").strip()
+        why_it_hurts       = (correction_obj.get("why_it_hurts") or "").strip()
+        better_phrasing_en = (correction_obj.get("better_phrasing_en") or "").strip()
+        better_phrasing_zh = (correction_obj.get("better_phrasing_zh") or "").strip()
+        next_task          = (correction_obj.get("next_task") or "").strip()
+        on_topic           = parsed.get("on_topic", True)
         # progress_note: surfaced in the API response only.
         # TODO: persist progress_note once admin dashboard consumes it
         # (will require ALTER TABLE practice_records ADD COLUMN progress_note text).
-        progress_note        = (parsed.get("progress_note") or "").strip()
+        progress_note      = (parsed.get("progress_note") or "").strip()
 
-        # Groq now produces weakness_tag itself. Validate against the allow-list
+        # Transform the structured object back to the flat fields the frontend
+        # currently reads (frontend stays untouched per spec). Mapping:
+        #   coach_response = 「你說：『{quoted}』」 + blank line + why_it_hurts.
+        #                    next_task is intentionally NOT joined into
+        #                    coach_response — "一次只打一個點" (single-pain rule).
+        #                    next_task is parsed and held in scope for a future
+        #                    UI surface, but not exposed to the current frontend.
+        #   better_expression    = better_phrasing_en
+        #   better_expression_zh = better_phrasing_zh
+        #   weakness_tag         = tag (renamed)
+        #   next_question        = ""  (deprecated by spec)
+        coach_response = ""
+        if quoted and why_it_hurts:
+            coach_response = f"你說：「{quoted}」\n\n{why_it_hurts}"
+        elif why_it_hurts:
+            # defensive: validator should already block empty quoted, but
+            # keep this branch so a degraded LLM response still produces
+            # *some* coach text instead of a 502.
+            coach_response = why_it_hurts
+
+        if not coach_response:
+            raise HTTPException(status_code=502, detail="Coach response was empty, please retry")
+
+        better_expression    = better_phrasing_en
+        better_expression_zh = better_phrasing_zh
+        next_question        = ""
+
+        # Groq now produces tag itself. Validate against the allow-list
         # so a hallucinated value never pollutes the DB / admin dashboards.
-        weakness_tag = (parsed.get("weakness_tag") or "").strip()
+        weakness_tag = (parsed.get("tag") or "").strip()
         if weakness_tag not in ALLOWED_WEAKNESS_TAGS:
             if weakness_tag:
                 logger.warning(
-                    "Groq returned invalid weakness_tag: %r, falling back to empty",
+                    "Groq returned invalid tag: %r, falling back to empty",
                     weakness_tag,
                 )
             weakness_tag = ""
