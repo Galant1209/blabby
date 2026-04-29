@@ -1805,6 +1805,7 @@ async def process(
                     "score":             drill_score_data.get("score"),
                     "feedback":          (drill_score_data.get("feedback") or "").strip(),
                     "threshold_passed":  drill_score_data.get("threshold_passed"),
+                    "evidence":          drill_score_data.get("evidence"),
                 }
         return response_payload
     except HTTPException:
