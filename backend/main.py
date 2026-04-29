@@ -472,6 +472,8 @@ Off-topic rule from baseline still wins for correction content."""
 }
 WEAKNESS_SUMMARY_WINDOW = 20
 QUESTION_EXCLUSION_DAYS = 3
+FREE_DRILL_QUOTA = 3
+DRILL_QUOTA_WINDOW_DAYS = 7
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "because", "but", "by",
     "do", "for", "from", "get", "go", "had", "has", "have", "he", "her",
@@ -1431,6 +1433,31 @@ async def process(
                 )
             expected_drill_axis = DRILL_PROMPTS[drill_tag]["expected_axis"]
 
+            # Server-side quota enforcement. Frontend also gates via
+            # /api/drill/check_quota for UX, but THIS check is authoritative —
+            # bypass attempts (curl with mode=drill) get blocked here too.
+            # Pro-tier path is not implemented yet; everyone is treated as
+            # free until that lands.
+            try:
+                drill_count, _resets = _drill_quota_state(user_id)
+            except Exception:
+                logger.exception(
+                    "drill quota lookup failed; failing closed",
+                    extra={"user_id": user_id},
+                )
+                raise HTTPException(
+                    status_code=503, detail="Failed to verify drill quota"
+                )
+            is_pro = False
+            if drill_count >= FREE_DRILL_QUOTA and not is_pro:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "quota_exceeded",
+                        "redirect": "/upgrade",
+                    },
+                )
+
         recent_records = get_user_recent_records(user_id)
         recent_transcripts = [
             record.get("user_transcript", "")
@@ -1782,6 +1809,31 @@ async def process(
                     extra={"user_id": user_id, "question": question},
                 )
 
+        # drill_usage INSERT (fire-and-forget). Runs after the LLM response
+        # has been validated and unpacked, BEFORE response_payload assembly,
+        # so the very next quota check reflects this drill. Failure is
+        # logged but never propagated — coaching response must still ship.
+        if is_drill_mode and supabase_admin is not None:
+            try:
+                drill_score_for_log = parsed.get("drill_score") or {}
+                raw_score = drill_score_for_log.get("score")
+                drill_score_value = (
+                    raw_score
+                    if isinstance(raw_score, int) and not isinstance(raw_score, bool)
+                    else None
+                )
+                supabase_admin.table("drill_usage").insert({
+                    "user_id":         user_id,
+                    "drill_tag":       drill_tag,
+                    "drill_score":     drill_score_value,
+                    "is_pro_at_time":  False,  # Pro tier not implemented yet
+                }).execute()
+            except Exception:
+                logger.exception(
+                    "drill_usage insert failed (fire-and-forget)",
+                    extra={"user_id": user_id, "drill_tag": drill_tag},
+                )
+
         response_payload = {
             "text":                 user_text,
             "coach_response":       coach_response,
@@ -2032,6 +2084,156 @@ async def next_question(
             "next-question selection failed", extra={"user_id": user_id}
         )
         raise HTTPException(status_code=500, detail="Failed to load next question")
+
+
+def _drill_quota_state(user_id: str) -> tuple[int, Optional[str]]:
+    """
+    Count how many drill_usage rows the user has created within the rolling
+    DRILL_QUOTA_WINDOW_DAYS window, and return (drill_count, quota_resets_at).
+
+    quota_resets_at = oldest_in_window.created_at + window_days, formatted
+    as ISO 8601. That timestamp is when the oldest in-window drill falls off
+    the rolling count, freeing up one slot. Returns None when drill_count == 0.
+
+    Failure is bubbled up to the caller — quota MUST be authoritative; we
+    never silently zero-out the count.
+    """
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=DRILL_QUOTA_WINDOW_DAYS)
+    cutoff_iso = cutoff_dt.isoformat()
+    resp = (
+        supabase_admin.table("drill_usage")
+        .select("created_at")
+        .eq("user_id", user_id)
+        .gte("created_at", cutoff_iso)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    rows = resp.data or []
+    drill_count = len(rows)
+    if drill_count == 0:
+        return 0, None
+    oldest_iso = (rows[0].get("created_at") or "").strip()
+    if not oldest_iso:
+        return drill_count, None
+    # Postgres returns ISO timestamps with timezone offset; fromisoformat
+    # handles both "+00:00" and "Z" forms. Defensive on parse failure.
+    try:
+        oldest_dt = datetime.fromisoformat(oldest_iso.replace("Z", "+00:00"))
+    except ValueError:
+        return drill_count, None
+    resets_dt = oldest_dt + timedelta(days=DRILL_QUOTA_WINDOW_DAYS)
+    return drill_count, resets_dt.isoformat()
+
+
+@app.get("/api/drill/check_quota")
+@limiter.limit("30/minute")
+async def check_drill_quota(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Tell the client how many drills they have left this rolling 7-day window.
+    Pro tier doesn't exist yet — is_pro is hard-coded false; should_upgrade
+    flips true when the free quota is exhausted.
+    """
+    user_id = verify_token(authorization)
+    try:
+        drill_count, quota_resets_at = _drill_quota_state(user_id)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "check_drill_quota state lookup failed", extra={"user_id": user_id}
+        )
+        raise HTTPException(status_code=500, detail="Failed to load drill quota")
+    is_pro = False
+    remaining = max(0, FREE_DRILL_QUOTA - drill_count)
+    should_upgrade = (remaining <= 0) and (not is_pro)
+    return {
+        "drill_count":      drill_count,
+        "free_quota":       FREE_DRILL_QUOTA,
+        "remaining":        remaining,
+        "is_pro":           is_pro,
+        "should_upgrade":   should_upgrade,
+        "quota_resets_at":  quota_resets_at,
+        "window_days":      DRILL_QUOTA_WINDOW_DAYS,
+    }
+
+
+def _resolve_optional_user_id(authorization: Optional[str]) -> str:
+    """
+    Tracking endpoints accept anonymous and authenticated callers. Returns
+    the Supabase user_id when a valid bearer token is supplied; otherwise
+    returns the literal "anonymous". Never raises — bad/expired tokens are
+    treated as anonymous so that tracking never blocks the user flow.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return "anonymous"
+    if supabase_admin is None:
+        return "anonymous"
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        return "anonymous"
+    try:
+        resp = supabase_admin.auth.get_user(token)
+    except Exception:
+        return "anonymous"
+    user = getattr(resp, "user", None)
+    user_id = getattr(user, "id", None) if user else None
+    return user_id or "anonymous"
+
+
+@app.post("/api/track/upgrade_page_view")
+@limiter.limit("60/minute")
+async def track_upgrade_page_view(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Lightweight page-view ping from /upgrade. Logs only — no persistence
+    until we wire actual analytics. Auth is optional; anonymous viewers
+    are logged with user_id="anonymous".
+    """
+    user_id = _resolve_optional_user_id(authorization)
+    logger.info(
+        "[UPGRADE_PAGE_VIEW] user_id=%s timestamp=%s",
+        user_id,
+        datetime.now(timezone.utc).isoformat(),
+    )
+    return {"ok": True}
+
+
+@app.post("/api/track/upgrade_interest")
+@limiter.limit("30/minute")
+async def track_upgrade_interest(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Email collection ping from /upgrade. Logs only — no persistence yet.
+    The endpoint contract is stable so a future Sprint 2D / 2E can swap
+    the body for a Stripe / mailing-list integration without churning
+    the frontend.
+    """
+    user_id = _resolve_optional_user_id(authorization)
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+    email = (body.get("email") or "").strip()
+    client_ts = (body.get("timestamp") or "").strip()
+    logger.info(
+        "[UPGRADE_INTEREST] user_id=%s email=%r client_ts=%s server_ts=%s",
+        user_id,
+        email,
+        client_ts,
+        datetime.now(timezone.utc).isoformat(),
+    )
+    return {"ok": True}
 
 
 @app.patch("/api/practice-records/{record_id}/resolve", status_code=204)

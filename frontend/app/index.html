@@ -381,6 +381,26 @@
             padding: 6px 0 2px;
             letter-spacing: 0.03em;
         }
+        /* Sprint 2B placeholder styling — Sprint 2C will polish. */
+        .drill-mode-indicator {
+            margin-top: 10px;
+            padding: 4px 0;
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 13px;
+            color: var(--ink);
+            text-align: center;
+        }
+        .drill-mode-indicator.hidden { display: none; }
+        .drill-button {
+            margin-left: 8px;
+            font-size: 12px;
+            padding: 2px 8px;
+            cursor: pointer;
+        }
+        .drill-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
         .record-btn {
             width: 84px;
             height: 84px;
@@ -1313,6 +1333,9 @@
             <section class="recorder-card">
                 <div class="status-text" id="status-text">準備好了就按錄音</div>
                 <div id="topic-switch-hint" class="topic-switch-hint" style="display:none"></div>
+                <div id="drill-mode-indicator" class="drill-mode-indicator hidden">
+                    🎯 Drill mode: <span id="drill-tag-label"></span>
+                </div>
                 <button class="record-btn" id="record-btn" aria-label="錄音">
                     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                         <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z" fill="currentColor"/>
@@ -1489,6 +1512,7 @@
         let pendingResume = null;
         let currentTopicSession = null; // { topic, count }
         let practisedInSession = new Set(); // questions seen this session
+        let currentDrillTag = null; // 'weak_vocab' | 'lack_detail' | null
         let weaknessSummary = null;
         let dailyQuestion = null;
 
@@ -1672,6 +1696,74 @@
             }
         }
 
+        // Sprint 2B: drill mode entry from Hub weakness ledger.
+        // Path: button click → /api/drill/check_quota → either show speaking
+        // UI with currentDrillTag set, or redirect to /upgrade.
+        const DRILL_TAG_LABELS = {
+            weak_vocab:  '用字精準度',
+            lack_detail: '細節密度',
+        };
+
+        function setDrillModeIndicator(tag) {
+            const indicator = document.getElementById('drill-mode-indicator');
+            const labelEl   = document.getElementById('drill-tag-label');
+            if (!indicator) return;
+            if (tag && DRILL_TAG_LABELS[tag]) {
+                if (labelEl) labelEl.textContent = DRILL_TAG_LABELS[tag];
+                indicator.classList.remove('hidden');
+            } else {
+                if (labelEl) labelEl.textContent = '';
+                indicator.classList.add('hidden');
+            }
+        }
+
+        function clearDrillMode() {
+            currentDrillTag = null;
+            setDrillModeIndicator(null);
+        }
+
+        async function startDrillForTag(tag) {
+            if (!sb) return;
+            let token = '';
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                token = (session && session.access_token) || '';
+            } catch (err) { /* fall through to no-token branch */ }
+            if (!token) {
+                // Not signed in — bounce to /upgrade isn't right here either,
+                // since this is auth-failure not quota. Silently no-op; the
+                // Hub shouldn't have rendered a drill button without auth
+                // anyway (weakness-summary is auth-gated upstream).
+                console.warn('startDrillForTag: no session');
+                return;
+            }
+            let body;
+            try {
+                const res = await fetch(`${API_BASE}/api/drill/check_quota`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) {
+                    console.warn('check_quota non-OK:', res.status);
+                    // Fail-open: let backend's authoritative quota check
+                    // (inside /process) reject the drill if needed.
+                    body = { remaining: 1, should_upgrade: false };
+                } else {
+                    body = await res.json();
+                }
+            } catch (err) {
+                console.warn('check_quota failed:', err);
+                body = { remaining: 1, should_upgrade: false };
+            }
+            if (body && body.should_upgrade) {
+                window.location.href = '/upgrade';
+                return;
+            }
+            currentDrillTag = tag;
+            setDrillModeIndicator(tag);
+            showSpeakingPractice();
+            setRecorderStatus('準備好就開始 — drill mode');
+        }
+
         function renderWeaknessSummary() {
             const container = document.getElementById('weakness-summary');
             if (!container) return;
@@ -1697,7 +1789,7 @@
                 // (e.g. a future backend tag the frontend hasn't shipped yet).
                 if (!tag || !WEAKNESS_LABELS[tag]) continue;
                 if (typeof count !== 'number' || count <= 0) continue;
-                top.push({ label: WEAKNESS_LABELS[tag], count });
+                top.push({ tag, label: WEAKNESS_LABELS[tag], count });
             }
             if (top.length === 0) {
                 container.style.display = 'none';
@@ -1710,6 +1802,9 @@
 
             const list = document.createElement('ul');
             list.className = 'weakness-summary__list';
+            // Sprint 2B: only weak_vocab and lack_detail have drill prompts
+            // wired today; other tags get a disabled button with hover copy.
+            const DRILLABLE_TAGS = new Set(['weak_vocab', 'lack_detail']);
             for (const entry of top) {
                 const li = document.createElement('li');
                 const key = document.createElement('span');
@@ -1721,9 +1816,20 @@
                 const val = document.createElement('span');
                 val.className = 'ledger-val';
                 val.textContent = entry.count;
+                const btn = document.createElement('button');
+                btn.className = 'drill-button';
+                btn.textContent = '修這個弱點';
+                btn.dataset.drillTag = entry.tag;
+                if (DRILLABLE_TAGS.has(entry.tag)) {
+                    btn.addEventListener('click', () => startDrillForTag(entry.tag));
+                } else {
+                    btn.disabled = true;
+                    btn.title = '目前無法針對此弱點訓練';
+                }
                 li.appendChild(key);
                 li.appendChild(dots);
                 li.appendChild(val);
+                li.appendChild(btn);
                 list.appendChild(li);
             }
 
@@ -1736,6 +1842,10 @@
             if (QUESTION_BANK.length === 0) await loadQuestionBank();
             if (practiceHub) practiceHub.style.display = 'none';
             if (speakingPractice) speakingPractice.classList.remove('visible');
+            // Sprint 2B: returning to Hub cancels any pending drill — drill
+            // is one-shot per click of "修這個弱點", and the user has just
+            // backed out of the speaking flow without submitting.
+            clearDrillMode();
             // Hold the hub hidden until the three loaders settle so the user
             // never sees a fallback flash before the real Scenario A/B
             // content lands. Each loader still swallows its own errors;
@@ -1997,6 +2107,16 @@
             form.append('topic', currentTopic || 'General');
             form.append('question', currentQuestion || '');
             form.append('history', '[]');
+            // Sprint 2B: drill mode is one-shot. If currentDrillTag is set
+            // (Hub button picked it up before this submit), include the
+            // drill params so /process runs the v6 drill prompt + populates
+            // drill_score in the response. We capture the tag locally so
+            // post-response cleanup always clears the same value.
+            const submittedDrillTag = currentDrillTag;
+            if (submittedDrillTag) {
+                form.append('mode', 'drill');
+                form.append('drill_tag', submittedDrillTag);
+            }
 
             try {
                 if (!sb) {
@@ -2047,6 +2167,12 @@
                 clearGentleLoading();
                 isRetryingSameQuestion = false;
                 recordBtn.disabled = false;
+                // Sprint 2B: drill mode is one-shot. Clear regardless of
+                // success / 4xx / 5xx / network error so the next answer
+                // never accidentally inherits drill mode.
+                if (submittedDrillTag) {
+                    clearDrillMode();
+                }
             }
         }
 
