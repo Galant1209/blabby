@@ -1693,20 +1693,13 @@ async def process(
         new_record_id: Optional[str] = None
         if supabase_admin is not None:
             if is_drill_mode:
-                drill_score_obj = parsed.get("drill_score") or {}
-                evidence_obj = (
-                    parsed.get("evidence")
-                    or drill_score_obj.get("evidence")
-                )
-                drill_tag_value = drill_tag or parsed.get("weakness_tag") or "unknown"
+                drill_score_obj = parsed.get("drill_score")
+                if not isinstance(drill_score_obj, dict):
+                    drill_score_obj = None
 
-                if not evidence_obj:
-                    evidence_obj = {
-                        "weakness_tag": drill_tag_value,
-                        "fallback": True,
-                        "note": "no evidence generated",
-                        "original_text": user_text or "",
-                    }
+                evidence_obj = drill_score_obj.get("evidence") if drill_score_obj else None
+                if not isinstance(evidence_obj, (dict, list)) or evidence_obj == {} or evidence_obj == []:
+                    evidence_obj = None
 
                 payload = {
                     "user_id":              user_id,
@@ -1717,34 +1710,24 @@ async def process(
                     "better_expression":    better_expression,
                     "better_expression_zh": better_expression_zh,
                     "next_question":        next_question,
-                    "weakness_tag":         drill_tag_value,
+                    "weakness_tag":         drill_tag,
                     "memory_snapshot":      memory_snapshot,
                     "mode":                 "drill",
-                    "drill_tag":            drill_tag_value,
-                    "drill_score":          drill_score_obj if drill_score_obj else None,
+                    "drill_tag":            drill_tag,
+                    "drill_score":          drill_score_obj,
                     "evidence":             evidence_obj,
                 }
 
                 try:
-                    insert_resp = (
-                        supabase_admin.table("practice_records")
-                        .insert(payload)
-                        .execute()
-                    )
+                    insert_resp = supabase_admin.table("practice_records").insert(payload).execute()
                     persisted = True
-
                     rows = insert_resp.data or []
                     if rows:
                         new_record_id = rows[0].get("id")
-
                 except Exception as e:
                     logger.exception(
                         "drill practice_record insert failed",
-                        extra={
-                            "user_id": user_id,
-                            "drill_tag": drill_tag_value,
-                            "error": str(e),
-                        },
+                        extra={"user_id": user_id, "drill_tag": drill_tag, "error": str(e)},
                     )
             else:
                 try:
