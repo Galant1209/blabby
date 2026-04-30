@@ -69,7 +69,7 @@ ALL existing rules in this prompt remain in force. You will still:
 - Return ONE correction object (not multiple)
 - Keep why_it_hurts under 60 characters
 - Keep better_phrasing_en under 30 characters
-- Keep next_task under 40 characters
+- Keep next_task under 80 characters
 - Follow on_topic, off-topic, and tone-tier (A/B/C) rules unchanged
 - Use the same JSON schema PLUS the drill_score field
 
@@ -273,7 +273,7 @@ ALL existing rules in this prompt remain in force. You will still:
 - Return ONE correction object (not multiple)
 - Keep why_it_hurts under 60 characters
 - Keep better_phrasing_en under 30 characters
-- Keep next_task under 40 characters
+- Keep next_task under 80 characters
 - Follow on_topic, off-topic, and tone-tier (A/B/C) rules unchanged
 - Use the same JSON schema PLUS the drill_score field
 
@@ -901,7 +901,7 @@ def validate_correction_response(
     5. why_it_hurts <= 60 characters (len(text), Chinese counts as 1 each)
     6. better_phrasing_en <= 30 characters (when non-empty)
     7. better_phrasing_zh <= 30 characters (when non-empty)
-    8. next_task <= 40 characters
+    8. next_task <= 80 characters
     9. When expected_drill_axis is set (drill mode), data["drill_score"] must
        exist as a dict with axis (str matching expected), score (int 0-100),
        feedback (non-empty str), threshold_passed (bool), AND a structured
@@ -971,8 +971,8 @@ def validate_correction_response(
         return False, f"better_phrasing_en is {len(better_phrasing_en)} chars (max 30)"
     if better_phrasing_zh and len(better_phrasing_zh) > 30:
         return False, f"better_phrasing_zh is {len(better_phrasing_zh)} chars (max 30)"
-    if len(next_task) > 40:
-        return False, f"next_task is {len(next_task)} chars (max 40)"
+    if len(next_task) > 80:
+        return False, f"next_task is {len(next_task)} chars (max 80)"
 
     # Drill-mode-only checks. expected_drill_axis is set by /process when
     # mode=drill; non-drill turns pass None and skip this entire block,
@@ -1202,7 +1202,7 @@ Your job is to find the single most painful blockage in this answer and give one
   - why_it_hurts: 為什麼這個地方傷害表達；繁體中文；最多 60 個字（why_it_hurts must be under 60 Chinese characters. Count before responding.）
   - better_phrasing_en: 一個更好的講法（英文版本）；最多 30 個字（含字母與標點；better_phrasing_en must be under 30 characters.）
   - better_phrasing_zh: 上述英文版本的中文對照；最多 30 個中文字
-  - next_task: 下一輪請學生試的具體任務；繁體中文；最多 40 個字（next_task must be under 40 Chinese characters.）
+  - next_task: 下一輪請學生試的具體任務；繁體中文；最多 80 個字（next_task must be under 80 Chinese characters.）
 - If you cannot fit within these limits, shorten until you can. Do not skip fields.
 - 如果 on_topic 是 false（學生完全沒回答題目），better_phrasing_en 與 better_phrasing_zh 都可為空字串，但 quoted / why_it_hurts / next_task 仍然必填——優先把學生拉回題目，詞彙下次再教。
 
@@ -1359,7 +1359,7 @@ Output:
     "why_it_hurts": "為什麼這個地方傷害表達；繁中；最多 60 字",
     "better_phrasing_en": "一個更好的講法（英文版本）；最多 30 字；偏題時可為空字串",
     "better_phrasing_zh": "上述英文版本的中文對照；最多 30 中文字；偏題時可為空字串",
-    "next_task": "下一輪請學生試的具體任務；繁中；最多 40 字"
+    "next_task": "下一輪請學生試的具體任務；繁中；最多 80 字"
   },
   "tag": "本次回答最主要的問題分類，只能從這五個值選一個：weak_vocab（用 very/good/interesting 等空泛詞）、safe_answer（回答太空泛）、lack_detail（缺乏細節）、grammar_minor（文法小錯）、off_topic（完全沒回答題目）。若同時有多個問題，選最嚴重的那一個；若是 off_topic 必定選 off_topic，優先於所有其他 tag。",
   "progress_note": "First Touch 力道下必填（具體優點觀察）；看到 Tier-B 進步時必填（具體進步點）；其他情況填空字串。永遠不可省略此欄位。",
