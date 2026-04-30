@@ -1395,7 +1395,7 @@ Output:
 
 
 @app.post("/process")
-@limiter.limit("20/minute")
+@limiter.limit("5/minute")
 async def process(
     request: Request,
     audio: Optional[UploadFile] = File(None),
@@ -2018,7 +2018,8 @@ async def practice_records_weakness_summary(
 
 
 @app.get("/api/questions/bank")
-async def get_question_bank():
+@limiter.limit("30/minute")
+async def get_question_bank(request: Request):
     """Return all Part 1 questions for client-side bank (no auth required)."""
     try:
         resp = supabase_admin.table("questions") \
@@ -2191,7 +2192,7 @@ def _drill_quota_state(user_id: str) -> tuple[int, Optional[str]]:
 
 
 @app.get("/api/drill/check_quota")
-@limiter.limit("30/minute")
+@limiter.limit("20/minute")
 async def check_drill_quota(
     request: Request,
     authorization: Optional[str] = Header(None),
