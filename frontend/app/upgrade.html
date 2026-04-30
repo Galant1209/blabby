@@ -198,6 +198,57 @@
             line-height: 1.5;
         }
 
+        .followup {
+            display: grid;
+            gap: 12px;
+            padding-top: 20px;
+            margin-top: 20px;
+            border-top: 1px solid var(--line);
+        }
+
+        .followup-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--ink);
+            line-height: 1.4;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 96px;
+            padding: 12px 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--ink);
+            font-size: 16px;
+            font-family: inherit;
+            line-height: 1.5;
+            resize: vertical;
+        }
+
+        textarea:focus {
+            outline: 2px solid rgba(23, 63, 47, 0.24);
+            outline-offset: 2px;
+            border-color: var(--accent);
+        }
+
+        .followup-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .followup-actions button {
+            flex: 1;
+        }
+
+        .btn-ghost {
+            background: transparent;
+            border-color: var(--line);
+            color: var(--muted);
+            font-weight: 500;
+        }
+
         @media (min-width: 640px) {
             main {
                 padding: 52px 0;
@@ -382,7 +433,7 @@ async function submitIntent(event) {
                 apikey: supabaseAnonKey,
                 Authorization: `Bearer ${supabaseAnonKey}`,
                 'Content-Type': 'application/json',
-                Prefer: 'return=minimal',
+                Prefer: 'return=representation',
             },
             body: JSON.stringify({
                 email: emailValue,
@@ -398,10 +449,11 @@ async function submitIntent(event) {
             throw new Error(`Supabase insert failed: ${response.status} ${text}`);
         }
 
+        const rows = await response.json().catch(() => []);
+        const rowId = rows[0]?.id ?? null;
+
         if (price === 0) {
-            intentSection.innerHTML =
-                '<div class="success">Got it. Thanks for the honest signal.' +
-                '<small>We may ask you a follow-up question — what would change your mind?</small></div>';
+            renderOptOutFollowUp(rowId, supabaseUrl, supabaseAnonKey, metadata);
         } else {
             intentSection.innerHTML =
                 `<div class="success">Reserved at $${price}/mo.` +
@@ -412,6 +464,74 @@ async function submitIntent(event) {
         setError('Something went wrong. Please try again.');
         submitBtn.disabled = false;
     }
+}
+
+// ---- opt-out follow-up ----
+function renderOptOutFollowUp(rowId, supabaseUrl, supabaseAnonKey, metadata) {
+    intentSection.innerHTML =
+        '<div class="success">Got it. Thanks for the honest signal.' +
+        '<small>Your signal helps us build the right thing.</small>' +
+        '<div class="followup">' +
+            '<label class="followup-label" for="opt-out-reason">What would change your mind?</label>' +
+            '<textarea id="opt-out-reason" placeholder="e.g. If it tracked my progress over time, or if there was a free trial…" maxlength="500"></textarea>' +
+            '<div class="followup-actions">' +
+                '<button id="followup-send-btn" type="button">Send</button>' +
+                '<button id="followup-skip-btn" type="button" class="btn-ghost">Skip</button>' +
+            '</div>' +
+            '<div id="followup-error" class="error" role="status" aria-live="polite"></div>' +
+        '</div>' +
+        '</div>';
+
+    const reasonEl = document.getElementById('opt-out-reason');
+    const sendBtn  = document.getElementById('followup-send-btn');
+    const skipBtn  = document.getElementById('followup-skip-btn');
+    const errEl    = document.getElementById('followup-error');
+
+    sendBtn.addEventListener('click', async () => {
+        const reason = reasonEl.value.trim();
+        if (!reason) {
+            errEl.textContent = 'Please write something, or click Skip.';
+            return;
+        }
+        sendBtn.disabled = true;
+        skipBtn.disabled = true;
+        errEl.textContent = '';
+
+        try {
+            if (rowId) {
+                const updatedMetadata = { ...metadata, opt_out_reason: reason };
+                await fetch(`${supabaseUrl}/rest/v1/upgrade_intent?id=eq.${rowId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        apikey: supabaseAnonKey,
+                        Authorization: `Bearer ${supabaseAnonKey}`,
+                        'Content-Type': 'application/json',
+                        Prefer: 'return=minimal',
+                    },
+                    body: JSON.stringify({ metadata: updatedMetadata }),
+                });
+            }
+            track('opt_out_reason_submitted', { length: reason.length });
+        } catch (e) {
+            console.error('opt_out_reason patch failed:', e);
+            // Don't surface to user — reason is a bonus signal, not critical
+        }
+
+        showOptOutFinal();
+    });
+
+    skipBtn.addEventListener('click', () => {
+        track('opt_out_reason_skipped');
+        showOptOutFinal();
+    });
+
+    reasonEl.focus();
+}
+
+function showOptOutFinal() {
+    intentSection.innerHTML =
+        '<div class="success">Thanks for being honest with us.' +
+        '<small>We\'ll keep building. If anything changes, come back.</small></div>';
 }
 
 form.addEventListener('submit', submitIntent);
