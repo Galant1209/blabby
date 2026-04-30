@@ -1627,6 +1627,7 @@
         let currentDrillTag = null; // 'weak_vocab' | 'lack_detail' | null
         let weaknessSummary = null;
         let dailyQuestion = null;
+        let drillQuotaState = null; // cached from /api/drill/check_quota on hub load
 
         let currentTopic    = '';
         let currentQuestion = '';
@@ -1808,6 +1809,25 @@
             }
         }
 
+        async function loadDrillQuota() {
+            // Cache quota state for Hub rendering. Fail-open: null means
+            // unknown, callers treat as free user.
+            drillQuotaState = null;
+            if (!sb) return;
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                const token = session && session.access_token;
+                if (!token) return;
+                const res = await fetch(`${API_BASE}/api/drill/check_quota`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) return;
+                drillQuotaState = await res.json();
+            } catch (err) {
+                console.warn('loadDrillQuota failed:', err);
+            }
+        }
+
         // Sprint 2B: drill mode entry from Hub weakness ledger.
         // Path: button click → /api/drill/check_quota → either show speaking
         // UI with currentDrillTag set, or redirect to /upgrade.
@@ -1938,6 +1958,28 @@
                     btn.disabled = true;
                     btn.title = '目前無法針對此弱點訓練';
                 }
+                // Quota label: only shown for free users with known quota state.
+                // Pro users (is_pro=true) have no limit — label is omitted.
+                if (drillQuotaState && !drillQuotaState.is_pro) {
+                    const quotaLabel = document.createElement('div');
+                    quotaLabel.className = 'drill-quota-label';
+                    const rem = drillQuotaState.remaining ?? 0;
+                    quotaLabel.textContent = rem > 0
+                        ? `本週剩 ${rem} 次`
+                        : '本週已達上限';
+                    quotaLabel.style.cssText =
+                        'font-size:11px;color:var(--muted);margin-top:4px;text-align:center;';
+                    const wrap = document.createElement('div');
+                    wrap.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;';
+                    wrap.appendChild(btn);
+                    wrap.appendChild(quotaLabel);
+                    li.appendChild(key);
+                    li.appendChild(dots);
+                    li.appendChild(val);
+                    li.appendChild(wrap);
+                    list.appendChild(li);
+                    continue;
+                }
                 li.appendChild(key);
                 li.appendChild(dots);
                 li.appendChild(val);
@@ -1970,6 +2012,7 @@
                 loadPendingResume(),
                 loadWeaknessSummary(),
                 loadDailyQuestion(),
+                loadDrillQuota(),
             ]);
             if (practiceHub) practiceHub.style.display = '';
             updatePracticeHubState();

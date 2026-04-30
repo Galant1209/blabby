@@ -1449,7 +1449,7 @@ async def process(
                 raise HTTPException(
                     status_code=503, detail="Failed to verify drill quota"
                 )
-            is_pro = False
+            is_pro = get_user_pro_status(user_id)
             if drill_count >= FREE_DRILL_QUOTA and not is_pro:
                 raise HTTPException(
                     status_code=403,
@@ -1867,7 +1867,7 @@ async def process(
                     "user_id":         user_id,
                     "drill_tag":       drill_tag,
                     "drill_score":     drill_score_value,
-                    "is_pro_at_time":  False,  # Pro tier not implemented yet
+                    "is_pro_at_time":  is_pro,
                 }).execute()
             except Exception:
                 logger.exception(
@@ -2127,6 +2127,28 @@ async def next_question(
         raise HTTPException(status_code=500, detail="Failed to load next question")
 
 
+def get_user_pro_status(user_id: str) -> bool:
+    """
+    Return True if the user has is_pro=True in the profiles table.
+    Fails safe: any error (missing row, DB down) returns False so free
+    quota enforcement is never accidentally bypassed.
+    """
+    if supabase_admin is None:
+        return False
+    try:
+        resp = (
+            supabase_admin.table("profiles")
+            .select("is_pro")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        return bool(resp.data and resp.data.get("is_pro", False))
+    except Exception:
+        logger.exception("get_user_pro_status failed", extra={"user_id": user_id})
+        return False
+
+
 def _drill_quota_state(user_id: str) -> tuple[int, Optional[str]]:
     """
     Count how many drill_usage rows the user has created within the rolling
@@ -2176,8 +2198,8 @@ async def check_drill_quota(
 ):
     """
     Tell the client how many drills they have left this rolling 7-day window.
-    Pro tier doesn't exist yet — is_pro is hard-coded false; should_upgrade
-    flips true when the free quota is exhausted.
+    Pro users (profiles.is_pro=true) have unlimited drills; should_upgrade
+    stays false regardless of drill_count.
     """
     user_id = verify_token(authorization)
     try:
@@ -2189,7 +2211,7 @@ async def check_drill_quota(
             "check_drill_quota state lookup failed", extra={"user_id": user_id}
         )
         raise HTTPException(status_code=500, detail="Failed to load drill quota")
-    is_pro = False
+    is_pro = get_user_pro_status(user_id)
     remaining = max(0, FREE_DRILL_QUOTA - drill_count)
     should_upgrade = (remaining <= 0) and (not is_pro)
     return {
