@@ -257,6 +257,26 @@
         .weakness-summary__list li:first-child {
             border-top: none;
         }
+        .weakness-summary__upgrade {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px dashed var(--border);
+            text-align: center;
+        }
+        .weakness-summary__upgrade a {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 12px;
+            color: var(--gold);
+            text-decoration: none;
+            letter-spacing: 0.04em;
+            transition: opacity 0.15s;
+        }
+        .weakness-summary__upgrade a:hover {
+            opacity: 0.75;
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
 
         .daily-question {
             margin-top: 22px;
@@ -2000,6 +2020,17 @@
 
             container.appendChild(header);
             container.appendChild(list);
+            // Upgrade nudge: only for free users with a known quota state.
+            // Pro users (is_pro=true) never see this.
+            if (drillQuotaState && !drillQuotaState.is_pro) {
+                const nudge = document.createElement('div');
+                nudge.className = 'weakness-summary__upgrade';
+                const link = document.createElement('a');
+                link.href = '/upgrade.html';
+                link.textContent = 'Upgrade to Pro →';
+                nudge.appendChild(link);
+                container.appendChild(nudge);
+            }
             container.style.display = '';
         }
 
