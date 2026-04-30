@@ -17,9 +17,7 @@
             --error: #9a2d21;
         }
 
-        * {
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         body {
             margin: 0;
@@ -36,7 +34,7 @@
         }
 
         h1 {
-            margin: 0 0 12px;
+            margin: 0 0 16px;
             font-size: 34px;
             line-height: 1.05;
             letter-spacing: 0;
@@ -49,14 +47,15 @@
             letter-spacing: 0;
         }
 
-        p {
-            margin: 0;
-            line-height: 1.6;
-        }
+        p { margin: 0; line-height: 1.6; }
 
         .intro {
             color: var(--muted);
-            font-size: 16px;
+            font-size: 17px;
+        }
+
+        .intro strong {
+            color: var(--ink);
         }
 
         section {
@@ -64,9 +63,7 @@
             border-top: 1px solid var(--line);
         }
 
-        section:first-of-type {
-            margin-top: 28px;
-        }
+        section:first-of-type { margin-top: 28px; }
 
         ul {
             display: grid;
@@ -156,6 +153,10 @@
             font-size: 16px;
         }
 
+        input[type="email"]:invalid:not(:placeholder-shown) {
+            border-color: var(--error);
+        }
+
         button {
             min-height: 48px;
             border: 1px solid var(--accent);
@@ -165,6 +166,7 @@
             font-size: 16px;
             font-weight: 700;
             cursor: pointer;
+            transition: opacity 0.15s ease;
         }
 
         button:disabled {
@@ -180,11 +182,20 @@
         }
 
         .success {
-            padding: 20px 0;
+            padding: 24px 0;
             color: var(--accent);
             font-size: 22px;
             font-weight: 700;
-            line-height: 1.3;
+            line-height: 1.4;
+        }
+
+        .success small {
+            display: block;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 14px;
+            font-weight: 400;
+            line-height: 1.5;
         }
 
         @media (min-width: 640px) {
@@ -205,51 +216,54 @@
 <body>
 <main>
     <h1>Blabby Pro</h1>
-    <p class="intro">Focused speaking practice for people who want clear feedback and targeted drills.</p>
+    <p class="intro">
+        Free version will let you make the same mistake again.
+        <strong>Pro will keep coaching you until you fix it.</strong>
+    </p>
 
     <section>
-        <h2>Who should pay</h2>
+        <h2>Pro is for you if</h2>
         <ul>
-            <li>You want to fix your speaking fast</li>
-            <li>You hate vague feedback</li>
-            <li>You want clear improvement</li>
+            <li>You're tired of vague "good improvement" feedback</li>
+            <li>You don't want to discover your weak spots in a real exam</li>
+            <li>You want to know exactly where you're stuck — and how to get unstuck</li>
         </ul>
     </section>
 
     <section>
-        <h2>What Pro gives you</h2>
+        <h2>What Pro will do</h2>
         <ul>
-            <li>Shows your weakness clearly</li>
-            <li>Gives you targeted drills</li>
-            <li>Tracks real improvement</li>
+            <li>When the same mistake comes back a third time, Pro will call it out by name</li>
+            <li>Each session will give you one targeted drill — and Pro won't let you move on until you nail it</li>
+            <li>You'll see your weakness curve over time — what you sounded like 7 days ago vs today</li>
         </ul>
     </section>
 
     <section id="intent-section">
         <form id="upgrade-form" novalidate>
             <fieldset>
-                <legend>What would you pay per month?</legend>
+                <legend>What's it worth to you per month?</legend>
                 <div class="price-grid">
                     <label class="price-option">
-                        <input type="radio" name="price_choice" value="$5">
-                        <span class="price-card">$5</span>
+                        <input type="radio" name="price_choice" value="5">
+                        <span class="price-card">$5 / month</span>
                     </label>
                     <label class="price-option">
-                        <input type="radio" name="price_choice" value="$10">
-                        <span class="price-card">$10</span>
+                        <input type="radio" name="price_choice" value="10">
+                        <span class="price-card">$10 / month</span>
                     </label>
                     <label class="price-option">
-                        <input type="radio" name="price_choice" value="$20">
-                        <span class="price-card">$20</span>
+                        <input type="radio" name="price_choice" value="20">
+                        <span class="price-card">$20 / month</span>
                     </label>
                     <label class="price-option">
-                        <input type="radio" name="price_choice" value="I would not pay">
-                        <span class="price-card">I would not pay</span>
+                        <input type="radio" name="price_choice" value="0">
+                        <span class="price-card">I wouldn't pay</span>
                     </label>
                 </div>
             </fieldset>
 
-            <input id="email" type="email" placeholder="Email (optional)" autocomplete="email">
+            <input id="email" type="email" placeholder="Email (required)" autocomplete="email" required>
             <button id="submit-btn" type="submit">Continue</button>
             <div id="error" class="error" role="status" aria-live="polite"></div>
         </form>
@@ -262,33 +276,84 @@ const intentSection = document.getElementById('intent-section');
 const emailInput = document.getElementById('email');
 const errorEl = document.getElementById('error');
 const submitBtn = document.getElementById('submit-btn');
+const priceInputs = document.querySelectorAll('input[name="price_choice"]');
 
+// ---- tracking events (written to upgrade_intent.metadata on submit) ----
+const trackedEvents = [];
+
+function track(name, props = {}) {
+    trackedEvents.push({
+        name,
+        ts: new Date().toISOString(),
+        ...props,
+    });
+}
+
+// 1. page viewed
+track('upgrade_page_viewed');
+
+// 2. price selected (fires on change)
+priceInputs.forEach(input => {
+    input.addEventListener('change', () => {
+        track('price_selected', { value: parseInt(input.value, 10) });
+        updateButtonLabel();
+    });
+});
+
+// 3. email entered (fires on blur, only if non-empty + valid)
+emailInput.addEventListener('blur', () => {
+    const v = emailInput.value.trim();
+    if (v && emailInput.checkValidity()) {
+        track('email_entered');
+    }
+});
+
+// ---- dynamic submit button label ----
+function selectedPrice() {
+    const selected = document.querySelector('input[name="price_choice"]:checked');
+    return selected ? parseInt(selected.value, 10) : null;
+}
+
+function updateButtonLabel() {
+    const price = selectedPrice();
+    if (price === null) {
+        submitBtn.textContent = 'Continue';
+    } else if (price === 0) {
+        submitBtn.textContent = 'Tell us why (next survey)';
+    } else {
+        submitBtn.textContent = `I'd pay $${price}/mo for this`;
+    }
+}
+
+// ---- helpers ----
 function configValue(name) {
     const config = window.BLABBY_CONFIG || {};
     return typeof config[name] === 'string' ? config[name].trim() : '';
-}
-
-function selectedPrice() {
-    const selected = document.querySelector('input[name="price_choice"]:checked');
-    return selected ? selected.value : '';
 }
 
 function setError(message) {
     errorEl.textContent = message;
 }
 
+// ---- submit ----
 async function submitIntent(event) {
     event.preventDefault();
     setError('');
 
-    const priceChoice = selectedPrice();
-    if (!priceChoice) {
+    const price = selectedPrice();
+    if (price === null) {
         setError('Please select a price.');
         return;
     }
 
-    if (emailInput.value.trim() && !emailInput.checkValidity()) {
-        setError('Please enter a valid email, or leave it blank.');
+    const emailValue = emailInput.value.trim();
+    if (!emailValue) {
+        setError('Email is required so we can let you know when Pro launches.');
+        emailInput.focus();
+        return;
+    }
+    if (!emailInput.checkValidity()) {
+        setError('Please enter a valid email.');
         emailInput.focus();
         return;
     }
@@ -302,6 +367,14 @@ async function submitIntent(event) {
 
     submitBtn.disabled = true;
 
+    track('intent_submitted', { price });
+
+    const metadata = {
+        opt_out: price === 0,
+        events: trackedEvents,
+        page_url: window.location.href,
+    };
+
     try {
         const response = await fetch(`${supabaseUrl}/rest/v1/upgrade_intent`, {
             method: 'POST',
@@ -312,18 +385,30 @@ async function submitIntent(event) {
                 Prefer: 'return=minimal',
             },
             body: JSON.stringify({
-                price_choice: priceChoice,
-                email: emailInput.value.trim() || null,
-                created_at: new Date().toISOString(),
+                email: emailValue,
+                reserved_price: price,
+                source: 'upgrade_page',
+                user_agent: navigator.userAgent,
+                metadata,
             }),
         });
 
         if (!response.ok) {
-            throw new Error(`Supabase insert failed: ${response.status}`);
+            const text = await response.text().catch(() => '');
+            throw new Error(`Supabase insert failed: ${response.status} ${text}`);
         }
 
-        intentSection.innerHTML = '<div class="success">Thanks. You&rsquo;re early.</div>';
+        if (price === 0) {
+            intentSection.innerHTML =
+                '<div class="success">Got it. Thanks for the honest signal.' +
+                '<small>We may ask you a follow-up question — what would change your mind?</small></div>';
+        } else {
+            intentSection.innerHTML =
+                `<div class="success">Reserved at $${price}/mo.` +
+                `<small>We'll email you the moment Pro is ready. No spam.</small></div>`;
+        }
     } catch (error) {
+        console.error('upgrade_intent insert failed:', error);
         setError('Something went wrong. Please try again.');
         submitBtn.disabled = false;
     }
