@@ -501,6 +501,91 @@
             background: var(--bg);
             border-left: 2px solid var(--gold);
         }
+        .drill-evidence-item {
+            margin: 12px -10px 0;
+            padding: 18px 16px;
+            border: 1.5px solid var(--gold);
+            background: rgba(201, 168, 76, 0.07);
+        }
+        .drill-evidence-item[hidden] { display: none; }
+        .drill-evidence-topline {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 12px;
+            align-items: start;
+            margin-bottom: 14px;
+        }
+        .drill-score-badge {
+            min-width: 72px;
+            padding: 8px 10px;
+            border: 1px solid var(--green);
+            color: var(--green);
+            font-family: 'Libre Baskerville', serif;
+            text-align: center;
+        }
+        .drill-score-badge strong {
+            display: block;
+            font-size: 22px;
+            line-height: 1;
+        }
+        .drill-score-badge span {
+            display: block;
+            margin-top: 3px;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .drill-evidence-feedback {
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            color: var(--ink);
+            font-size: 15px;
+            line-height: 1.55;
+        }
+        .drill-evidence-list {
+            display: grid;
+            gap: 10px;
+        }
+        .drill-evidence-row {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 12px;
+            padding-top: 10px;
+            border-top: 1px dashed var(--border);
+        }
+        .drill-evidence-name {
+            color: var(--muted);
+            font-family: 'Libre Baskerville', serif;
+            font-size: 11px;
+            line-height: 1.45;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .drill-evidence-values {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            min-width: 0;
+        }
+        .drill-evidence-chip {
+            max-width: 100%;
+            padding: 5px 8px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--ink);
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 14px;
+            line-height: 1.25;
+            overflow-wrap: anywhere;
+        }
+        .drill-evidence-chip.issue {
+            border-color: var(--red);
+            color: var(--red);
+            background: rgba(107, 26, 26, 0.05);
+        }
+        .drill-evidence-chip.empty {
+            color: var(--muted);
+            background: transparent;
+        }
         .coach-text {
             font-family: 'EB Garamond', 'Noto Serif TC', serif;
             font-size: 16px;
@@ -582,6 +667,15 @@
             font-family: 'EB Garamond', 'Noto Serif TC', serif;
             font-size: 14px;
             line-height: 1.55;
+        }
+        @media (max-width: 560px) {
+            .drill-evidence-topline,
+            .drill-evidence-row {
+                grid-template-columns: 1fr;
+            }
+            .drill-score-badge {
+                width: 72px;
+            }
         }
 
         #retry-question-btn,
@@ -1353,6 +1447,17 @@
                     <div class="feedback-label">你剛剛說：</div>
                     <div id="user-transcript" class="transcript-text"></div>
                 </div>
+                <div id="drill-evidence-item" class="feedback-item drill-evidence-item" hidden>
+                    <div class="feedback-label">這次 drill 的證據</div>
+                    <div class="drill-evidence-topline">
+                        <div class="drill-score-badge">
+                            <strong id="drill-score-value">--</strong>
+                            <span>score</span>
+                        </div>
+                        <div id="drill-evidence-feedback" class="drill-evidence-feedback"></div>
+                    </div>
+                    <div id="drill-evidence-list" class="drill-evidence-list"></div>
+                </div>
                 <div class="feedback-item feedback-item-primary">
                     <div class="feedback-label">這一題真正的問題</div>
                     <div id="coach-response" class="coach-text"></div>
@@ -1469,6 +1574,10 @@
         const questionMeta    = document.getElementById('question-meta');
         const nextQuestionEl  = document.getElementById('next-question-text');
         const softLockNote    = document.getElementById('soft-lock-note');
+        const drillEvidenceItem = document.getElementById('drill-evidence-item');
+        const drillScoreValue = document.getElementById('drill-score-value');
+        const drillEvidenceFeedback = document.getElementById('drill-evidence-feedback');
+        const drillEvidenceList = document.getElementById('drill-evidence-list');
 
         const authSection   = document.getElementById('auth-section');
         const mainSection   = document.getElementById('main-section');
@@ -2233,6 +2342,68 @@
             }
         }
 
+        function compactEvidenceItems(items) {
+            if (!Array.isArray(items)) return [];
+            const counts = new Map();
+            items
+                .map((item) => String(item || '').trim())
+                .filter(Boolean)
+                .forEach((item) => counts.set(item, (counts.get(item) || 0) + 1));
+            return Array.from(counts.entries()).map(([item, count]) => (
+                count > 1 ? `${item} ×${count}` : item
+            ));
+        }
+
+        function evidenceRow(label, items, emptyText, tone = '') {
+            const values = compactEvidenceItems(items);
+            const chips = values.length > 0
+                ? values.map((item) => `<span class="drill-evidence-chip ${tone}">${escapeHtml(item)}</span>`).join('')
+                : `<span class="drill-evidence-chip empty">${escapeHtml(emptyText)}</span>`;
+            return `
+                <div class="drill-evidence-row">
+                    <div class="drill-evidence-name">${escapeHtml(label)}</div>
+                    <div class="drill-evidence-values">${chips}</div>
+                </div>
+            `;
+        }
+
+        function renderDrillEvidence(data) {
+            if (!drillEvidenceItem || !drillEvidenceList) return;
+            const drillScore = data && typeof data.drill_score === 'object' ? data.drill_score : null;
+            const evidence = drillScore && typeof drillScore.evidence === 'object' ? drillScore.evidence : null;
+            if (!drillScore || !evidence || Array.isArray(evidence)) {
+                drillEvidenceItem.hidden = true;
+                drillEvidenceList.innerHTML = '';
+                return;
+            }
+
+            const score = Number.isInteger(drillScore.score) ? drillScore.score : '--';
+            drillScoreValue.textContent = String(score);
+            drillEvidenceFeedback.textContent = drillScore.feedback || (
+                drillScore.threshold_passed ? '這次 drill 已通過門檻。' : '這次 drill 還沒通過門檻。'
+            );
+
+            if ('safe_words_found' in evidence || 'b2_plus_found' in evidence) {
+                drillEvidenceList.innerHTML = [
+                    evidenceRow('Safe words', evidence.safe_words_found, '沒有抓到 safe words', 'issue'),
+                    evidenceRow('B2+ words', evidence.b2_plus_found, '還沒有出現 B2+ 替換詞'),
+                ].join('');
+            } else {
+                const detailRows = [
+                    ['時間細節', 'time_dimensions_found'],
+                    ['地點細節', 'place_dimensions_found'],
+                    ['數字細節', 'number_dimensions_found'],
+                    ['感官細節', 'sense_dimensions_found'],
+                    ['人物細節', 'person_dimensions_found'],
+                ];
+                drillEvidenceList.innerHTML = detailRows
+                    .map(([label, key]) => evidenceRow(label, evidence[key], '缺這一類細節'))
+                    .join('');
+            }
+
+            drillEvidenceItem.hidden = false;
+        }
+
         function resetForRetrySameQuestion() {
             isRetryingSameQuestion = true;
             feedbackSection.classList.remove('visible');
@@ -2253,6 +2424,7 @@
 
             // 顯示用戶說的話
             document.getElementById('user-transcript').textContent = data.text || '';
+            renderDrillEvidence(data);
 
             // 批改回饋
             const fullResponse = data.coach_response || '';
