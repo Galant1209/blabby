@@ -2270,10 +2270,12 @@ async def track_upgrade_interest(
     except Exception:
         body = {}
     email = (body.get("email") or "").strip()
+    price_signal = str(body.get("price_signal") or "").strip()
     client_ts = (body.get("timestamp") or "").strip()
     logger.info(
-        "[UPGRADE_INTEREST] user_id=%s email=%r client_ts=%s server_ts=%s",
+        "[UPGRADE_INTEREST] user_id=%s price_signal=%r email=%r client_ts=%s server_ts=%s",
         user_id,
+        price_signal,
         email,
         client_ts,
         datetime.now(timezone.utc).isoformat(),
