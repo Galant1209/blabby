@@ -1,111 +1,118 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blabby Pro</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/config.js"></script>
     <style>
         :root {
-            --ink: #1c1008;
-            --muted: #776a5b;
-            --line: #ded4c6;
-            --paper: #fffaf2;
-            --panel: #f6eddf;
-            --accent: #1b3a2d;
-            --accent-soft: #dce8dd;
-            --danger: #8d2e20;
+            --bg: #fbf7ef;
+            --ink: #21170f;
+            --muted: #75695c;
+            --line: #ded3c3;
+            --surface: #fffdfa;
+            --accent: #173f2f;
+            --accent-soft: #e4ede5;
+            --error: #9a2d21;
         }
 
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
 
         body {
             margin: 0;
             min-height: 100vh;
-            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+            background: var(--bg);
             color: var(--ink);
-            background: var(--paper);
+            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
         }
 
         main {
-            width: min(760px, calc(100% - 32px));
+            width: min(100% - 32px, 680px);
             margin: 0 auto;
-            padding: 40px 0 32px;
+            padding: 32px 0;
         }
 
         h1 {
-            margin: 0 0 10px;
-            font-size: clamp(28px, 5vw, 44px);
+            margin: 0 0 12px;
+            font-size: 34px;
             line-height: 1.05;
             letter-spacing: 0;
         }
 
         h2 {
-            margin: 0 0 12px;
+            margin: 0 0 14px;
             font-size: 18px;
             line-height: 1.25;
+            letter-spacing: 0;
         }
 
         p {
             margin: 0;
-            line-height: 1.65;
+            line-height: 1.6;
         }
 
-        a { color: var(--accent); }
-
-        .lead {
-            max-width: 620px;
+        .intro {
             color: var(--muted);
-            font-size: 17px;
+            font-size: 16px;
         }
 
-        .section {
+        section {
             padding: 24px 0;
             border-top: 1px solid var(--line);
         }
 
-        .section:first-of-type {
+        section:first-of-type {
             margin-top: 28px;
         }
 
-        .grid {
+        ul {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 14px;
-        }
-
-        .point {
-            min-height: 120px;
-            padding: 16px;
-            border: 1px solid var(--line);
-            background: rgba(255, 255, 255, 0.45);
-            border-radius: 8px;
-        }
-
-        .point strong {
-            display: block;
-            margin-bottom: 6px;
-            font-size: 15px;
-        }
-
-        .point span {
-            display: block;
-            color: var(--muted);
-            font-size: 14px;
-            line-height: 1.55;
-        }
-
-        .price-list {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 10px;
-            margin-top: 14px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        li {
+            padding: 13px 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.48);
+            line-height: 1.45;
+        }
+
+        form {
+            display: grid;
+            gap: 16px;
+        }
+
+        fieldset {
+            display: grid;
+            gap: 10px;
+            margin: 0;
+            padding: 0;
+            border: 0;
+        }
+
+        legend {
+            margin-bottom: 2px;
+            padding: 0;
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.25;
         }
 
         .price-option {
             position: relative;
             display: block;
-            min-height: 86px;
+        }
+
+        .price-grid {
+            display: grid;
+            gap: 10px;
         }
 
         .price-option input {
@@ -115,28 +122,17 @@
         }
 
         .price-card {
-            display: flex;
-            height: 100%;
-            flex-direction: column;
-            justify-content: center;
-            gap: 4px;
-            padding: 14px;
+            display: block;
+            width: 100%;
+            padding: 15px 16px;
             border: 1px solid var(--line);
             border-radius: 8px;
-            background: rgba(255, 255, 255, 0.55);
+            background: var(--surface);
+            color: var(--ink);
+            font-size: 17px;
+            font-weight: 700;
+            line-height: 1.25;
             cursor: pointer;
-            transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
-        }
-
-        .price-card b {
-            font-size: 22px;
-            line-height: 1;
-        }
-
-        .price-card span {
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.35;
         }
 
         .price-option input:checked + .price-card {
@@ -145,80 +141,63 @@
         }
 
         .price-option input:focus-visible + .price-card {
-            outline: 3px solid rgba(27, 58, 45, 0.24);
+            outline: 3px solid rgba(23, 63, 47, 0.24);
             outline-offset: 2px;
-        }
-
-        .form-row {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 10px;
-            margin-top: 16px;
         }
 
         input[type="email"] {
             width: 100%;
-            min-height: 44px;
-            padding: 10px 12px;
+            min-height: 48px;
+            padding: 12px 14px;
             border: 1px solid var(--line);
             border-radius: 8px;
-            background: #fff;
+            background: var(--surface);
             color: var(--ink);
-            font-size: 15px;
+            font-size: 16px;
         }
 
         button {
-            min-height: 44px;
-            padding: 0 18px;
+            min-height: 48px;
             border: 1px solid var(--accent);
             border-radius: 8px;
             background: var(--accent);
             color: #fff;
-            font-size: 15px;
+            font-size: 16px;
             font-weight: 700;
             cursor: pointer;
         }
 
         button:disabled {
             cursor: wait;
-            opacity: 0.7;
+            opacity: 0.68;
         }
 
-        .status {
-            min-height: 24px;
-            margin-top: 10px;
-            color: var(--muted);
+        .error {
+            min-height: 22px;
+            color: var(--error);
             font-size: 14px;
+            line-height: 1.45;
         }
 
-        .status.error {
-            color: var(--danger);
+        .success {
+            padding: 20px 0;
+            color: var(--accent);
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1.3;
         }
 
-        .meta {
-            margin-top: 20px;
-            color: var(--muted);
-            font-size: 13px;
-        }
-
-        @media (max-width: 640px) {
+        @media (min-width: 640px) {
             main {
-                width: min(100% - 24px, 760px);
-                padding-top: 28px;
+                padding: 52px 0;
             }
 
-            .grid,
-            .price-list,
-            .form-row {
-                grid-template-columns: 1fr;
+            h1 {
+                font-size: 44px;
             }
 
-            .price-option {
-                min-height: 72px;
-            }
-
-            button {
-                width: 100%;
+            .price-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
         }
     </style>
@@ -226,170 +205,131 @@
 <body>
 <main>
     <h1>Blabby Pro</h1>
-    <p class="lead">免費 drill 額度用完了。Pro 會把你的弱點變成可重練、可追蹤、看得見證據的 speaking 修復流程。</p>
+    <p class="intro">Focused speaking practice for people who want clear feedback and targeted drills.</p>
 
-    <section class="section">
-        <h2>誰適合付費</h2>
-        <div class="grid">
-            <div class="point">
-                <strong>你不是缺練習題，是缺精準修正</strong>
-                <span>每次回答後都想知道自己到底卡在詞彙、細節、文法，還是離題。</span>
-            </div>
-            <div class="point">
-                <strong>你想把弱點練到消失</strong>
-                <span>不是看一次 feedback 就結束，而是用針對性 drill 重講同一題。</span>
-            </div>
-        </div>
+    <section>
+        <h2>Who should pay</h2>
+        <ul>
+            <li>You want to fix your speaking fast</li>
+            <li>You hate vague feedback</li>
+            <li>You want clear improvement</li>
+        </ul>
     </section>
 
-    <section class="section">
-        <h2>Pro 會給你看到什麼</h2>
-        <div class="grid">
-            <div class="point">
-                <strong>Evidence-first feedback</strong>
-                <span>直接列出你講了哪些 safe words、哪些 B2+ 詞彙出現，讓分數有依據。</span>
-            </div>
-            <div class="point">
-                <strong>弱點修復紀錄</strong>
-                <span>追蹤同一種弱點是否真的變少，而不是靠感覺猜自己有沒有進步。</span>
-            </div>
-        </div>
+    <section>
+        <h2>What Pro gives you</h2>
+        <ul>
+            <li>Shows your weakness clearly</li>
+            <li>Gives you targeted drills</li>
+            <li>Tracks real improvement</li>
+        </ul>
     </section>
 
-    <section class="section">
-        <h2>如果今天開放 Pro，你每月願意付多少？</h2>
-        <div class="price-list" role="radiogroup" aria-label="每月願付價格">
-            <label class="price-option">
-                <input type="radio" name="price" value="5" checked>
-                <span class="price-card"><b>$5</b><span>我會試用</span></span>
-            </label>
-            <label class="price-option">
-                <input type="radio" name="price" value="10">
-                <span class="price-card"><b>$10</b><span>合理月費</span></span>
-            </label>
-            <label class="price-option">
-                <input type="radio" name="price" value="20">
-                <span class="price-card"><b>$20</b><span>若效果明顯</span></span>
-            </label>
-            <label class="price-option">
-                <input type="radio" name="price" value="0">
-                <span class="price-card"><b>不會付</b><span>只想免費用</span></span>
-            </label>
-        </div>
+    <section id="intent-section">
+        <form id="upgrade-form" novalidate>
+            <fieldset>
+                <legend>What would you pay per month?</legend>
+                <div class="price-grid">
+                    <label class="price-option">
+                        <input type="radio" name="price_choice" value="$5">
+                        <span class="price-card">$5</span>
+                    </label>
+                    <label class="price-option">
+                        <input type="radio" name="price_choice" value="$10">
+                        <span class="price-card">$10</span>
+                    </label>
+                    <label class="price-option">
+                        <input type="radio" name="price_choice" value="$20">
+                        <span class="price-card">$20</span>
+                    </label>
+                    <label class="price-option">
+                        <input type="radio" name="price_choice" value="I would not pay">
+                        <span class="price-card">I would not pay</span>
+                    </label>
+                </div>
+            </fieldset>
 
-        <div class="form-row">
-            <input type="email" id="email" autocomplete="email" placeholder="Email optional">
-            <button id="submit-btn" type="button">送出</button>
-        </div>
-        <p id="status" class="status" role="status" aria-live="polite"></p>
-        <p class="meta"><a href="/">回到練習</a></p>
+            <input id="email" type="email" placeholder="Email (optional)" autocomplete="email">
+            <button id="submit-btn" type="submit">Continue</button>
+            <div id="error" class="error" role="status" aria-live="polite"></div>
+        </form>
     </section>
 </main>
 
 <script>
-const FALLBACK_CONFIG = {
-    apiBase: 'https://blabby-backend.onrender.com',
-    supabaseUrl: '',
-    supabaseAnonKey: '',
-};
-
-let config = { ...FALLBACK_CONFIG };
-let sb = null;
-
-const submitBtn = document.getElementById('submit-btn');
+const form = document.getElementById('upgrade-form');
+const intentSection = document.getElementById('intent-section');
 const emailInput = document.getElementById('email');
-const statusEl = document.getElementById('status');
+const errorEl = document.getElementById('error');
+const submitBtn = document.getElementById('submit-btn');
 
-function setStatus(message, isError = false) {
-    statusEl.textContent = message;
-    statusEl.classList.toggle('error', isError);
-}
-
-async function loadConfig() {
-    try {
-        const response = await fetch('/config.json', { cache: 'no-store' });
-        if (!response.ok) throw new Error(`config ${response.status}`);
-        const remote = await response.json();
-        config = { ...FALLBACK_CONFIG, ...remote };
-    } catch (e) {
-        config = { ...FALLBACK_CONFIG };
-    }
-}
-
-function initSupabase() {
-    if (!config.supabaseUrl || !config.supabaseAnonKey) return;
-    try {
-        if (window.supabase && typeof window.supabase.createClient === 'function') {
-            sb = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-        }
-    } catch (e) {
-        sb = null;
-    }
-}
-
-async function authHeader() {
-    if (!sb) return null;
-    try {
-        const { data: { session } } = await sb.auth.getSession();
-        const token = session && session.access_token;
-        return token ? { Authorization: `Bearer ${token}` } : null;
-    } catch (e) {
-        return null;
-    }
-}
-
-async function postTracking(path, payload) {
-    const headers = (await authHeader()) || {};
-    headers['Content-Type'] = 'application/json';
-    const response = await fetch(`${config.apiBase}${path}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload || {}),
-    });
-    if (!response.ok) throw new Error(`tracking ${response.status}`);
-    return response.json();
+function configValue(name) {
+    const config = window.BLABBY_CONFIG || {};
+    return typeof config[name] === 'string' ? config[name].trim() : '';
 }
 
 function selectedPrice() {
-    const checked = document.querySelector('input[name="price"]:checked');
-    return checked ? checked.value : '';
+    const selected = document.querySelector('input[name="price_choice"]:checked');
+    return selected ? selected.value : '';
 }
 
-async function submitInterest() {
-    const email = emailInput.value.trim();
-    if (email && !emailInput.checkValidity()) {
-        setStatus('Email 格式看起來不對；也可以留空直接送出。', true);
+function setError(message) {
+    errorEl.textContent = message;
+}
+
+async function submitIntent(event) {
+    event.preventDefault();
+    setError('');
+
+    const priceChoice = selectedPrice();
+    if (!priceChoice) {
+        setError('Please select a price.');
+        return;
+    }
+
+    if (emailInput.value.trim() && !emailInput.checkValidity()) {
+        setError('Please enter a valid email, or leave it blank.');
         emailInput.focus();
         return;
     }
 
+    const supabaseUrl = configValue('supabaseUrl');
+    const supabaseAnonKey = configValue('supabaseAnonKey');
+    if (!supabaseUrl || !supabaseAnonKey) {
+        setError('Config is missing. Please try again later.');
+        return;
+    }
+
     submitBtn.disabled = true;
-    setStatus('送出中...');
+
     try {
-        await postTracking('/api/track/upgrade_interest', {
-            email,
-            price_signal: selectedPrice(),
-            timestamp: new Date().toISOString(),
+        const response = await fetch(`${supabaseUrl}/rest/v1/upgrade_intent`, {
+            method: 'POST',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'return=minimal',
+            },
+            body: JSON.stringify({
+                price_choice: priceChoice,
+                email: emailInput.value.trim() || null,
+                created_at: new Date().toISOString(),
+            }),
         });
-        setStatus('收到。你的價格訊號已記錄，Pro 上線時會用這個方向排優先順序。');
-    } catch (e) {
-        setStatus('暫時送不出去，請稍後再試。', true);
-    } finally {
+
+        if (!response.ok) {
+            throw new Error(`Supabase insert failed: ${response.status}`);
+        }
+
+        intentSection.innerHTML = '<div class="success">Thanks. You&rsquo;re early.</div>';
+    } catch (error) {
+        setError('Something went wrong. Please try again.');
         submitBtn.disabled = false;
     }
 }
 
-submitBtn.addEventListener('click', submitInterest);
-
-(async () => {
-    await loadConfig();
-    initSupabase();
-    try {
-        await postTracking('/api/track/upgrade_page_view', {});
-    } catch (e) {
-        /* tracking is best-effort */
-    }
-})();
+form.addEventListener('submit', submitIntent);
 </script>
 </body>
 </html>
