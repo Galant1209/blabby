@@ -1,20 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blabby Pro</title>
     <script src="/config.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #fbf7ef;
-            --ink: #21170f;
-            --muted: #75695c;
-            --line: #ded3c3;
-            --surface: #fffdfa;
-            --accent: #173f2f;
-            --accent-soft: #e4ede5;
-            --error: #9a2d21;
+            --bg:           #F5F0E8;
+            --surface:      #FDFAF4;
+            --ink:          #1C1008;
+            --muted:        #7A6E5F;
+            --border:       #C4B89A;
+            --gold:         #C9A84C;
+            --gold-warm:    #E8C866;
+            --accent:       #173f2f;
+            --accent-soft:  #e4ede5;
+            --error:        #9a2d21;
         }
 
         * { box-sizing: border-box; }
@@ -24,93 +29,134 @@
             min-height: 100vh;
             background: var(--bg);
             color: var(--ink);
-            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+            font-family: 'Libre Baskerville', 'Noto Serif TC', Georgia, serif;
+            font-size: 16px;
+            line-height: 1.7;
         }
 
         main {
-            width: min(100% - 32px, 680px);
+            width: min(100% - 32px, 620px);
             margin: 0 auto;
-            padding: 32px 0;
+            padding: 52px 0 72px;
         }
 
-        h1 {
-            margin: 0 0 16px;
-            font-size: 34px;
-            line-height: 1.05;
-            letter-spacing: 0;
+        /* ── Hero ───────────────────────────────────────────── */
+        .hero { padding-bottom: 32px; }
+
+        .hero__kicker {
+            margin: 0 0 22px;
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--gold);
         }
 
-        h2 {
-            margin: 0 0 14px;
-            font-size: 18px;
-            line-height: 1.25;
-            letter-spacing: 0;
-        }
-
-        p { margin: 0; line-height: 1.6; }
-
-        .intro {
-            color: var(--muted);
-            font-size: 17px;
-        }
-
-        .intro strong {
+        h1.hero__headline {
+            margin: 0 0 20px;
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-size: 36px;
+            font-weight: 700;
+            line-height: 1.2;
+            letter-spacing: -0.01em;
             color: var(--ink);
         }
 
-        section {
-            padding: 24px 0;
-            border-top: 1px solid var(--line);
-        }
-
-        section:first-of-type { margin-top: 28px; }
-
-        ul {
-            display: grid;
-            gap: 10px;
+        .hero__sub {
             margin: 0;
-            padding: 0;
-            list-style: none;
-        }
-
-        li {
-            padding: 13px 14px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.48);
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-style: italic;
+            font-size: 20px;
             line-height: 1.45;
+            color: var(--accent);
         }
 
-        form {
-            display: grid;
-            gap: 16px;
-        }
-
-        fieldset {
-            display: grid;
+        /* ── Decorative rule ────────────────────────────────── */
+        .rule {
+            display: flex;
+            align-items: center;
             gap: 10px;
+            margin: 0 0 36px;
+        }
+        .rule__line  { flex: 1; height: 1px; background: var(--gold); opacity: 0.55; }
+        .rule__diamond { color: var(--gold); font-size: 7px; line-height: 1; }
+
+        /* ── Sections ───────────────────────────────────────── */
+        .section { margin-bottom: 32px; }
+
+        .section__title {
+            margin: 0 0 16px;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 11px;
+            font-weight: 400;
+            font-style: italic;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        /* ── Prop list ──────────────────────────────────────── */
+        .prop-list {
+            list-style: none;
             margin: 0;
             padding: 0;
-            border: 0;
+            border-top: 1px solid var(--border);
         }
+
+        .prop-list li {
+            position: relative;
+            padding: 13px 0 13px 22px;
+            border-bottom: 1px dashed var(--border);
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 17px;
+            line-height: 1.6;
+            color: var(--ink);
+        }
+
+        .prop-list li::before {
+            content: '—';
+            position: absolute;
+            left: 0;
+            top: 13px;
+            color: var(--gold);
+            font-family: 'EB Garamond', serif;
+            line-height: 1.6;
+        }
+
+        /* ── Price banner ───────────────────────────────────── */
+        .price-banner {
+            padding: 16px 0;
+            border-top: 1px solid var(--border);
+            margin-bottom: 24px;
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+            font-size: 15px;
+            color: var(--muted);
+            text-align: center;
+            letter-spacing: 0.02em;
+        }
+
+        /* ── Form ───────────────────────────────────────────── */
+        form { display: grid; gap: 14px; }
+
+        fieldset { margin: 0; padding: 0; border: 0; display: grid; gap: 8px; }
 
         legend {
-            margin-bottom: 2px;
             padding: 0;
-            font-size: 18px;
-            font-weight: 700;
-            line-height: 1.25;
+            margin-bottom: 10px;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 11px;
+            font-style: italic;
+            font-weight: 400;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
         }
 
-        .price-option {
-            position: relative;
-            display: block;
-        }
+        .price-grid { display: grid; gap: 8px; }
 
-        .price-grid {
-            display: grid;
-            gap: 10px;
-        }
+        .price-option { position: relative; display: block; }
 
         .price-option input {
             position: absolute;
@@ -121,81 +167,90 @@
         .price-card {
             display: block;
             width: 100%;
-            padding: 15px 16px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
+            padding: 13px 16px;
+            border: 1px solid var(--border);
             background: var(--surface);
             color: var(--ink);
-            font-size: 17px;
-            font-weight: 700;
-            line-height: 1.25;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 15px;
+            line-height: 1.3;
             cursor: pointer;
+            transition: border-color 0.12s, background 0.12s;
         }
 
         .price-option input:checked + .price-card {
             border-color: var(--accent);
+            border-left: 3px solid var(--gold);
             background: var(--accent-soft);
+            padding-left: 14px;
         }
 
         .price-option input:focus-visible + .price-card {
-            outline: 3px solid rgba(23, 63, 47, 0.24);
+            outline: 2px solid rgba(201, 168, 76, 0.4);
             outline-offset: 2px;
         }
 
         input[type="email"] {
             width: 100%;
-            min-height: 48px;
-            padding: 12px 14px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
+            min-height: 46px;
+            padding: 11px 14px;
+            border: 1px solid var(--border);
             background: var(--surface);
             color: var(--ink);
-            font-size: 16px;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.12s;
         }
 
-        input[type="email"]:invalid:not(:placeholder-shown) {
-            border-color: var(--error);
-        }
+        input[type="email"]:focus       { border-color: var(--accent); }
+
+        input[type="email"]:invalid:not(:placeholder-shown) { border-color: var(--error); }
 
         button {
             min-height: 48px;
             border: 1px solid var(--accent);
-            border-radius: 8px;
             background: var(--accent);
-            color: #fff;
-            font-size: 16px;
+            color: var(--surface);
+            font-family: 'Libre Baskerville', serif;
+            font-size: 15px;
             font-weight: 700;
+            letter-spacing: 0.04em;
             cursor: pointer;
-            transition: opacity 0.15s ease;
+            transition: opacity 0.15s;
         }
 
-        button:disabled {
-            cursor: wait;
-            opacity: 0.68;
-        }
+        button:hover    { opacity: 0.88; }
+        button:disabled { cursor: wait; opacity: 0.6; }
 
         .error {
-            min-height: 22px;
+            min-height: 20px;
             color: var(--error);
-            font-size: 14px;
-            line-height: 1.45;
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 13px;
+            line-height: 1.5;
         }
 
+        /* ── Success / followup (rendered by JS) ────────────── */
         .success {
-            padding: 24px 0;
-            color: var(--accent);
-            font-size: 22px;
+            padding: 28px 0;
+            font-family: 'Playfair Display', serif;
+            font-size: 21px;
             font-weight: 700;
-            line-height: 1.4;
+            color: var(--accent);
+            line-height: 1.45;
         }
 
         .success small {
             display: block;
             margin-top: 10px;
-            color: var(--muted);
-            font-size: 14px;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 13px;
+            font-style: italic;
             font-weight: 400;
-            line-height: 1.5;
+            color: var(--muted);
+            line-height: 1.55;
         }
 
         .followup {
@@ -203,12 +258,13 @@
             gap: 12px;
             padding-top: 20px;
             margin-top: 20px;
-            border-top: 1px solid var(--line);
+            border-top: 1px solid var(--border);
         }
 
         .followup-label {
-            font-size: 16px;
-            font-weight: 600;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 15px;
+            font-weight: 700;
             color: var(--ink);
             line-height: 1.4;
         }
@@ -216,109 +272,102 @@
         textarea {
             width: 100%;
             min-height: 96px;
-            padding: 12px 14px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
+            padding: 11px 14px;
+            border: 1px solid var(--border);
             background: var(--surface);
             color: var(--ink);
-            font-size: 16px;
-            font-family: inherit;
-            line-height: 1.5;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 15px;
+            line-height: 1.55;
             resize: vertical;
+            outline: none;
+            transition: border-color 0.12s;
         }
 
-        textarea:focus {
-            outline: 2px solid rgba(23, 63, 47, 0.24);
-            outline-offset: 2px;
-            border-color: var(--accent);
-        }
+        textarea:focus { border-color: var(--accent); }
 
-        .followup-actions {
-            display: flex;
-            gap: 10px;
-        }
-
-        .followup-actions button {
-            flex: 1;
-        }
+        .followup-actions { display: flex; gap: 10px; }
+        .followup-actions button { flex: 1; }
 
         .btn-ghost {
             background: transparent;
-            border-color: var(--line);
+            border-color: var(--border);
             color: var(--muted);
-            font-weight: 500;
+            font-weight: 400;
         }
 
-        @media (min-width: 640px) {
-            main {
-                padding: 52px 0;
-            }
-
-            h1 {
-                font-size: 44px;
-            }
-
-            .price-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
+        /* ── Responsive ─────────────────────────────────────── */
+        @media (min-width: 600px) {
+            main { padding: 72px 0 96px; }
+            h1.hero__headline { font-size: 50px; }
+            .price-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
     </style>
 </head>
 <body>
 <main>
-    <h1>Blabby Pro</h1>
-    <p class="intro">
-        Free version will let you make the same mistake again.
-        <strong>Pro will keep coaching you until you fix it.</strong>
-    </p>
 
-    <section>
-        <h2>Pro is for you if</h2>
-        <ul>
-            <li>You're tired of vague "good improvement" feedback</li>
-            <li>You don't want to discover your weak spots in a real exam</li>
-            <li>You want to know exactly where you're stuck — and how to get unstuck</li>
+    <header class="hero">
+        <p class="hero__kicker">Blabby Pro</p>
+        <h1 class="hero__headline">免費版讓你<br>再犯一次同樣的錯。</h1>
+        <p class="hero__sub">Pro 會陪你練到你不再犯為止。</p>
+    </header>
+
+    <div class="rule" aria-hidden="true">
+        <span class="rule__line"></span>
+        <span class="rule__diamond">◆</span>
+        <span class="rule__line"></span>
+    </div>
+
+    <section class="section">
+        <h2 class="section__title">Pro 適合你，如果</h2>
+        <ul class="prop-list">
+            <li>你練習過同一題，卻在考場上說出同樣的句子</li>
+            <li>你知道自己的英文能力不止於此</li>
+            <li>你想要被糾正，不只是被鼓勵</li>
         </ul>
     </section>
 
-    <section>
-        <h2>What Pro will do</h2>
-        <ul>
-            <li>When the same mistake comes back a third time, Pro will call it out by name</li>
-            <li>Each session will give you one targeted drill — and Pro won't let you move on until you nail it</li>
-            <li>You'll see your weakness curve over time — what you sounded like 7 days ago vs today</li>
+    <section class="section">
+        <h2 class="section__title">Pro 為你做什麼</h2>
+        <ul class="prop-list">
+            <li>無限次針對性訓練，直到弱點被根除</li>
+            <li>顯示精確的語言證據——哪個字、哪個句子出賣了你</li>
+            <li>記錄每一次練習的進步，讓你親眼看見自己的成長</li>
         </ul>
     </section>
 
-    <section id="intent-section">
+    <section id="intent-section" class="section">
+        <p class="price-banner">每月 NT$259 &nbsp;·&nbsp; 隨時可以取消</p>
         <form id="upgrade-form" novalidate>
             <fieldset>
-                <legend>What's it worth to you per month?</legend>
+                <legend>這個價格值得嗎？</legend>
                 <div class="price-grid">
                     <label class="price-option">
-                        <input type="radio" name="price_choice" value="5">
-                        <span class="price-card">$5 / month</span>
+                        <input type="radio" name="price_choice" value="149">
+                        <span class="price-card">NT$149 / 月</span>
                     </label>
                     <label class="price-option">
-                        <input type="radio" name="price_choice" value="10">
-                        <span class="price-card">$10 / month</span>
+                        <input type="radio" name="price_choice" value="259">
+                        <span class="price-card">NT$259 / 月</span>
                     </label>
                     <label class="price-option">
-                        <input type="radio" name="price_choice" value="20">
-                        <span class="price-card">$20 / month</span>
+                        <input type="radio" name="price_choice" value="499">
+                        <span class="price-card">NT$499 / 月</span>
                     </label>
                     <label class="price-option">
                         <input type="radio" name="price_choice" value="0">
-                        <span class="price-card">I wouldn't pay</span>
+                        <span class="price-card">暫時不加入</span>
                     </label>
                 </div>
             </fieldset>
 
-            <input id="email" type="email" placeholder="Email (required)" autocomplete="email" required>
-            <button id="submit-btn" type="submit">Continue</button>
+            <input id="email" type="email" placeholder="電子郵件（必填）" autocomplete="email" required>
+            <button id="submit-btn" type="submit">預約我的位置</button>
             <div id="error" class="error" role="status" aria-live="polite"></div>
         </form>
     </section>
+
 </main>
 
 <script>
