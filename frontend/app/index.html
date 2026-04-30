@@ -396,6 +396,9 @@
             font-size: 12px;
             padding: 2px 8px;
             cursor: pointer;
+            background: #1B3A2D;
+            color: #FFFFFF;
+            font-weight: 500;
         }
         .drill-button:disabled {
             cursor: not-allowed;
@@ -1562,7 +1565,7 @@
                 practiceHubCopy.textContent = '上次 Blabby 已經看見一個明確卡點。這次先修它。';
                 practiceHubLabel.textContent = '你上次卡在：';
                 practiceHubFocus.textContent = label;
-                startPracticeBtn.textContent = '繼續修這個問題';
+                startPracticeBtn.textContent = '繼續上次練習';
                 if (practiceHubWeakness) practiceHubWeakness.style.display = '';
                 startPracticeBtn.style.display = '';
                 if (dailyQuestionEl) dailyQuestionEl.style.display = 'none';
@@ -1818,7 +1821,7 @@
                 val.textContent = entry.count;
                 const btn = document.createElement('button');
                 btn.className = 'drill-button';
-                btn.textContent = '修這個弱點';
+                btn.textContent = '🎯 針對性訓練';
                 btn.dataset.drillTag = entry.tag;
                 if (DRILLABLE_TAGS.has(entry.tag)) {
                     btn.addEventListener('click', () => startDrillForTag(entry.tag));
