@@ -1663,7 +1663,6 @@
         }
 
         function updatePracticeHubState() {
-            console.log('[DQ] updatePracticeHubState — dailyQuestion:', JSON.stringify(dailyQuestion), '| pendingResume:', !!pendingResume);
             if (!startPracticeBtn || !practiceHubCopy || !practiceHubLabel || !practiceHubFocus) return;
 
             // Scenario A: server returned an unresolved session AND its
@@ -1718,6 +1717,10 @@
             if (dailyQuestionEl) dailyQuestionEl.style.display = 'none';
         }
 
+        // Sessions older than this are treated as resolved so the daily
+        // question is shown instead of a stale "resume last session" prompt.
+        const PENDING_RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 h
+
         async function loadPendingResume() {
             // Fetch the server's view of the user's last unresolved session.
             // Any failure (network, 401, 500) silently collapses to Scenario B —
@@ -1737,14 +1740,23 @@
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 if (!res.ok) {
-                    console.warn('last-unresolved fetch non-OK:', res.status);
+                    console.error('last-unresolved fetch non-OK:', res.status);
                     pendingResume = null;
                     return;
                 }
                 const body = await res.json();
+                // Staleness gate: an unresolved session older than 24 h is no
+                // longer surfaced so the daily question can show instead.
+                if (body && body.created_at) {
+                    const ageMs = Date.now() - new Date(body.created_at).getTime();
+                    if (ageMs > PENDING_RESUME_MAX_AGE_MS) {
+                        pendingResume = null;
+                        return;
+                    }
+                }
                 pendingResume = body || null;
             } catch (err) {
-                console.warn('last-unresolved fetch failed:', err);
+                console.error('last-unresolved fetch failed:', err);
                 pendingResume = null;
             }
         }
@@ -1767,52 +1779,43 @@
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 if (!res.ok) {
-                    console.warn('weakness-summary fetch non-OK:', res.status);
+                    console.error('weakness-summary fetch non-OK:', res.status);
                     weaknessSummary = null;
                     return;
                 }
                 const body = await res.json();
                 weaknessSummary = body || null;
             } catch (err) {
-                console.warn('weakness-summary fetch failed:', err);
+                console.error('weakness-summary fetch failed:', err);
                 weaknessSummary = null;
             }
         }
 
         async function loadDailyQuestion() {
-            console.log('[DQ] loadDailyQuestion start, sb:', !!sb);
             if (!sb) {
-                console.error('[DQ] sb is null — Supabase not initialised');
                 dailyQuestion = null;
                 return;
             }
             try {
                 const { data: { session } } = await sb.auth.getSession();
                 const token = session && session.access_token;
-                console.log('[DQ] token present:', !!token, '| user_id:', session?.user?.id ?? 'none');
                 if (!token) {
-                    console.error('[DQ] no access token — user not logged in');
                     dailyQuestion = null;
                     return;
                 }
-                const url = `${API_BASE}/api/questions/next`;
-                console.log('[DQ] fetching', url);
-                const res = await fetch(url, {
+                const res = await fetch(`${API_BASE}/api/questions/next`, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
-                console.log('[DQ] response:', res.status, res.ok);
                 if (!res.ok) {
-                    const errBody = await res.text().catch(() => '(unreadable)');
-                    console.error('[DQ] fetch non-OK:', res.status, errBody);
+                    const errBody = await res.text().catch(() => '');
+                    console.error('questions/next fetch non-OK:', res.status, errBody);
                     dailyQuestion = null;
                     return;
                 }
                 const body = await res.json();
-                console.log('[DQ] parsed body:', JSON.stringify(body));
                 dailyQuestion = body || null;
-                console.log('[DQ] dailyQuestion set, text:', dailyQuestion?.text ?? '(empty/null)');
             } catch (err) {
-                console.error('[DQ] fetch threw:', err);
+                console.error('questions/next fetch failed:', err);
                 dailyQuestion = null;
             }
         }
