@@ -1663,6 +1663,7 @@
         }
 
         function updatePracticeHubState() {
+            console.log('[DQ] updatePracticeHubState — dailyQuestion:', JSON.stringify(dailyQuestion), '| pendingResume:', !!pendingResume);
             if (!startPracticeBtn || !practiceHubCopy || !practiceHubLabel || !practiceHubFocus) return;
 
             // Scenario A: server returned an unresolved session AND its
@@ -1779,32 +1780,39 @@
         }
 
         async function loadDailyQuestion() {
-            // Mirror the other loaders: any failure (network, 401, 503, 500,
-            // empty pool, timeout) silently sets dailyQuestion = null so
-            // Scenario B falls back to the generic copy.
+            console.log('[DQ] loadDailyQuestion start, sb:', !!sb);
             if (!sb) {
+                console.error('[DQ] sb is null — Supabase not initialised');
                 dailyQuestion = null;
                 return;
             }
             try {
                 const { data: { session } } = await sb.auth.getSession();
                 const token = session && session.access_token;
+                console.log('[DQ] token present:', !!token, '| user_id:', session?.user?.id ?? 'none');
                 if (!token) {
+                    console.error('[DQ] no access token — user not logged in');
                     dailyQuestion = null;
                     return;
                 }
-                const res = await fetch(`${API_BASE}/api/questions/next`, {
+                const url = `${API_BASE}/api/questions/next`;
+                console.log('[DQ] fetching', url);
+                const res = await fetch(url, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
+                console.log('[DQ] response:', res.status, res.ok);
                 if (!res.ok) {
-                    console.warn('questions/next fetch non-OK:', res.status);
+                    const errBody = await res.text().catch(() => '(unreadable)');
+                    console.error('[DQ] fetch non-OK:', res.status, errBody);
                     dailyQuestion = null;
                     return;
                 }
                 const body = await res.json();
+                console.log('[DQ] parsed body:', JSON.stringify(body));
                 dailyQuestion = body || null;
+                console.log('[DQ] dailyQuestion set, text:', dailyQuestion?.text ?? '(empty/null)');
             } catch (err) {
-                console.warn('questions/next fetch failed:', err);
+                console.error('[DQ] fetch threw:', err);
                 dailyQuestion = null;
             }
         }
