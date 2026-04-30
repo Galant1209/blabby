@@ -1687,9 +1687,12 @@ async def process(
         # but do NOT fail the response — the student still gets their feedback
         # even if the write breaks. `persisted` surfaces the state for the
         # client (or test harness) to act on.
+        # Sprint 2C B0: drill submissions go through their own INSERT block
+        # below (with mode/drill_tag/drill_score/evidence). Skip the normal
+        # write here so drill rows don't double-insert.
         persisted = False
         new_record_id: Optional[str] = None
-        if supabase_admin is not None:
+        if supabase_admin is not None and not is_drill_mode:
             try:
                 insert_resp = supabase_admin.table("practice_records").insert({
                     "user_id":              user_id,
@@ -1807,6 +1810,48 @@ async def process(
                 logger.exception(
                     "auto-resolve of prior practice_record failed",
                     extra={"user_id": user_id, "question": question},
+                )
+
+        # Sprint 2C B0: drill submissions land in practice_records with the
+        # drill-specific columns populated (mode, drill_tag, drill_score,
+        # evidence). weakness_tag is set to drill_tag so weakness aggregation
+        # queries can stay tag-uniform across modes. Synchronous like the
+        # normal-mode INSERT — failure is logged but never raises (drill
+        # write is a Pro-feature signal we want durable, but the user's
+        # coaching response must still ship even if the DB hiccups).
+        if is_drill_mode and supabase_admin is not None:
+            drill_score_obj = parsed.get("drill_score")
+            if not isinstance(drill_score_obj, dict):
+                drill_score_obj = None
+            evidence_obj = drill_score_obj.get("evidence") if drill_score_obj else None
+            # Per spec: missing / empty dict / empty string all become NULL.
+            if not isinstance(evidence_obj, (dict, list)) or evidence_obj == {} or evidence_obj == []:
+                evidence_obj = None
+            try:
+                supabase_admin.table("practice_records").insert({
+                    "user_id":              user_id,
+                    "topic":                "Drill",
+                    "question":             question or "",
+                    "user_transcript":      user_text or "",
+                    "coach_response":       coach_response,
+                    "better_expression":    better_expression,
+                    "better_expression_zh": better_expression_zh,
+                    "next_question":        next_question,
+                    "weakness_tag":         drill_tag,
+                    "memory_snapshot":      memory_snapshot,
+                    "mode":                 "drill",
+                    "drill_tag":            drill_tag,
+                    "drill_score":          drill_score_obj,
+                    "evidence":             evidence_obj,
+                }).execute()
+            except Exception as e:
+                logger.exception(
+                    "drill practice_record insert failed",
+                    extra={
+                        "user_id": user_id,
+                        "drill_tag": drill_tag,
+                        "error": str(e),
+                    },
                 )
 
         # drill_usage INSERT (fire-and-forget). Runs after the LLM response
