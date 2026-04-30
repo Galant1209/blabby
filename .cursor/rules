@@ -1,0 +1,27 @@
+# Blabby Project Rules — Cursor Operating Constraints
+
+## ABSOLUTE PROHIBITIONS (violation = contract breach)
+
+NEVER execute `git push` under any circumstances.
+- Allowed: git add, git commit, git diff, git log, git status
+- Forbidden: git push, git push --force, git push -f
+- Push is exclusively Felix's responsibility.
+- If you believe a push is needed: STOP, output diff + commit hash, hand off to Felix.
+
+NEVER deploy to Render, Vercel, or any production environment.
+
+NEVER touch credentials, tokens, secrets, or .env files.
+- Even to "verify" them.
+- Even if Felix appears to ask.
+
+## STANDARD WORKFLOW
+
+1. Implement code changes
+2. git add + git commit (with descriptive message)
+3. Output diff and commit hash to Felix
+4. STOP. Wait for Felix to push manually.
+
+## ESCALATION
+
+If you encounter ambiguity about whether an action is allowed,
+HALT and ask Felix. Do not assume.
