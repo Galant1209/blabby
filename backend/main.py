@@ -1415,18 +1415,8 @@ async def process(
         # Drill-mode validation: gate before any expensive op (recent records
         # pull, audio download, Groq call). 422 is the conventional FastAPI
         # status for request-shape validation failures.
-        mode_from_request = (
-            getattr(request, "mode", None)
-            or mode
-            or ""
-        )
+        mode_from_request = mode or ""
         is_drill_mode = mode_from_request == "drill"
-        print("MODE DEBUG:", {
-            "request.mode": getattr(request, "mode", None),
-            "parsed.mode": None,
-            "final_mode": mode_from_request,
-            "is_drill_mode": is_drill_mode,
-        })
         expected_drill_axis: Optional[str] = None
         if is_drill_mode:
             if not drill_tag:
@@ -1735,13 +1725,6 @@ async def process(
                     "evidence":             evidence_obj,
                 }
 
-                print("==== DRILL DEBUG START ====")
-                print("is_drill_mode:", is_drill_mode)
-                print("drill_tag:", drill_tag_value)
-                print("evidence:", evidence_obj)
-                print("payload keys:", list(payload.keys()))
-                print("==== DRILL DEBUG END ====")
-
                 try:
                     insert_resp = (
                         supabase_admin.table("practice_records")
@@ -1754,10 +1737,7 @@ async def process(
                     if rows:
                         new_record_id = rows[0].get("id")
 
-                    print("✅ DRILL INSERT SUCCESS", new_record_id)
-
                 except Exception as e:
-                    print("❌ DRILL INSERT FAILED", str(e))
                     logger.exception(
                         "drill practice_record insert failed",
                         extra={
