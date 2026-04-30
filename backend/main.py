@@ -1415,7 +1415,18 @@ async def process(
         # Drill-mode validation: gate before any expensive op (recent records
         # pull, audio download, Groq call). 422 is the conventional FastAPI
         # status for request-shape validation failures.
-        is_drill_mode = (mode == "drill")
+        mode_from_request = (
+            getattr(request, "mode", None)
+            or mode
+            or ""
+        )
+        is_drill_mode = mode_from_request == "drill"
+        print("MODE DEBUG:", {
+            "request.mode": getattr(request, "mode", None),
+            "parsed.mode": None,
+            "final_mode": mode_from_request,
+            "is_drill_mode": is_drill_mode,
+        })
         expected_drill_axis: Optional[str] = None
         if is_drill_mode:
             if not drill_tag:
@@ -1643,6 +1654,20 @@ async def process(
         # TODO: persist progress_note once admin dashboard consumes it
         # (will require ALTER TABLE practice_records ADD COLUMN progress_note text).
         progress_note      = (parsed.get("progress_note") or "").strip()
+
+        mode_from_request = (
+            getattr(request, "mode", None)
+            or mode
+            or parsed.get("mode")
+            or ""
+        )
+        is_drill_mode = mode_from_request == "drill"
+        print("MODE DEBUG:", {
+            "request.mode": getattr(request, "mode", None),
+            "parsed.mode": parsed.get("mode"),
+            "final_mode": mode_from_request,
+            "is_drill_mode": is_drill_mode,
+        })
 
         # Transform the structured object back to the flat fields the frontend
         # currently reads (frontend stays untouched per spec). Mapping:
