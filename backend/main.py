@@ -18,13 +18,16 @@ import tempfile
 import re
 import time
 import uuid
+import hmac
+import hashlib
 from collections import Counter
 
 load_dotenv()
 
-GOOGLE_TTS_API_KEY   = os.getenv("GOOGLE_TTS_API_KEY")
-SUPABASE_URL         = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+GOOGLE_TTS_API_KEY           = os.getenv("GOOGLE_TTS_API_KEY")
+SUPABASE_URL                 = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY         = os.getenv("SUPABASE_SERVICE_KEY")
+LEMONSQUEEZY_WEBHOOK_SECRET  = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET", "")
 ADMIN_EMAILS         = {
     email.strip().lower()
     for email in os.getenv("ADMIN_EMAILS", "").split(",")
@@ -1914,6 +1917,80 @@ async def process(
 @app.get("/health")
 async def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+@app.post("/api/webhooks/lemonsqueezy")
+async def lemonsqueezy_webhook(request: Request):
+    """
+    LemonSqueezy subscription webhook → flips profiles.is_pro.
+
+    Signature verification uses HMAC-SHA256 over the raw body with
+    LEMONSQUEEZY_WEBHOOK_SECRET (set in Render env). Without that env
+    var we reject everything — never silently accept unsigned events.
+
+    Email lookup goes through the get_user_id_by_email() Postgres
+    helper because profiles has no email column; the actual email
+    lives in auth.users which is only reachable via service role.
+    """
+    if not LEMONSQUEEZY_WEBHOOK_SECRET:
+        logger.error("[webhook/ls] LEMONSQUEEZY_WEBHOOK_SECRET not set")
+        raise HTTPException(status_code=503, detail="Webhook not configured")
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    body = await request.body()
+    sig = request.headers.get("X-Signature", "")
+    expected = hmac.new(
+        LEMONSQUEEZY_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    event = payload.get("meta", {}).get("event_name", "")
+    if event not in ("subscription_created", "subscription_updated"):
+        return {"status": "ignored", "event": event}
+
+    attrs = payload.get("data", {}).get("attributes", {})
+    status = attrs.get("status")
+    email = (attrs.get("user_email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="No email in payload")
+
+    try:
+        result = supabase_admin.rpc(
+            "get_user_id_by_email", {"email_input": email}
+        ).execute()
+    except Exception as exc:
+        logger.exception("[webhook/ls] get_user_id_by_email rpc failed")
+        raise HTTPException(status_code=500, detail="User lookup failed") from exc
+
+    user_id = result.data
+    if not user_id:
+        logger.warning("[webhook/ls] unknown email: %s", email)
+        return {"status": "user_not_found"}
+
+    is_pro = (status == "active")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    try:
+        supabase_admin.table("profiles") \
+            .update({"is_pro": is_pro, "updated_at": now_iso}) \
+            .eq("id", user_id) \
+            .execute()
+    except Exception as exc:
+        logger.exception("[webhook/ls] profiles update failed")
+        raise HTTPException(status_code=500, detail="Profile update failed") from exc
+
+    logger.info(
+        "[webhook/ls] %s → is_pro=%s (event=%s, status=%s)",
+        email, is_pro, event, status,
+    )
+    return {"status": "ok", "is_pro": is_pro}
 
 
 # ─── Resume flow (Practice Hub) ───────────────────────────────────────────────
