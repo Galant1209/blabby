@@ -1952,7 +1952,19 @@ async def lemonsqueezy_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
     event = payload.get("meta", {}).get("event_name", "")
-    if event not in ("subscription_created", "subscription_updated"):
+    # Webhook ONLY controls profiles.is_pro (paid status). Manual admin
+    # grants live in profiles.is_pro_grant and are never touched here —
+    # so a cancellation can no longer silently revoke a beta-tester grant.
+    HANDLED = {
+        "subscription_created":   True,   # → is_pro = true
+        "subscription_updated":   None,   # depends on attrs.status
+        "subscription_resumed":   True,
+        "subscription_unpaused":  True,
+        "subscription_cancelled": False,  # → is_pro = false
+        "subscription_expired":   False,
+        "subscription_paused":    False,
+    }
+    if event not in HANDLED:
         return {"status": "ignored", "event": event}
 
     attrs = payload.get("data", {}).get("attributes", {})
@@ -1974,7 +1986,8 @@ async def lemonsqueezy_webhook(request: Request):
         logger.warning("[webhook/ls] unknown email: %s", email)
         return {"status": "user_not_found"}
 
-    is_pro = (status == "active")
+    forced = HANDLED[event]
+    is_pro = (status == "active") if forced is None else forced
     now_iso = datetime.now(timezone.utc).isoformat()
 
     try:
@@ -2207,21 +2220,19 @@ async def next_question(
 
 def get_user_pro_status(user_id: str) -> bool:
     """
-    Return True if the user has is_pro=True in the profiles table.
-    Fails safe: any error (missing row, DB down) returns False so free
-    quota enforcement is never accidentally bypassed.
+    Return True if the user is Pro by ANY mechanism — paid (LemonSqueezy
+    webhook → profiles.is_pro) or granted (admin → profiles.is_pro_grant).
+    Backed by the is_user_pro() Postgres helper so the OR logic lives in
+    one place.
+
+    Fails safe: any error returns False so free quota enforcement is
+    never accidentally bypassed.
     """
     if supabase_admin is None:
         return False
     try:
-        resp = (
-            supabase_admin.table("profiles")
-            .select("is_pro")
-            .eq("id", user_id)
-            .maybe_single()
-            .execute()
-        )
-        return bool(resp.data and resp.data.get("is_pro", False))
+        resp = supabase_admin.rpc("is_user_pro", {"user_id": user_id}).execute()
+        return bool(resp.data)
     except Exception:
         logger.exception("get_user_pro_status failed", extra={"user_id": user_id})
         return False
@@ -2503,13 +2514,21 @@ async def admin_recent(
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
 
 
-@app.patch("/admin/user/{user_id}/pro")
+@app.patch("/admin/user/{user_id}/pro_grant")
 @limiter.limit("30/minute")
-async def admin_set_pro(
+async def admin_set_pro_grant(
     user_id: str,
     request: Request,
     authorization: Optional[str] = Header(None),
 ):
+    """
+    Toggle profiles.is_pro_grant — the admin-controlled half of Pro
+    status. The webhook-controlled is_pro column is NEVER touched here,
+    so a manual grant survives a subscription cancellation.
+
+    Body: { "granted": bool, "reason": str|null }
+    Reason is REQUIRED when granted=true (audit trail).
+    """
     try:
         admin_id = verify_admin(authorization)
         try:
@@ -2522,23 +2541,51 @@ async def admin_set_pro(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON")
 
-        is_pro = bool(body.get("is_pro", False))
+        granted = bool(body.get("granted", False))
+        reason = (body.get("reason") or "").strip() or None
+        if granted and not reason:
+            raise HTTPException(
+                status_code=400,
+                detail="A reason is required when granting Pro (audit trail)",
+            )
+
+        # Resolve admin email for the audit column.
+        try:
+            admin_resp = supabase_admin.auth.admin.get_user_by_id(admin_id)
+            admin_user = getattr(admin_resp, "user", None)
+            admin_email = (getattr(admin_user, "email", None) or admin_id)
+        except Exception:
+            admin_email = admin_id
+
         now_iso = datetime.now(timezone.utc).isoformat()
+        update_data = {
+            "is_pro_grant":     granted,
+            "pro_grant_reason": reason   if granted else None,
+            "pro_grant_at":     now_iso  if granted else None,
+            "pro_grant_by":     admin_email if granted else None,
+            "updated_at":       now_iso,
+        }
 
         supabase_admin.table("profiles") \
-            .update({"is_pro": is_pro, "updated_at": now_iso}) \
+            .update(update_data) \
             .eq("id", user_id) \
             .execute()
 
-        logger.info(
-            "[admin/pro] %s set is_pro=%s on user %s", admin_id, is_pro, user_id
+        logger.warning(
+            "[admin/pro_grant] %s set granted=%s on user %s (reason=%r)",
+            admin_email, granted, user_id, reason,
         )
-        return {"status": "ok", "user_id": user_id, "is_pro": is_pro}
+        return {
+            "status": "ok",
+            "user_id": user_id,
+            "is_pro_grant": granted,
+            "pro_grant_reason": reason,
+        }
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("admin set_pro endpoint failed")
-        raise HTTPException(status_code=500, detail="Failed to update pro status") from exc
+        logger.exception("admin set_pro_grant endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to update grant status") from exc
 
 
 @app.delete("/admin/user/{user_id}")
@@ -2765,6 +2812,27 @@ async def admin_dashboard(
             round(total_practices_today / dau_unique, 1) if dau_unique > 0 else 0
         )
 
+        # Pro breakdown — paying vs granted vs both. Defensive against the
+        # RPC not yet existing (during the brief migration window).
+        pro = {
+            "total_pro_effective":   0,
+            "paying_users":          0,
+            "granted_users":         0,
+            "both_paid_and_granted": 0,
+        }
+        try:
+            br = supabase_admin.rpc("get_admin_pro_breakdown").execute()
+            if br.data:
+                row = br.data[0] if isinstance(br.data, list) else br.data
+                pro.update({
+                    "total_pro_effective":   row.get("total_pro_effective") or 0,
+                    "paying_users":          row.get("paying_users") or 0,
+                    "granted_users":         row.get("granted_users") or 0,
+                    "both_paid_and_granted": row.get("both_paid_and_granted") or 0,
+                })
+        except Exception:
+            logger.exception("[admin/dashboard] get_admin_pro_breakdown rpc failed")
+
         return {
             "dau": dau_unique,
             "dau_yesterday": yesterday_unique,
@@ -2779,6 +2847,7 @@ async def admin_dashboard(
             "churn_3d": churn_3d,
             "churn_7d": churn_7d,
             "never_returned": never_returned,
+            **pro,
         }
     except HTTPException:
         raise

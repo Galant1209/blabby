@@ -121,6 +121,18 @@
   .score-md { color: var(--ink); }
   .score-lo { color: var(--ink-dim); }
 
+  /* Pro status badges (paid vs granted) */
+  .pro-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+  .badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+    font-style: italic; line-height: 1.4;
+    border: 1px solid;
+  }
+  .badge-paid  { color: var(--gold); border-color: var(--gold); background: var(--gold-dim); }
+  .badge-grant { color: var(--ok);   border-color: var(--ok);   background: rgba(111,179,123,0.06); }
+  .badge-muted { color: var(--ink-faint); border-color: var(--rule); }
+
   /* Row action buttons */
   .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .btn {
@@ -447,6 +459,7 @@
       { label: 'MAU', value: d.mau },
       { label: 'Practices today', value: d.practice_count_today, delta: `${d.avg_practice_per_user ?? 0}/user` },
       { label: 'Drills today', value: d.drill_today, delta: `normal ${d.normal_today ?? 0}` },
+      { label: 'Pro users', value: d.total_pro_effective ?? 0, delta: `${d.paying_users ?? 0} paying · ${d.granted_users ?? 0} granted` },
       { label: 'Waitlist', value: d.waitlist_count, delta: `+${d.waitlist_24h ?? 0} (24h)` },
       { label: 'Churn 3d', value: d.churn_3d, alert: (d.churn_3d ?? 0) > 0 },
       { label: 'Churn 7d', value: d.churn_7d, alert: (d.churn_7d ?? 0) > 0 },
@@ -497,16 +510,24 @@
     }
     const rows = users.map(u => {
       const inactive = (u.practice_count ?? 0) === 0 && (u.drill_count ?? 0) === 0;
-      const proBtn = u.is_pro
-        ? `<button class="btn btn-danger" data-action="pro" data-id="${escapeHtml(u.user_id)}" data-next="false">Revoke Pro</button>`
-        : `<button class="btn btn-gold"   data-action="pro" data-id="${escapeHtml(u.user_id)}" data-next="true">Grant Pro</button>`;
+      // Status: paid (LemonSqueezy webhook) vs granted (admin manual).
+      // Show both badges so we know if a Pro is converting or comp'd.
+      const paidBadge = u.is_pro_paid
+        ? `<span class="badge badge-paid" title="Paying subscriber">Paid</span>`
+        : `<span class="badge badge-muted">—</span>`;
+      const grantBadge = u.is_pro_grant
+        ? `<span class="badge badge-grant" title="${escapeHtml(u.pro_grant_reason || 'Manual grant')}">Granted</span>`
+        : `<span class="badge badge-muted">—</span>`;
+      const grantBtn = u.is_pro_grant
+        ? `<button class="btn btn-danger" data-action="grant" data-id="${escapeHtml(u.user_id)}" data-next="false">Revoke Grant</button>`
+        : `<button class="btn btn-gold"   data-action="grant" data-id="${escapeHtml(u.user_id)}" data-next="true">Grant Pro</button>`;
       const delBtn = inactive
         ? `<button class="btn" data-action="delete" data-id="${escapeHtml(u.user_id)}">Delete</button>` : '';
       return `
         <tr data-row-id="${escapeHtml(u.user_id)}">
           <td class="mono">${escapeHtml((u.user_id || '').slice(0,8))}</td>
           <td>${u.email ? escapeHtml(u.email) : '<span class="dim">—</span>'}</td>
-          <td class="${u.is_pro ? 'gold' : 'dim'}">${u.is_pro ? '✦' : '—'}</td>
+          <td><div class="pro-badges">${paidBadge}${grantBadge}</div></td>
           <td>${u.practice_count ?? 0}</td>
           <td>${u.practice_count_7d ?? 0}</td>
           <td>${u.drill_count ?? 0}</td>
@@ -514,12 +535,12 @@
           <td class="dim">${escapeHtml(u.main_weakness_tag || '—')}</td>
           <td>${churnPill(u.churn_risk)}</td>
           <td class="${scoreClass(u.conversion_score)}">${u.conversion_score ?? 0}</td>
-          <td><div class="row-actions">${proBtn}${delBtn}</div></td>
+          <td><div class="row-actions">${grantBtn}${delBtn}</div></td>
         </tr>
       `;
     }).join('');
     container.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>User</th><th>Email</th><th>Pro</th><th>Sess</th><th>7d</th><th>Drills</th><th>Last Active</th><th>Weakness</th><th>Churn</th><th>Score</th><th>Actions</th></tr></thead>
+      <thead><tr><th>User</th><th>Email</th><th>Pro Status</th><th>Sess</th><th>7d</th><th>Drills</th><th>Last Active</th><th>Weakness</th><th>Churn</th><th>Score</th><th>Actions</th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
     container.querySelectorAll('button[data-action]').forEach(btn => btn.addEventListener('click', onUserAction));
   }
@@ -532,16 +553,24 @@
     const row = btn.closest('tr');
     const allBtns = row ? row.querySelectorAll('button') : [btn];
 
-    if (action === 'pro') {
-      const next = btn.dataset.next === 'true';
+    if (action === 'grant') {
+      const granted = btn.dataset.next === 'true';
+      let reason = null;
+      if (granted) {
+        // Reason required for the audit trail (server-side enforced too).
+        reason = prompt('Reason for granting Pro? (e.g. "Friend — beta tester")');
+        if (reason == null) return;          // user cancelled
+        reason = reason.trim();
+        if (!reason) { alert('A reason is required.'); return; }
+      }
       allBtns.forEach(b => b.disabled = true);
       try {
-        await authJson('PATCH', `/admin/user/${encodeURIComponent(id)}/pro`, { is_pro: next });
+        await authJson('PATCH', `/admin/user/${encodeURIComponent(id)}/pro_grant`, { granted, reason });
         const fresh = await authFetch('/admin/users');
         renderUsers(fresh);
       } catch (e) {
         allBtns.forEach(b => b.disabled = false);
-        alert(e.message || 'Failed to update pro status.');
+        alert(e.message || 'Failed to update grant status.');
       }
       return;
     }
