@@ -369,7 +369,7 @@
     try {
       const { error } = await sb.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: location.origin + location.pathname }
+        options: { emailRedirectTo: 'https://blabby.vercel.app/app/admin.html' }
       });
       if (error) throw error;
       $gateMsg.textContent = 'Check your inbox. The link will sign you in here.';
