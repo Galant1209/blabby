@@ -1956,13 +1956,14 @@ async def lemonsqueezy_webhook(request: Request):
     # grants live in profiles.is_pro_grant and are never touched here —
     # so a cancellation can no longer silently revoke a beta-tester grant.
     HANDLED = {
-        "subscription_created":   True,   # → is_pro = true
-        "subscription_updated":   None,   # depends on attrs.status
-        "subscription_resumed":   True,
-        "subscription_unpaused":  True,
-        "subscription_cancelled": False,  # → is_pro = false
-        "subscription_expired":   False,
-        "subscription_paused":    False,
+        "subscription_created":         True,   # → is_pro = true
+        "subscription_updated":         None,   # depends on attrs.status
+        "subscription_resumed":         True,
+        "subscription_unpaused":        True,
+        "subscription_cancelled":       False,  # → is_pro = false
+        "subscription_expired":         False,
+        "subscription_paused":          False,
+        "subscription_payment_failed":  False,  # treat as paid-status loss
     }
     if event not in HANDLED:
         return {"status": "ignored", "event": event}
@@ -2512,6 +2513,28 @@ async def admin_recent(
     except Exception as exc:
         logger.exception("admin recent endpoint failed")
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
+
+
+@app.patch("/admin/user/{user_id}/pro", deprecated=True)
+@limiter.limit("30/minute")
+async def admin_set_pro_legacy(
+    user_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Removed in favor of /admin/user/{user_id}/pro_grant.
+    Kept as a 410 stub so any cached client surfaces a clear error
+    instead of a confusing 405 Method Not Allowed.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "This endpoint is deprecated. Use PATCH "
+            "/admin/user/{user_id}/pro_grant with body "
+            '{"granted": bool, "reason": str}.'
+        ),
+    )
 
 
 @app.patch("/admin/user/{user_id}/pro_grant")
