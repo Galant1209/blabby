@@ -1371,6 +1371,7 @@
             </button>
             <div id="user-dropdown" class="user-dropdown" style="display:none">
                 <div id="user-email-display" class="user-email-display"></div>
+                <a href="/app/admin.html" id="admin-link" style="display: none; padding: 8px 16px; font-family: 'Libre Baskerville', serif; font-size: 13px; color: #C9A84C; text-decoration: none; border-bottom: 1px solid rgba(201,168,76,0.2);">⚙ Admin</a>
                 <button id="logout-btn" class="user-logout-btn">登出</button>
             </div>
         </div>
@@ -1669,8 +1670,29 @@
                 document.getElementById('user-initial').textContent =
                     (email[0] || '?').toUpperCase();
                 document.getElementById('user-email-display').textContent = email;
+                const { data: { session } } = await sb.auth.getSession();
+                if (session && session.access_token) {
+                    checkAdminAccess(session.access_token);
+                }
             } catch (err) {
                 console.error('showMain getUser error:', err);
+            }
+        }
+
+        // Probes /admin/dashboard with the user's JWT — backend gates on
+        // ADMIN_EMAILS, so a 200 means this user is an admin. Anything
+        // else (401/403/network) leaves the link hidden.
+        async function checkAdminAccess(jwt) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/dashboard`, {
+                    headers: { 'Authorization': `Bearer ${jwt}` }
+                });
+                if (res.ok) {
+                    const link = document.getElementById('admin-link');
+                    if (link) link.style.display = 'block';
+                }
+            } catch (e) {
+                // not admin or network error — stay hidden
             }
         }
         function showAuth() {
