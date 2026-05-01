@@ -18,7 +18,10 @@
     --gold: #C9A84C;
     --gold-dim: rgba(201, 168, 76, 0.08);
     --rule: rgba(232, 224, 208, 0.08);
+    --row-alt: rgba(255, 255, 255, 0.012);
     --err: #c94c4c;
+    --warn: #e0a020;
+    --ok: #6fb37b;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -28,16 +31,13 @@
     font-size: 15px; line-height: 1.55;
     -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 1100px; margin: 0 auto; padding: 56px 32px 96px; }
+  main { max-width: 1280px; margin: 0 auto; padding: 56px 32px 96px; }
   header.brand {
     border-bottom: 1px solid var(--rule);
-    padding-bottom: 20px; margin-bottom: 48px;
+    padding-bottom: 20px; margin-bottom: 40px;
     display: flex; align-items: baseline; justify-content: space-between;
   }
-  header.brand h1 {
-    font-size: 22px; font-weight: 700; margin: 0;
-    letter-spacing: 0.02em;
-  }
+  header.brand h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: 0.02em; }
   header.brand h1 .gold { color: var(--gold); }
   .who { font-size: 12px; color: var(--ink-dim); font-style: italic; }
   .who button {
@@ -47,63 +47,143 @@
   }
   .who button:hover { color: var(--gold); }
 
-  section { margin-bottom: 72px; }
+  section { margin-bottom: 64px; }
   section h2 {
     font-size: 18px; font-weight: 400; font-style: italic;
-    margin: 0 0 24px; color: var(--ink);
-    letter-spacing: 0.01em;
+    margin: 0 0 20px; color: var(--ink); letter-spacing: 0.01em;
   }
   section h2 .count { color: var(--gold); font-style: normal; font-weight: 700; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  /* ── KPI cards ──────────────────────────────────────────── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 64px;
+  }
+  .kpi {
+    border: 1px solid var(--rule);
+    background: rgba(255,255,255,0.012);
+    padding: 18px 16px;
+    text-align: left;
+  }
+  .kpi .label {
+    font-size: 11px; color: var(--ink-dim); font-style: italic;
+    letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .kpi .value {
+    font-size: 26px; font-weight: 700; color: var(--gold); line-height: 1.1;
+  }
+  .kpi .delta { font-size: 11px; color: var(--ink-dim); margin-top: 4px; font-style: italic; }
+  .kpi.alert .value { color: var(--err); }
+
+  /* ── Tables ─────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   thead th {
     text-align: left; font-weight: 700; font-style: italic;
     color: var(--ink-dim); padding: 10px 12px;
     border-bottom: 1px solid var(--rule);
-    font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    white-space: nowrap;
   }
   tbody td {
-    padding: 14px 12px; border-bottom: 1px solid var(--rule);
+    padding: 12px; border-bottom: 1px solid var(--rule);
     vertical-align: top;
   }
   tbody tr { transition: background-color 120ms ease; }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
   tbody tr:hover { background: var(--gold-dim); }
-  tbody td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 13px; color: var(--ink-dim); }
+  tbody td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12.5px; color: var(--ink-dim); }
   tbody td.gold { color: var(--gold); font-weight: 700; }
   tbody td.dim  { color: var(--ink-dim); }
+  tbody td.nowrap { white-space: nowrap; }
+  .truncate { display: inline-block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
   .empty { color: var(--ink-dim); font-style: italic; padding: 24px 12px; }
-  .err { color: var(--err); padding: 16px 0; font-style: italic; }
+  .err   { color: var(--err); padding: 16px 0; font-style: italic; }
+  .loading { color: var(--gold); font-style: italic; padding: 16px 0; }
 
-  /* ── Row action buttons ───────────────────────────────── */
-  .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* Score / churn pills */
+  .pill {
+    display: inline-block; padding: 2px 8px; border: 1px solid;
+    font-size: 11px; font-style: italic; letter-spacing: 0.04em;
+    text-transform: uppercase; line-height: 1.5;
+  }
+  .pill-ok    { color: var(--ok);    border-color: var(--ok); }
+  .pill-warn  { color: var(--warn);  border-color: var(--warn); }
+  .pill-err   { color: var(--err);   border-color: var(--err); }
+  .pill-dim   { color: var(--ink-dim); border-color: var(--rule); }
+  .score-hi { color: var(--gold); font-weight: 700; }
+  .score-md { color: var(--ink); }
+  .score-lo { color: var(--ink-dim); }
+
+  /* Row action buttons */
+  .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .btn {
     background: transparent; color: var(--ink);
     border: 1px solid var(--rule);
-    font-family: inherit; font-size: 12px; font-style: italic;
-    padding: 6px 12px; cursor: pointer;
-    letter-spacing: 0.03em;
+    font-family: inherit; font-size: 11px; font-style: italic;
+    padding: 4px 10px; cursor: pointer;
+    letter-spacing: 0.03em; white-space: nowrap;
     transition: border-color 120ms ease, color 120ms ease, opacity 120ms ease;
   }
   .btn:hover { border-color: var(--ink-dim); }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn.btn-gold  { border-color: var(--gold); color: var(--gold); }
-  .btn.btn-gold:hover  { background: var(--gold-dim); }
+  .btn.btn-gold   { border-color: var(--gold); color: var(--gold); }
+  .btn.btn-gold:hover { background: var(--gold-dim); }
   .btn.btn-danger { border-color: var(--err); color: var(--err); }
   .btn.btn-danger:hover { background: rgba(201, 76, 76, 0.08); }
 
-  /* ── Login screen ─────────────────────────────────────── */
-  .gate {
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    padding: 32px;
+  /* Filters */
+  .filters {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 20px; padding: 14px 16px;
+    border: 1px solid var(--rule); background: rgba(255,255,255,0.012);
   }
+  .filters label { font-size: 11px; color: var(--ink-dim); font-style: italic; letter-spacing: 0.05em; text-transform: uppercase; margin-right: 6px; }
+  .filters select, .filters input[type="number"] {
+    background: var(--bg); color: var(--ink);
+    border: 1px solid var(--rule); padding: 6px 10px;
+    font-family: inherit; font-size: 13px; outline: none;
+    min-width: 120px;
+  }
+  .filters input[type="number"] { width: 80px; min-width: 0; }
+  .filters select:focus, .filters input:focus { border-color: var(--gold); }
+  .filters button {
+    background: transparent; color: var(--gold); border: 1px solid var(--gold);
+    padding: 6px 14px; font-family: inherit; font-size: 12px; cursor: pointer;
+    font-style: italic; letter-spacing: 0.04em;
+  }
+  .filters button:hover { background: var(--gold-dim); }
+
+  /* Expandable practice rows */
+  tr.practice-row { cursor: pointer; }
+  tr.practice-detail td {
+    background: rgba(0,0,0,0.3); padding: 18px 24px;
+    border-bottom: 1px solid var(--rule);
+  }
+  tr.practice-detail h4 {
+    margin: 0 0 6px; font-size: 11px; color: var(--gold);
+    letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700;
+  }
+  tr.practice-detail .field { margin-bottom: 14px; }
+  tr.practice-detail .field:last-child { margin-bottom: 0; }
+  tr.practice-detail pre {
+    margin: 0; padding: 12px; background: var(--bg);
+    border: 1px solid var(--rule);
+    font-family: 'SF Mono', Menlo, monospace; font-size: 12px;
+    white-space: pre-wrap; word-break: break-word;
+    color: var(--ink); max-height: 360px; overflow: auto;
+  }
+
+  /* ── Login screen ─────────────────────────────────────── */
+  .gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 32px; }
   .gate-card {
     width: 100%; max-width: 380px;
     border: 1px solid var(--rule); padding: 40px 36px;
     background: rgba(255,255,255,0.015);
   }
-  .gate-card h1 {
-    margin: 0 0 8px; font-size: 22px; font-weight: 700;
-  }
+  .gate-card h1 { margin: 0 0 8px; font-size: 22px; font-weight: 700; }
   .gate-card h1 .gold { color: var(--gold); }
   .gate-card p { color: var(--ink-dim); font-size: 13px; margin: 0 0 28px; font-style: italic; }
   .gate-card label { display: block; font-size: 12px; color: var(--ink-dim); margin-bottom: 8px; letter-spacing: 0.05em; text-transform: uppercase; }
@@ -162,18 +242,50 @@
     </div>
   </header>
 
+  <!-- ── Section 0: KPI bar -->
+  <div id="kpiGrid" class="kpi-grid">
+    <div class="kpi"><div class="label">Loading…</div><div class="value">—</div></div>
+  </div>
+
+  <!-- ── Section 1: Waitlist -->
   <section id="waitlistSection">
     <h2>Waitlist — <span class="count" id="waitlistCount">…</span> souls awaiting admittance</h2>
-    <div id="waitlistBody">
-      <div class="empty">Loading…</div>
-    </div>
+    <div id="waitlistBody"><div class="loading">Loading…</div></div>
   </section>
 
-  <section id="activitySection">
-    <h2>Users</h2>
-    <div id="activityBody">
-      <div class="empty">Loading…</div>
+  <!-- ── Section 2: Users -->
+  <section id="usersSection">
+    <h2>Users — <span class="count" id="usersCount">…</span> enrolled</h2>
+    <div id="usersBody"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ── Section 3: Practice Records -->
+  <section id="recordsSection">
+    <h2>Practice Records</h2>
+    <div class="filters">
+      <div><label>Mode</label>
+        <select id="filterMode">
+          <option value="">all</option>
+          <option value="normal">normal</option>
+          <option value="drill">drill</option>
+        </select>
+      </div>
+      <div><label>Weakness</label>
+        <select id="filterWeakness">
+          <option value="">all</option>
+          <option value="weak_vocab">weak_vocab</option>
+          <option value="safe_answer">safe_answer</option>
+          <option value="lack_detail">lack_detail</option>
+          <option value="grammar_minor">grammar_minor</option>
+          <option value="off_topic">off_topic</option>
+        </select>
+      </div>
+      <div><label>Limit</label>
+        <input id="filterLimit" type="number" min="1" max="100" value="20">
+      </div>
+      <button id="applyFilters">Apply</button>
     </div>
+    <div id="recordsBody"><div class="loading">Loading…</div></div>
   </section>
 </main>
 
@@ -203,34 +315,27 @@
   const $whoEmail = document.getElementById('whoEmail');
   const $logout = document.getElementById('logout');
 
-  // ── 1. Magic-link return: parse #access_token from URL ─────────────
+  // ── 1. Magic-link return ──────────────────────────────────────────
   function parseHashToken() {
     if (!location.hash) return null;
     const params = new URLSearchParams(location.hash.slice(1));
     const token = params.get('access_token');
     if (!token) return null;
-    return {
-      access_token: token,
-      refresh_token: params.get('refresh_token') || '',
-    };
+    return { access_token: token, refresh_token: params.get('refresh_token') || '' };
   }
-
   async function consumeHashTokenIfPresent() {
     const t = parseHashToken();
     if (!t) return false;
     sessionStorage.setItem(TOKEN_KEY, t.access_token);
-    // get email from token via supabase
     try {
       const { data, error } = await sb.auth.getUser(t.access_token);
-      if (!error && data?.user?.email) {
-        sessionStorage.setItem(EMAIL_KEY, data.user.email);
-      }
-    } catch (_) { /* ignore — backend will still gate */ }
+      if (!error && data?.user?.email) sessionStorage.setItem(EMAIL_KEY, data.user.email);
+    } catch (_) {}
     history.replaceState(null, '', location.pathname + location.search);
     return true;
   }
 
-  // ── 2. Auth state UI ───────────────────────────────────────────────
+  // ── 2. Auth UI ────────────────────────────────────────────────────
   function showGate(msg, isErr) {
     $dash.classList.add('hidden');
     $gate.classList.remove('hidden');
@@ -244,19 +349,15 @@
     $dash.classList.remove('hidden');
     $whoEmail.textContent = sessionStorage.getItem(EMAIL_KEY) || '';
   }
-
   function clearAuth() {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(EMAIL_KEY);
   }
 
-  // ── 3. Login form ─────────────────────────────────────────────────
   $send.addEventListener('click', async () => {
     const email = ($email.value || '').trim().toLowerCase();
     if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
-      $email.classList.remove('shake');
-      void $email.offsetWidth;
-      $email.classList.add('shake');
+      $email.classList.remove('shake'); void $email.offsetWidth; $email.classList.add('shake');
       $email.value = '';
       $gateMsg.textContent = 'Enter a valid email.';
       $gateMsg.classList.add('err');
@@ -280,97 +381,9 @@
     }
   });
 
-  $logout.addEventListener('click', () => {
-    clearAuth();
-    location.reload();
-  });
+  $logout.addEventListener('click', () => { clearAuth(); location.reload(); });
 
-  // ── 4. Data fetches ───────────────────────────────────────────────
-  async function authFetch(path) {
-    const token = sessionStorage.getItem(TOKEN_KEY);
-    if (!token) throw new Error('no_token');
-    const r = await fetch(`${API_BASE}${path}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (r.status === 401 || r.status === 403) {
-      const reason = r.status === 403 ? 'Access denied — your email is not in the admin list.' : 'Session expired. Sign in again.';
-      throw new Error(reason);
-    }
-    if (!r.ok) throw new Error(`Request failed (${r.status})`);
-    return r.json();
-  }
-
-  function fmtDate(iso) {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    if (isNaN(d)) return '—';
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
-  function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
-
-  function renderWaitlist({ waitlist, total }) {
-    document.getElementById('waitlistCount').textContent = total ?? 0;
-    const container = document.getElementById('waitlistBody');
-    if (!waitlist || waitlist.length === 0) {
-      container.innerHTML = '<div class="empty">No reservations yet.</div>';
-      return;
-    }
-    const rows = waitlist.map(w => `
-      <tr>
-        <td>${escapeHtml(w.email)}</td>
-        <td class="gold">NT$${escapeHtml(w.reserved_price ?? '—')}</td>
-        <td class="mono">${fmtDate(w.reserved_at)}</td>
-        <td class="dim">${escapeHtml(w.source || '—')}</td>
-      </tr>
-    `).join('');
-    container.innerHTML = `
-      <table>
-        <thead><tr><th>Email</th><th>Price</th><th>Signed up</th><th>Source</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    `;
-  }
-
-  function renderActivity({ users }) {
-    const container = document.getElementById('activityBody');
-    if (!users || users.length === 0) {
-      container.innerHTML = '<div class="empty">No users yet.</div>';
-      return;
-    }
-    const rows = users.map(u => {
-      const inactive = (u.practice_count ?? 0) === 0 && (u.drill_count ?? 0) === 0;
-      const proBtn = u.is_pro
-        ? `<button class="btn btn-danger" data-action="pro" data-id="${escapeHtml(u.user_id)}" data-next="false">Revoke Pro</button>`
-        : `<button class="btn btn-gold"   data-action="pro" data-id="${escapeHtml(u.user_id)}" data-next="true">Grant Pro</button>`;
-      const delBtn = inactive
-        ? `<button class="btn" data-action="delete" data-id="${escapeHtml(u.user_id)}">Delete</button>`
-        : '';
-      return `
-        <tr data-row-id="${escapeHtml(u.user_id)}">
-          <td class="mono">${escapeHtml((u.user_id || '').slice(0,8))}</td>
-          <td>${u.email ? escapeHtml(u.email) : '<span class="dim">—</span>'}</td>
-          <td class="${u.is_pro ? 'gold' : 'dim'}">${u.is_pro ? '✦' : '—'}</td>
-          <td>${u.practice_count ?? 0}</td>
-          <td>${u.drill_count ?? 0}</td>
-          <td class="mono">${u.last_practice ? fmtDate(u.last_practice) : 'never'}</td>
-          <td><div class="row-actions">${proBtn}${delBtn}</div></td>
-        </tr>
-      `;
-    }).join('');
-    container.innerHTML = `
-      <table>
-        <thead><tr><th>User</th><th>Email</th><th>Pro</th><th>Sessions</th><th>Drills</th><th>Last active</th><th>Actions</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    `;
-    container.querySelectorAll('button[data-action]').forEach(btn => {
-      btn.addEventListener('click', onRowAction);
-    });
-  }
-
+  // ── 3. HTTP helpers ───────────────────────────────────────────────
   async function authJson(method, path, body) {
     const token = sessionStorage.getItem(TOKEN_KEY);
     if (!token) throw new Error('no_token');
@@ -392,8 +405,122 @@
     }
     return r.json();
   }
+  const authFetch = (path) => authJson('GET', path);
 
-  async function onRowAction(ev) {
+  // ── 4. Formatters ─────────────────────────────────────────────────
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d)) return '—';
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function truncate(s, n) {
+    s = String(s ?? '');
+    return s.length > n ? s.slice(0, n) + '…' : s;
+  }
+  function scoreClass(score) {
+    const s = score ?? 0;
+    if (s >= 70) return 'score-hi';
+    if (s >= 40) return 'score-md';
+    return 'score-lo';
+  }
+  function churnPill(risk) {
+    const map = { low: 'pill-ok', medium: 'pill-warn', high: 'pill-err', new: 'pill-dim' };
+    const cls = map[risk] || 'pill-dim';
+    return `<span class="pill ${cls}">${escapeHtml(risk || '—')}</span>`;
+  }
+
+  // ── 5. KPI bar ────────────────────────────────────────────────────
+  function renderKpis(d) {
+    const cards = [
+      { label: 'DAU', value: d.dau, delta: `yest. ${d.dau_yesterday ?? 0}` },
+      { label: 'WAU', value: d.wau },
+      { label: 'MAU', value: d.mau },
+      { label: 'Practices today', value: d.practice_count_today, delta: `${d.avg_practice_per_user ?? 0}/user` },
+      { label: 'Drills today', value: d.drill_today, delta: `normal ${d.normal_today ?? 0}` },
+      { label: 'Waitlist', value: d.waitlist_count, delta: `+${d.waitlist_24h ?? 0} (24h)` },
+      { label: 'Churn 3d', value: d.churn_3d, alert: (d.churn_3d ?? 0) > 0 },
+      { label: 'Churn 7d', value: d.churn_7d, alert: (d.churn_7d ?? 0) > 0 },
+      { label: 'Never returned', value: d.never_returned },
+    ];
+    document.getElementById('kpiGrid').innerHTML = cards.map(c => `
+      <div class="kpi ${c.alert ? 'alert' : ''}">
+        <div class="label">${escapeHtml(c.label)}</div>
+        <div class="value">${escapeHtml(c.value ?? 0)}</div>
+        ${c.delta ? `<div class="delta">${escapeHtml(c.delta)}</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  // ── 6. Waitlist ───────────────────────────────────────────────────
+  function renderWaitlist({ waitlist, total }) {
+    document.getElementById('waitlistCount').textContent = total ?? 0;
+    const container = document.getElementById('waitlistBody');
+    if (!waitlist || waitlist.length === 0) {
+      container.innerHTML = '<div class="empty">No reservations yet.</div>';
+      return;
+    }
+    const rows = waitlist.map(w => `
+      <tr>
+        <td>${escapeHtml(w.email)}</td>
+        <td class="gold nowrap">NT$${escapeHtml(w.reserved_price ?? '—')}</td>
+        <td class="mono nowrap">${fmtDate(w.reserved_at)}</td>
+        <td class="dim">${escapeHtml(w.source || '—')}</td>
+        <td>${w.practice_count ?? 0}</td>
+        <td>${w.practice_count_7d ?? 0}</td>
+        <td class="mono nowrap">${w.last_practice ? fmtDate(w.last_practice) : '<span class="dim">never</span>'}</td>
+        <td class="dim">${escapeHtml(w.main_weakness_tag || '—')}</td>
+        <td class="${scoreClass(w.conversion_score)}">${w.conversion_score ?? 0}</td>
+      </tr>
+    `).join('');
+    container.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Email</th><th>Price</th><th>Signed Up</th><th>Source</th><th>Sessions</th><th>7d</th><th>Last Active</th><th>Weakness</th><th>Score</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }
+
+  // ── 7. Users ──────────────────────────────────────────────────────
+  function renderUsers({ users, total }) {
+    document.getElementById('usersCount').textContent = total ?? (users || []).length;
+    const container = document.getElementById('usersBody');
+    if (!users || users.length === 0) {
+      container.innerHTML = '<div class="empty">No users yet.</div>';
+      return;
+    }
+    const rows = users.map(u => {
+      const inactive = (u.practice_count ?? 0) === 0 && (u.drill_count ?? 0) === 0;
+      const proBtn = u.is_pro
+        ? `<button class="btn btn-danger" data-action="pro" data-id="${escapeHtml(u.user_id)}" data-next="false">Revoke Pro</button>`
+        : `<button class="btn btn-gold"   data-action="pro" data-id="${escapeHtml(u.user_id)}" data-next="true">Grant Pro</button>`;
+      const delBtn = inactive
+        ? `<button class="btn" data-action="delete" data-id="${escapeHtml(u.user_id)}">Delete</button>` : '';
+      return `
+        <tr data-row-id="${escapeHtml(u.user_id)}">
+          <td class="mono">${escapeHtml((u.user_id || '').slice(0,8))}</td>
+          <td>${u.email ? escapeHtml(u.email) : '<span class="dim">—</span>'}</td>
+          <td class="${u.is_pro ? 'gold' : 'dim'}">${u.is_pro ? '✦' : '—'}</td>
+          <td>${u.practice_count ?? 0}</td>
+          <td>${u.practice_count_7d ?? 0}</td>
+          <td>${u.drill_count ?? 0}</td>
+          <td class="mono nowrap">${u.last_practice ? fmtDate(u.last_practice) : '<span class="dim">never</span>'}</td>
+          <td class="dim">${escapeHtml(u.main_weakness_tag || '—')}</td>
+          <td>${churnPill(u.churn_risk)}</td>
+          <td class="${scoreClass(u.conversion_score)}">${u.conversion_score ?? 0}</td>
+          <td><div class="row-actions">${proBtn}${delBtn}</div></td>
+        </tr>
+      `;
+    }).join('');
+    container.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>User</th><th>Email</th><th>Pro</th><th>Sess</th><th>7d</th><th>Drills</th><th>Last Active</th><th>Weakness</th><th>Churn</th><th>Score</th><th>Actions</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+    container.querySelectorAll('button[data-action]').forEach(btn => btn.addEventListener('click', onUserAction));
+  }
+
+  async function onUserAction(ev) {
+    ev.stopPropagation();
     const btn = ev.currentTarget;
     const action = btn.dataset.action;
     const id = btn.dataset.id;
@@ -405,15 +532,14 @@
       allBtns.forEach(b => b.disabled = true);
       try {
         await authJson('PATCH', `/admin/user/${encodeURIComponent(id)}/pro`, { is_pro: next });
-        const activity = await authJson('GET', '/admin/activity');
-        renderActivity(activity);
+        const fresh = await authFetch('/admin/users');
+        renderUsers(fresh);
       } catch (e) {
         allBtns.forEach(b => b.disabled = false);
         alert(e.message || 'Failed to update pro status.');
       }
       return;
     }
-
     if (action === 'delete') {
       if (!confirm('Delete this user? This cannot be undone.')) return;
       allBtns.forEach(b => b.disabled = true);
@@ -424,40 +550,131 @@
         allBtns.forEach(b => b.disabled = false);
         alert(e.message || 'Failed to delete user.');
       }
+    }
+  }
+
+  // ── 8. Practice records (filtered, expandable) ────────────────────
+  let cachedRecords = [];
+
+  function renderRecords({ records }) {
+    cachedRecords = records || [];
+    const container = document.getElementById('recordsBody');
+    if (cachedRecords.length === 0) {
+      container.innerHTML = '<div class="empty">No records match these filters.</div>';
       return;
     }
+    const rows = cachedRecords.map((r, idx) => {
+      const who = r.email
+        ? escapeHtml(r.email)
+        : `<span class="mono dim">${escapeHtml((r.user_id || '').slice(0,8))}</span>`;
+      return `
+        <tr class="practice-row" data-idx="${idx}">
+          <td class="mono nowrap">${fmtDate(r.created_at)}</td>
+          <td>${who}</td>
+          <td class="dim">${escapeHtml(r.mode || '—')}</td>
+          <td class="dim">${escapeHtml(r.weakness_tag || '—')}</td>
+          <td class="dim">${escapeHtml(r.drill_tag || '—')}</td>
+          <td><span class="truncate">${escapeHtml(truncate(r.user_transcript, 80))}</span></td>
+          <td><span class="truncate">${escapeHtml(truncate(r.coach_response, 80))}</span></td>
+        </tr>
+      `;
+    }).join('');
+    container.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Time</th><th>User</th><th>Mode</th><th>Weakness</th><th>Drill Tag</th><th>Transcript</th><th>Coach Response</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+    container.querySelectorAll('tr.practice-row').forEach(tr => tr.addEventListener('click', onPracticeRowClick));
+  }
+
+  function onPracticeRowClick(ev) {
+    const tr = ev.currentTarget;
+    const idx = parseInt(tr.dataset.idx, 10);
+    const r = cachedRecords[idx];
+    if (!r) return;
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains('practice-detail')) {
+      next.remove();
+      return;
+    }
+    let evidenceStr = '';
+    if (r.evidence != null) {
+      try { evidenceStr = typeof r.evidence === 'string' ? r.evidence : JSON.stringify(r.evidence, null, 2); }
+      catch { evidenceStr = String(r.evidence); }
+    }
+    const detail = document.createElement('tr');
+    detail.className = 'practice-detail';
+    detail.innerHTML = `
+      <td colspan="7">
+        <div class="field"><h4>Transcript</h4><pre>${escapeHtml(r.user_transcript || '—')}</pre></div>
+        <div class="field"><h4>Coach Response</h4><pre>${escapeHtml(r.coach_response || '—')}</pre></div>
+        ${evidenceStr ? `<div class="field"><h4>Evidence</h4><pre>${escapeHtml(evidenceStr)}</pre></div>` : ''}
+        ${r.drill_score != null ? `<div class="field"><h4>Drill Score</h4><pre>${escapeHtml(typeof r.drill_score === 'object' ? JSON.stringify(r.drill_score, null, 2) : r.drill_score)}</pre></div>` : ''}
+      </td>
+    `;
+    tr.after(detail);
+  }
+
+  async function loadRecords() {
+    const mode = document.getElementById('filterMode').value;
+    const wk = document.getElementById('filterWeakness').value;
+    const limit = document.getElementById('filterLimit').value || 20;
+    const qs = new URLSearchParams();
+    if (mode) qs.set('mode', mode);
+    if (wk)   qs.set('weakness_tag', wk);
+    qs.set('limit', String(limit));
+    document.getElementById('recordsBody').innerHTML = '<div class="loading">Loading…</div>';
+    try {
+      const data = await authFetch('/admin/recent?' + qs.toString());
+      renderRecords(data);
+    } catch (e) {
+      document.getElementById('recordsBody').innerHTML = `<div class="err">${escapeHtml(e.message || 'Failed to load.')}</div>`;
+    }
+  }
+
+  document.getElementById('applyFilters').addEventListener('click', loadRecords);
+
+  // ── 9. Boot — load all sections in parallel ──────────────────────
+  function setSectionError(id, msg) {
+    document.getElementById(id).innerHTML = `<div class="err">${escapeHtml(msg)}</div>`;
   }
 
   async function loadDashboard() {
     showDash();
-    try {
-      const [waitlist, activity] = await Promise.all([
-        authFetch('/admin/waitlist'),
-        authFetch('/admin/activity'),
-      ]);
-      renderWaitlist(waitlist);
-      renderActivity(activity);
-    } catch (e) {
-      const msg = e.message || 'Failed to load.';
-      const denied = /denied|expired|no_token/i.test(msg);
-      if (denied) {
-        clearAuth();
-        showGate(msg, true);
-      } else {
-        document.getElementById('waitlistBody').innerHTML = `<div class="err">${escapeHtml(msg)}</div>`;
-        document.getElementById('activityBody').innerHTML = '';
-      }
+    const results = await Promise.allSettled([
+      authFetch('/admin/dashboard'),
+      authFetch('/admin/waitlist'),
+      authFetch('/admin/users'),
+      (async () => {
+        const limit = document.getElementById('filterLimit').value || 20;
+        return authFetch('/admin/recent?limit=' + encodeURIComponent(limit));
+      })(),
+    ]);
+
+    // If any of them returned 401/403, force re-login
+    const denied = results.find(r => r.status === 'rejected' && /denied|expired|no_token/i.test(r.reason?.message || ''));
+    if (denied) {
+      clearAuth();
+      showGate(denied.reason.message, true);
+      return;
     }
+
+    const [kpiR, wlR, usR, recR] = results;
+    if (kpiR.status === 'fulfilled') renderKpis(kpiR.value);
+    else document.getElementById('kpiGrid').innerHTML = `<div class="err">${escapeHtml(kpiR.reason?.message || 'Failed to load KPIs.')}</div>`;
+
+    if (wlR.status === 'fulfilled') renderWaitlist(wlR.value);
+    else setSectionError('waitlistBody', wlR.reason?.message || 'Failed to load waitlist.');
+
+    if (usR.status === 'fulfilled') renderUsers(usR.value);
+    else setSectionError('usersBody', usR.reason?.message || 'Failed to load users.');
+
+    if (recR.status === 'fulfilled') renderRecords(recR.value);
+    else setSectionError('recordsBody', recR.reason?.message || 'Failed to load records.');
   }
 
-  // ── 5. Boot ───────────────────────────────────────────────────────
   (async () => {
     await consumeHashTokenIfPresent();
-    if (sessionStorage.getItem(TOKEN_KEY)) {
-      loadDashboard();
-    } else {
-      showGate('', false);
-    }
+    if (sessionStorage.getItem(TOKEN_KEY)) loadDashboard();
+    else showGate('', false);
   })();
 })();
 </script>

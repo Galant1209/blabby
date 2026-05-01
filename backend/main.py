@@ -2444,34 +2444,58 @@ async def resolve_practice_record(
 async def admin_recent(
     request: Request,
     authorization: Optional[str] = Header(None),
+    mode: Optional[str] = None,
+    weakness_tag: Optional[str] = None,
+    drill_tag: Optional[str] = None,
+    limit: int = 20,
 ):
     try:
         verify_admin(authorization)
-        email_cache: dict[str, str] = {}
-        response = (
+        # Coerce empty-string query params to None — `?mode=` shouldn't
+        # become .eq("mode", "") which silently returns nothing.
+        mode = (mode or "").strip() or None
+        weakness_tag = (weakness_tag or "").strip() or None
+        drill_tag = (drill_tag or "").strip() or None
+        limit = min(max(int(limit), 1), 100)
+
+        query = (
             supabase_admin.table("practice_records")
-            .select("id, user_id, topic, question, user_transcript, coach_response, weakness_tag, created_at")
+            .select(
+                "id, user_id, created_at, mode, weakness_tag, drill_tag, "
+                "topic, question, user_transcript, coach_response, evidence, drill_score"
+            )
             .order("created_at", desc=True)
-            .limit(50)
-            .execute()
+            .limit(limit)
         )
+        if mode:
+            query = query.eq("mode", mode)
+        if weakness_tag:
+            query = query.eq("weakness_tag", weakness_tag)
+        if drill_tag:
+            query = query.eq("drill_tag", drill_tag)
 
+        response = query.execute()
+        rows = response.data or []
+
+        # Email enrichment — kept server-side so the frontend can show
+        # email without coordinating across endpoints. Cache per request
+        # since the same user often appears on multiple recent rows.
+        email_cache: dict[str, str] = {}
         records = []
-        for record in response.data or []:
-            record_user_id = record.get("user_id") or ""
-            if record_user_id not in email_cache:
+        for record in rows:
+            uid = record.get("user_id") or ""
+            if uid and uid not in email_cache:
                 try:
-                    user_response = supabase_admin.auth.admin.get_user_by_id(record_user_id)
+                    user_response = supabase_admin.auth.admin.get_user_by_id(uid)
                     user = getattr(user_response, "user", None)
-                    email_cache[record_user_id] = getattr(user, "email", None) or "unknown"
+                    email_cache[uid] = getattr(user, "email", None) or ""
                 except Exception:
-                    email_cache[record_user_id] = "unknown"
-
+                    email_cache[uid] = ""
             record_with_email = dict(record)
-            record_with_email["email"] = email_cache.get(record_user_id, "unknown")
+            record_with_email["email"] = email_cache.get(uid, "")
             records.append(record_with_email)
 
-        return {"records": records}
+        return {"records": records, "total": len(records)}
     except HTTPException:
         raise
     except Exception as exc:
@@ -2596,14 +2620,37 @@ async def admin_waitlist(
 ):
     try:
         verify_admin(authorization)
-        response = (
+        waitlist_resp = (
             supabase_admin.table("upgrade_intent")
             .select("email, reserved_price, reserved_at, source")
             .order("reserved_at", desc=True)
             .execute()
         )
-        rows = response.data or []
-        return {"waitlist": rows, "total": len(rows)}
+        users_resp = supabase_admin.rpc("get_admin_users_full").execute()
+
+        # Index users by lowercased email — waitlist emails come from
+        # external sources (forms/LemonSqueezy) and may differ in case.
+        users_by_email: dict[str, dict] = {}
+        for u in (users_resp.data or []):
+            ue = (u.get("email") or "").strip().lower()
+            if ue:
+                users_by_email[ue] = u
+
+        enriched: list[dict] = []
+        for w in (waitlist_resp.data or []):
+            we = (w.get("email") or "").strip().lower()
+            u = users_by_email.get(we, {})
+            enriched.append({
+                **w,
+                "practice_count":      u.get("practice_count") or 0,
+                "practice_count_7d":   u.get("practice_count_7d") or 0,
+                "last_practice":       u.get("last_practice"),
+                "main_weakness_tag":   u.get("main_weakness_tag"),
+                "conversion_score":    u.get("conversion_score") or 0,
+            })
+
+        enriched.sort(key=lambda x: x.get("conversion_score") or 0, reverse=True)
+        return {"waitlist": enriched, "total": len(enriched)}
     except HTTPException:
         raise
     except Exception as exc:
@@ -2765,44 +2812,9 @@ async def admin_users(
 ):
     try:
         verify_admin(authorization)
-
-        # PostgREST doesn't expose aggregate SQL via the Python client,
-        # so pull the cheap columns and group in memory.
-        response = (
-            supabase_admin.table("practice_records")
-            .select("user_id, created_at")
-            .execute()
-        )
-
-        aggregates: dict[str, dict] = {}
-        for row in response.data or []:
-            uid = row.get("user_id")
-            if not uid:
-                continue
-            created = row.get("created_at")
-            slot = aggregates.get(uid)
-            if slot is None:
-                aggregates[uid] = {
-                    "user_id": uid,
-                    "record_count": 1,
-                    "first_seen": created,
-                    "last_seen": created,
-                }
-            else:
-                slot["record_count"] += 1
-                # ISO-8601 strings sort lexicographically — safe without parsing.
-                if created:
-                    if slot["first_seen"] is None or created < slot["first_seen"]:
-                        slot["first_seen"] = created
-                    if slot["last_seen"] is None or created > slot["last_seen"]:
-                        slot["last_seen"] = created
-
-        users = sorted(
-            aggregates.values(),
-            key=lambda u: u["last_seen"] or "",
-            reverse=True,
-        )
-        return {"users": users}
+        result = supabase_admin.rpc("get_admin_users_full").execute()
+        rows = result.data or []
+        return {"users": rows, "total": len(rows)}
     except HTTPException:
         raise
     except Exception as exc:
