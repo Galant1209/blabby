@@ -1992,13 +1992,17 @@ async def lemonsqueezy_webhook(request: Request):
     now_iso = datetime.now(timezone.utc).isoformat()
 
     try:
-        supabase_admin.table("profiles") \
+        upd = supabase_admin.table("profiles") \
             .update({"is_pro": is_pro, "updated_at": now_iso}) \
             .eq("id", user_id) \
             .execute()
     except Exception as exc:
         logger.exception("[webhook/ls] profiles update failed")
         raise HTTPException(status_code=500, detail="Profile update failed") from exc
+
+    if not upd.data:
+        logger.error("[webhook/ls] profile update returned no rows for %s", user_id)
+        raise HTTPException(status_code=500, detail="Profile update returned no rows")
 
     logger.info(
         "[webhook/ls] %s → is_pro=%s (event=%s, status=%s)",
@@ -2236,6 +2240,24 @@ def get_user_pro_status(user_id: str) -> bool:
         return bool(resp.data)
     except Exception:
         logger.exception("get_user_pro_status failed", extra={"user_id": user_id})
+        return False
+
+
+async def is_user_pro(user_id: str) -> bool:
+    """
+    Async parallel of get_user_pro_status(). Backed by the same RPC.
+    Use this from new async code paths; existing callers can stay on
+    get_user_pro_status() until refactored.
+
+    Fails safe: any error returns False.
+    """
+    if supabase_admin is None:
+        return False
+    try:
+        resp = supabase_admin.rpc("is_user_pro", {"user_id": user_id}).execute()
+        return bool(resp.data)
+    except Exception:
+        logger.exception("is_user_pro failed", extra={"user_id": user_id})
         return False
 
 
@@ -2515,6 +2537,46 @@ async def admin_recent(
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
 
 
+@app.get("/admin/pro_breakdown")
+@limiter.limit("30/minute")
+async def admin_pro_breakdown(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Returns the four Pro counts: total_pro_effective, paying_users,
+    granted_users, both_paid_and_granted. Defaults to all-zeros if the
+    RPC returns nothing (e.g. brand-new install).
+    """
+    try:
+        verify_admin(authorization)
+        defaults = {
+            "total_pro_effective":   0,
+            "paying_users":          0,
+            "granted_users":         0,
+            "both_paid_and_granted": 0,
+        }
+        try:
+            br = supabase_admin.rpc("get_admin_pro_breakdown").execute()
+        except Exception:
+            logger.exception("[admin/pro_breakdown] rpc failed")
+            return defaults
+        if not br.data:
+            return defaults
+        row = br.data[0] if isinstance(br.data, list) else br.data
+        return {
+            "total_pro_effective":   row.get("total_pro_effective")   or 0,
+            "paying_users":          row.get("paying_users")          or 0,
+            "granted_users":         row.get("granted_users")         or 0,
+            "both_paid_and_granted": row.get("both_paid_and_granted") or 0,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin pro_breakdown endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load pro breakdown") from exc
+
+
 @app.patch("/admin/user/{user_id}/pro", deprecated=True)
 @limiter.limit("30/minute")
 async def admin_set_pro_legacy(
@@ -2589,10 +2651,13 @@ async def admin_set_pro_grant(
             "updated_at":       now_iso,
         }
 
-        supabase_admin.table("profiles") \
+        upd = supabase_admin.table("profiles") \
             .update(update_data) \
             .eq("id", user_id) \
             .execute()
+        if not upd.data:
+            logger.error("[admin/pro_grant] no rows updated for %s", user_id)
+            raise HTTPException(status_code=500, detail="Profile update returned no rows")
 
         logger.warning(
             "[admin/pro_grant] %s set granted=%s on user %s (reason=%r)",

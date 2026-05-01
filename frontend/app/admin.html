@@ -129,9 +129,15 @@
     font-style: italic; line-height: 1.4;
     border: 1px solid;
   }
-  .badge-paid  { color: var(--gold); border-color: var(--gold); background: var(--gold-dim); }
-  .badge-grant { color: var(--ok);   border-color: var(--ok);   background: rgba(111,179,123,0.06); }
+  .badge-paid  { color: var(--ok);   border-color: var(--ok);   background: rgba(111,179,123,0.06); }
+  .badge-grant { color: var(--warn); border-color: var(--warn); background: rgba(224,160,32,0.06); }
   .badge-muted { color: var(--ink-faint); border-color: var(--rule); }
+  .grant-reason {
+    display: block; max-width: 160px;
+    font-size: 11px; color: var(--ink-dim); font-style: italic;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    margin-top: 4px;
+  }
 
   /* Row action buttons */
   .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -452,7 +458,16 @@
   }
 
   // ── 5. KPI bar ────────────────────────────────────────────────────
+  // Cache last KPI payload so we can re-render with updated Pro counts
+  // when the breakdown endpoint resolves separately.
+  let kpiState = {};
+  function updateProKpi(breakdown) {
+    kpiState = { ...kpiState, ...breakdown };
+    renderKpis(kpiState);
+  }
   function renderKpis(d) {
+    kpiState = { ...kpiState, ...d };
+    d = kpiState;
     const cards = [
       { label: 'DAU', value: d.dau, delta: `yest. ${d.dau_yesterday ?? 0}` },
       { label: 'WAU', value: d.wau },
@@ -513,11 +528,15 @@
       // Status: paid (LemonSqueezy webhook) vs granted (admin manual).
       // Show both badges so we know if a Pro is converting or comp'd.
       const paidBadge = u.is_pro_paid
-        ? `<span class="badge badge-paid" title="Paying subscriber">Paid</span>`
+        ? `<span class="badge badge-paid" title="Paying subscriber">💳 Paid</span>`
         : `<span class="badge badge-muted">—</span>`;
       const grantBadge = u.is_pro_grant
-        ? `<span class="badge badge-grant" title="${escapeHtml(u.pro_grant_reason || 'Manual grant')}">Granted</span>`
+        ? `<span class="badge badge-grant" title="${escapeHtml(u.pro_grant_reason || 'Manual grant')}">🎁 Granted</span>`
         : `<span class="badge badge-muted">—</span>`;
+      // Inline reason below badges (truncated to 40 chars; full text in title tooltip)
+      const reasonLine = (u.is_pro_grant && u.pro_grant_reason)
+        ? `<span class="grant-reason" title="${escapeHtml(u.pro_grant_reason)}">${escapeHtml(truncate(u.pro_grant_reason, 40))}</span>`
+        : '';
       const grantBtn = u.is_pro_grant
         ? `<button class="btn btn-danger" data-action="grant" data-id="${escapeHtml(u.user_id)}" data-next="false">Revoke Grant</button>`
         : `<button class="btn btn-gold"   data-action="grant" data-id="${escapeHtml(u.user_id)}" data-next="true">Grant Pro</button>`;
@@ -527,7 +546,7 @@
         <tr data-row-id="${escapeHtml(u.user_id)}">
           <td class="mono">${escapeHtml((u.user_id || '').slice(0,8))}</td>
           <td>${u.email ? escapeHtml(u.email) : '<span class="dim">—</span>'}</td>
-          <td><div class="pro-badges">${paidBadge}${grantBadge}</div></td>
+          <td><div class="pro-badges">${paidBadge}${grantBadge}</div>${reasonLine}</td>
           <td>${u.practice_count ?? 0}</td>
           <td>${u.practice_count_7d ?? 0}</td>
           <td>${u.drill_count ?? 0}</td>
@@ -562,12 +581,19 @@
         if (reason == null) return;          // user cancelled
         reason = reason.trim();
         if (!reason) { alert('A reason is required.'); return; }
+      } else {
+        if (!confirm('Revoke this user\'s Pro grant? Audit fields will be cleared.')) return;
       }
       allBtns.forEach(b => b.disabled = true);
       try {
         await authJson('PATCH', `/admin/user/${encodeURIComponent(id)}/pro_grant`, { granted, reason });
-        const fresh = await authFetch('/admin/users');
-        renderUsers(fresh);
+        // Reload both users and the Pro KPI card together.
+        const [usersFresh, breakdownFresh] = await Promise.all([
+          authFetch('/admin/users'),
+          authFetch('/admin/pro_breakdown').catch(() => null),
+        ]);
+        renderUsers(usersFresh);
+        if (breakdownFresh) updateProKpi(breakdownFresh);
       } catch (e) {
         allBtns.forEach(b => b.disabled = false);
         alert(e.message || 'Failed to update grant status.');
@@ -681,6 +707,7 @@
         const limit = document.getElementById('filterLimit').value || 20;
         return authFetch('/admin/recent?limit=' + encodeURIComponent(limit));
       })(),
+      authFetch('/admin/pro_breakdown'),
     ]);
 
     // If any of them returned 401/403, force re-login
@@ -691,9 +718,12 @@
       return;
     }
 
-    const [kpiR, wlR, usR, recR] = results;
+    const [kpiR, wlR, usR, recR, brR] = results;
     if (kpiR.status === 'fulfilled') renderKpis(kpiR.value);
     else document.getElementById('kpiGrid').innerHTML = `<div class="err">${escapeHtml(kpiR.reason?.message || 'Failed to load KPIs.')}</div>`;
+
+    // Pro breakdown comes from a dedicated endpoint and merges into the KPI grid.
+    if (brR.status === 'fulfilled') updateProKpi(brR.value);
 
     if (wlR.status === 'fulfilled') renderWaitlist(wlR.value);
     else setSectionError('waitlistBody', wlR.reason?.message || 'Failed to load waitlist.');
