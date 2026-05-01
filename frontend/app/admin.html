@@ -74,6 +74,23 @@
   .empty { color: var(--ink-dim); font-style: italic; padding: 24px 12px; }
   .err { color: var(--err); padding: 16px 0; font-style: italic; }
 
+  /* ── Row action buttons ───────────────────────────────── */
+  .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    background: transparent; color: var(--ink);
+    border: 1px solid var(--rule);
+    font-family: inherit; font-size: 12px; font-style: italic;
+    padding: 6px 12px; cursor: pointer;
+    letter-spacing: 0.03em;
+    transition: border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+  }
+  .btn:hover { border-color: var(--ink-dim); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.btn-gold  { border-color: var(--gold); color: var(--gold); }
+  .btn.btn-gold:hover  { background: var(--gold-dim); }
+  .btn.btn-danger { border-color: var(--err); color: var(--err); }
+  .btn.btn-danger:hover { background: rgba(201, 76, 76, 0.08); }
+
   /* ── Login screen ─────────────────────────────────────── */
   .gate {
     min-height: 100vh; display: flex; align-items: center; justify-content: center;
@@ -323,22 +340,92 @@
       container.innerHTML = '<div class="empty">No users yet.</div>';
       return;
     }
-    const rows = users.map(u => `
-      <tr>
-        <td class="mono">${escapeHtml((u.user_id || '').slice(0,8))}</td>
-        <td>${u.email ? escapeHtml(u.email) : '<span class="dim">—</span>'}</td>
-        <td class="${u.is_pro ? 'gold' : 'dim'}">${u.is_pro ? '✦' : '—'}</td>
-        <td>${u.practice_count ?? 0}</td>
-        <td>${u.drill_count ?? 0}</td>
-        <td class="mono">${u.last_practice ? fmtDate(u.last_practice) : 'never'}</td>
-      </tr>
-    `).join('');
+    const rows = users.map(u => {
+      const inactive = (u.practice_count ?? 0) === 0 && (u.drill_count ?? 0) === 0;
+      const proBtn = u.is_pro
+        ? `<button class="btn btn-danger" data-action="pro" data-id="${escapeHtml(u.user_id)}" data-next="false">Revoke Pro</button>`
+        : `<button class="btn btn-gold"   data-action="pro" data-id="${escapeHtml(u.user_id)}" data-next="true">Grant Pro</button>`;
+      const delBtn = inactive
+        ? `<button class="btn" data-action="delete" data-id="${escapeHtml(u.user_id)}">Delete</button>`
+        : '';
+      return `
+        <tr data-row-id="${escapeHtml(u.user_id)}">
+          <td class="mono">${escapeHtml((u.user_id || '').slice(0,8))}</td>
+          <td>${u.email ? escapeHtml(u.email) : '<span class="dim">—</span>'}</td>
+          <td class="${u.is_pro ? 'gold' : 'dim'}">${u.is_pro ? '✦' : '—'}</td>
+          <td>${u.practice_count ?? 0}</td>
+          <td>${u.drill_count ?? 0}</td>
+          <td class="mono">${u.last_practice ? fmtDate(u.last_practice) : 'never'}</td>
+          <td><div class="row-actions">${proBtn}${delBtn}</div></td>
+        </tr>
+      `;
+    }).join('');
     container.innerHTML = `
       <table>
-        <thead><tr><th>User</th><th>Email</th><th>Pro</th><th>Sessions</th><th>Drills</th><th>Last active</th></tr></thead>
+        <thead><tr><th>User</th><th>Email</th><th>Pro</th><th>Sessions</th><th>Drills</th><th>Last active</th><th>Actions</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `;
+    container.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.addEventListener('click', onRowAction);
+    });
+  }
+
+  async function authJson(method, path, body) {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    if (!token) throw new Error('no_token');
+    const r = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    if (r.status === 401 || r.status === 403) {
+      throw new Error(r.status === 403 ? 'Access denied.' : 'Session expired.');
+    }
+    if (!r.ok) {
+      let detail = `Request failed (${r.status})`;
+      try { const j = await r.json(); if (j?.detail) detail = j.detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    return r.json();
+  }
+
+  async function onRowAction(ev) {
+    const btn = ev.currentTarget;
+    const action = btn.dataset.action;
+    const id = btn.dataset.id;
+    const row = btn.closest('tr');
+    const allBtns = row ? row.querySelectorAll('button') : [btn];
+
+    if (action === 'pro') {
+      const next = btn.dataset.next === 'true';
+      allBtns.forEach(b => b.disabled = true);
+      try {
+        await authJson('PATCH', `/admin/user/${encodeURIComponent(id)}/pro`, { is_pro: next });
+        const activity = await authJson('GET', '/admin/activity');
+        renderActivity(activity);
+      } catch (e) {
+        allBtns.forEach(b => b.disabled = false);
+        alert(e.message || 'Failed to update pro status.');
+      }
+      return;
+    }
+
+    if (action === 'delete') {
+      if (!confirm('Delete this user? This cannot be undone.')) return;
+      allBtns.forEach(b => b.disabled = true);
+      try {
+        await authJson('DELETE', `/admin/user/${encodeURIComponent(id)}`);
+        if (row) row.remove();
+      } catch (e) {
+        allBtns.forEach(b => b.disabled = false);
+        alert(e.message || 'Failed to delete user.');
+      }
+      return;
+    }
   }
 
   async function loadDashboard() {

@@ -2479,6 +2479,115 @@ async def admin_recent(
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
 
 
+@app.patch("/admin/user/{user_id}/pro")
+@limiter.limit("30/minute")
+async def admin_set_pro(
+    user_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        admin_id = verify_admin(authorization)
+        try:
+            uuid.UUID(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON")
+
+        is_pro = bool(body.get("is_pro", False))
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        supabase_admin.table("profiles") \
+            .update({"is_pro": is_pro, "updated_at": now_iso}) \
+            .eq("id", user_id) \
+            .execute()
+
+        logger.info(
+            "[admin/pro] %s set is_pro=%s on user %s", admin_id, is_pro, user_id
+        )
+        return {"status": "ok", "user_id": user_id, "is_pro": is_pro}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin set_pro endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to update pro status") from exc
+
+
+@app.delete("/admin/user/{user_id}")
+@limiter.limit("10/minute")
+async def admin_delete_user(
+    user_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Hard-delete a user. Restricted to users with zero practice/drill activity
+    to prevent accidental nuking of real users — the UI hides the button, but
+    we re-check on the server.
+    """
+    try:
+        admin_id = verify_admin(authorization)
+        try:
+            uuid.UUID(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+        # Server-side safety rail: refuse if the user has any activity.
+        practice = (
+            supabase_admin.table("practice_records")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        drill = (
+            supabase_admin.table("drill_usage")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if (practice.count or 0) > 0 or (drill.count or 0) > 0:
+            raise HTTPException(
+                status_code=409,
+                detail="User has activity records — refusing to delete",
+            )
+
+        # Delete child rows first, then profile, then auth.users.
+        # upgrade_intent.user_id may not exist on every row (anonymous waitlist
+        # entries) — the eq filter just no-ops in that case.
+        for table in ("drill_usage", "practice_records", "upgrade_intent"):
+            try:
+                supabase_admin.table(table).delete().eq("user_id", user_id).execute()
+            except Exception:
+                logger.exception("[admin/delete] failed cleaning %s for %s", table, user_id)
+
+        try:
+            supabase_admin.table("profiles").delete().eq("id", user_id).execute()
+        except Exception:
+            logger.exception("[admin/delete] failed deleting profile for %s", user_id)
+
+        try:
+            supabase_admin.auth.admin.delete_user(user_id)
+        except Exception as exc:
+            logger.exception("[admin/delete] auth.users delete failed for %s", user_id)
+            raise HTTPException(status_code=500, detail="Auth user delete failed") from exc
+
+        logger.warning(
+            "[admin/delete] %s deleted user %s (no prior activity)", admin_id, user_id
+        )
+        return {"status": "ok", "user_id": user_id, "deleted": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin delete_user endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to delete user") from exc
+
+
 @app.get("/admin/waitlist")
 @limiter.limit("30/minute")
 async def admin_waitlist(
@@ -2500,6 +2609,135 @@ async def admin_waitlist(
     except Exception as exc:
         logger.exception("admin waitlist endpoint failed")
         raise HTTPException(status_code=500, detail="Failed to load waitlist") from exc
+
+
+@app.get("/admin/dashboard")
+@limiter.limit("30/minute")
+async def admin_dashboard(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Headline metrics for the admin dashboard.
+
+    DAU/WAU/MAU are deduplicated client-side from .data, which PostgREST
+    caps at 1000 rows per response. Fine at current scale; revisit with
+    a server-side count_distinct RPC when any window crosses ~1000 rows.
+    """
+    try:
+        verify_admin(authorization)
+
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        yesterday_start = (
+            now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        ).isoformat()
+        day3_start = (now - timedelta(days=3)).isoformat()
+        day7_start = (now - timedelta(days=7)).isoformat()
+        day30_start = (now - timedelta(days=30)).isoformat()
+        hour24_start = (now - timedelta(hours=24)).isoformat()
+
+        # Active-user windows
+        dau = (
+            supabase_admin.table("practice_records")
+            .select("user_id", count="exact")
+            .gte("created_at", today_start)
+            .execute()
+        )
+        wau = (
+            supabase_admin.table("practice_records")
+            .select("user_id", count="exact")
+            .gte("created_at", day7_start)
+            .execute()
+        )
+        mau = (
+            supabase_admin.table("practice_records")
+            .select("user_id", count="exact")
+            .gte("created_at", day30_start)
+            .execute()
+        )
+        yesterday = (
+            supabase_admin.table("practice_records")
+            .select("user_id", count="exact")
+            .gte("created_at", yesterday_start)
+            .lt("created_at", today_start)
+            .execute()
+        )
+
+        # Practice mode breakdown today
+        practice_today = (
+            supabase_admin.table("practice_records")
+            .select("id, mode", count="exact")
+            .gte("created_at", today_start)
+            .execute()
+        )
+        practice_today_rows = practice_today.data or []
+        drill_today = sum(1 for r in practice_today_rows if r.get("mode") == "drill")
+        normal_today = sum(1 for r in practice_today_rows if r.get("mode") != "drill")
+
+        # Waitlist
+        waitlist_total = (
+            supabase_admin.table("upgrade_intent")
+            .select("id", count="exact")
+            .execute()
+        )
+        waitlist_24h = (
+            supabase_admin.table("upgrade_intent")
+            .select("id", count="exact")
+            .gte("reserved_at", hour24_start)
+            .execute()
+        )
+
+        # Churn cohort: users with >= 3 practices whose last_practice is older than N days
+        all_users = supabase_admin.rpc("get_admin_user_activity").execute()
+        users_data = all_users.data or []
+
+        churn_3d = sum(
+            1 for u in users_data
+            if (u.get("practice_count") or 0) >= 3
+            and u.get("last_practice")
+            and u["last_practice"] < day3_start
+        )
+        churn_7d = sum(
+            1 for u in users_data
+            if (u.get("practice_count") or 0) >= 3
+            and u.get("last_practice")
+            and u["last_practice"] < day7_start
+        )
+        never_returned = sum(
+            1 for u in users_data if (u.get("practice_count") or 0) == 1
+        )
+
+        dau_unique = len({r["user_id"] for r in (dau.data or []) if r.get("user_id")})
+        wau_unique = len({r["user_id"] for r in (wau.data or []) if r.get("user_id")})
+        mau_unique = len({r["user_id"] for r in (mau.data or []) if r.get("user_id")})
+        yesterday_unique = len({r["user_id"] for r in (yesterday.data or []) if r.get("user_id")})
+
+        total_practices_today = practice_today.count or 0
+        avg_practice = (
+            round(total_practices_today / dau_unique, 1) if dau_unique > 0 else 0
+        )
+
+        return {
+            "dau": dau_unique,
+            "dau_yesterday": yesterday_unique,
+            "wau": wau_unique,
+            "mau": mau_unique,
+            "practice_count_today": total_practices_today,
+            "avg_practice_per_user": avg_practice,
+            "drill_today": drill_today,
+            "normal_today": normal_today,
+            "waitlist_count": waitlist_total.count or 0,
+            "waitlist_24h": waitlist_24h.count or 0,
+            "churn_3d": churn_3d,
+            "churn_7d": churn_7d,
+            "never_returned": never_returned,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin dashboard endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load dashboard") from exc
 
 
 @app.get("/admin/activity")
