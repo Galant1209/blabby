@@ -14,10 +14,12 @@
   :root {
     --bg: #0f0f0f;
     --ink: #e8e0d0;
-    --ink-dim: #8a8275;
+    --ink-dim: #8a7f6e;
+    --ink-faint: #6b6356;
     --gold: #C9A84C;
     --gold-dim: rgba(201, 168, 76, 0.08);
-    --rule: rgba(232, 224, 208, 0.08);
+    --gold-hover: rgba(201, 168, 76, 0.05);
+    --rule: rgba(255, 255, 255, 0.04);
     --row-alt: rgba(255, 255, 255, 0.012);
     --err: #c94c4c;
     --warn: #e0a020;
@@ -28,7 +30,7 @@
     margin: 0; padding: 0; min-height: 100vh;
     background: var(--bg); color: var(--ink);
     font-family: 'Libre Baskerville', Georgia, serif;
-    font-size: 15px; line-height: 1.55;
+    font-size: 14px; line-height: 1.55;
     -webkit-font-smoothing: antialiased;
   }
   main { max-width: 1280px; margin: 0 auto; padding: 56px 32px 96px; }
@@ -49,8 +51,9 @@
 
   section { margin-bottom: 64px; }
   section h2 {
-    font-size: 18px; font-weight: 400; font-style: italic;
-    margin: 0 0 20px; color: var(--ink); letter-spacing: 0.01em;
+    font-family: 'Libre Baskerville', Georgia, serif;
+    font-size: 1.2rem; font-weight: 400; font-style: italic;
+    margin: 0 0 20px; color: var(--gold); letter-spacing: 0.01em;
   }
   section h2 .count { color: var(--gold); font-style: normal; font-weight: 700; }
 
@@ -68,32 +71,32 @@
     text-align: left;
   }
   .kpi .label {
-    font-size: 11px; color: var(--ink-dim); font-style: italic;
-    letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px;
+    font-size: 10px; color: var(--ink-faint); font-style: italic;
+    letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px;
   }
   .kpi .value {
-    font-size: 26px; font-weight: 700; color: var(--gold); line-height: 1.1;
+    font-size: 2.4rem; font-weight: 400; color: var(--gold); line-height: 1.1;
   }
   .kpi .delta { font-size: 11px; color: var(--ink-dim); margin-top: 4px; font-style: italic; }
   .kpi.alert .value { color: var(--err); }
 
   /* ── Tables ─────────────────────────────────────────────── */
   .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; color: var(--ink); }
   thead th {
     text-align: left; font-weight: 700; font-style: italic;
-    color: var(--ink-dim); padding: 10px 12px;
+    color: #8a7f6e; padding: 10px 12px;
     border-bottom: 1px solid var(--rule);
-    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
     white-space: nowrap;
   }
   tbody td {
     padding: 12px; border-bottom: 1px solid var(--rule);
-    vertical-align: top;
+    vertical-align: top; color: var(--ink); font-size: 13px;
   }
   tbody tr { transition: background-color 120ms ease; }
   tbody tr:nth-child(even) { background: var(--row-alt); }
-  tbody tr:hover { background: var(--gold-dim); }
+  tbody tr:hover { background: var(--gold-hover); }
   tbody td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12.5px; color: var(--ink-dim); }
   tbody td.gold { color: var(--gold); font-weight: 700; }
   tbody td.dim  { color: var(--ink-dim); }
@@ -106,6 +109,7 @@
   /* Score / churn pills */
   .pill {
     display: inline-block; padding: 2px 8px; border: 1px solid;
+    border-radius: 4px;
     font-size: 11px; font-style: italic; letter-spacing: 0.04em;
     text-transform: uppercase; line-height: 1.5;
   }
@@ -122,7 +126,8 @@
   .btn {
     background: transparent; color: var(--ink);
     border: 1px solid var(--rule);
-    font-family: inherit; font-size: 11px; font-style: italic;
+    border-radius: 3px;
+    font-family: inherit; font-size: 12px; font-style: italic;
     padding: 4px 10px; cursor: pointer;
     letter-spacing: 0.03em; white-space: nowrap;
     transition: border-color 120ms ease, color 120ms ease, opacity 120ms ease;
