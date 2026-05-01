@@ -1670,10 +1670,7 @@
                 document.getElementById('user-initial').textContent =
                     (email[0] || '?').toUpperCase();
                 document.getElementById('user-email-display').textContent = email;
-                const { data: { session } } = await sb.auth.getSession();
-                if (session && session.access_token) {
-                    checkAdminAccess(session.access_token);
-                }
+                checkAdminAccess();
             } catch (err) {
                 console.error('showMain getUser error:', err);
             }
@@ -1681,11 +1678,15 @@
 
         // Probes /admin/dashboard with the user's JWT — backend gates on
         // ADMIN_EMAILS, so a 200 means this user is an admin. Anything
-        // else (401/403/network) leaves the link hidden.
-        async function checkAdminAccess(jwt) {
+        // else (401/403/network) leaves the link hidden. Pulls its own
+        // session so we don't pass an undefined token in.
+        async function checkAdminAccess() {
             try {
+                if (!sb) return;
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session || !session.access_token) return;
                 const res = await fetch(`${API_BASE}/admin/dashboard`, {
-                    headers: { 'Authorization': `Bearer ${jwt}` }
+                    headers: { 'Authorization': `Bearer ${session.access_token}` }
                 });
                 if (res.ok) {
                     const link = document.getElementById('admin-link');
