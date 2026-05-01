@@ -326,6 +326,7 @@
     const rows = users.map(u => `
       <tr>
         <td class="mono">${escapeHtml((u.user_id || '').slice(0,8))}</td>
+        <td>${u.email ? escapeHtml(u.email) : '<span class="dim">—</span>'}</td>
         <td class="${u.is_pro ? 'gold' : 'dim'}">${u.is_pro ? '✦' : '—'}</td>
         <td>${u.practice_count ?? 0}</td>
         <td>${u.drill_count ?? 0}</td>
@@ -334,7 +335,7 @@
     `).join('');
     container.innerHTML = `
       <table>
-        <thead><tr><th>User</th><th>Pro</th><th>Sessions</th><th>Drills</th><th>Last active</th></tr></thead>
+        <thead><tr><th>User</th><th>Email</th><th>Pro</th><th>Sessions</th><th>Drills</th><th>Last active</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `;
