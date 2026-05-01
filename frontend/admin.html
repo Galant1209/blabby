@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Blabby · Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./app/config.js"></script>
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --ink: #e8e0d0;
+    --ink-dim: #8a8275;
+    --gold: #C9A84C;
+    --gold-dim: rgba(201, 168, 76, 0.08);
+    --rule: rgba(232, 224, 208, 0.08);
+    --err: #c94c4c;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100vh;
+    background: var(--bg); color: var(--ink);
+    font-family: 'Libre Baskerville', Georgia, serif;
+    font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 56px 32px 96px; }
+  header.brand {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 20px; margin-bottom: 48px;
+    display: flex; align-items: baseline; justify-content: space-between;
+  }
+  header.brand h1 {
+    font-size: 22px; font-weight: 700; margin: 0;
+    letter-spacing: 0.02em;
+  }
+  header.brand h1 .gold { color: var(--gold); }
+  .who { font-size: 12px; color: var(--ink-dim); font-style: italic; }
+  .who button {
+    background: none; border: none; color: var(--ink-dim);
+    font-family: inherit; font-size: 12px; font-style: italic;
+    cursor: pointer; margin-left: 12px; text-decoration: underline;
+  }
+  .who button:hover { color: var(--gold); }
+
+  section { margin-bottom: 72px; }
+  section h2 {
+    font-size: 18px; font-weight: 400; font-style: italic;
+    margin: 0 0 24px; color: var(--ink);
+    letter-spacing: 0.01em;
+  }
+  section h2 .count { color: var(--gold); font-style: normal; font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  thead th {
+    text-align: left; font-weight: 700; font-style: italic;
+    color: var(--ink-dim); padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  tbody td {
+    padding: 14px 12px; border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  tbody tr { transition: background-color 120ms ease; }
+  tbody tr:hover { background: var(--gold-dim); }
+  tbody td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 13px; color: var(--ink-dim); }
+  tbody td.gold { color: var(--gold); font-weight: 700; }
+  tbody td.dim  { color: var(--ink-dim); }
+  .empty { color: var(--ink-dim); font-style: italic; padding: 24px 12px; }
+  .err { color: var(--err); padding: 16px 0; font-style: italic; }
+
+  /* ── Login screen ─────────────────────────────────────── */
+  .gate {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 32px;
+  }
+  .gate-card {
+    width: 100%; max-width: 380px;
+    border: 1px solid var(--rule); padding: 40px 36px;
+    background: rgba(255,255,255,0.015);
+  }
+  .gate-card h1 {
+    margin: 0 0 8px; font-size: 22px; font-weight: 700;
+  }
+  .gate-card h1 .gold { color: var(--gold); }
+  .gate-card p { color: var(--ink-dim); font-size: 13px; margin: 0 0 28px; font-style: italic; }
+  .gate-card label { display: block; font-size: 12px; color: var(--ink-dim); margin-bottom: 8px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .gate-card input {
+    width: 100%; padding: 12px 14px;
+    background: var(--bg); border: 1px solid var(--rule); color: var(--ink);
+    font-family: inherit; font-size: 15px; outline: none;
+    transition: border-color 120ms ease;
+  }
+  .gate-card input:focus { border-color: var(--gold); }
+  .gate-card button {
+    width: 100%; margin-top: 20px; padding: 12px;
+    background: var(--gold); color: var(--bg); border: none;
+    font-family: inherit; font-size: 14px; font-weight: 700;
+    letter-spacing: 0.04em; cursor: pointer;
+    transition: opacity 120ms ease;
+  }
+  .gate-card button:hover { opacity: 0.85; }
+  .gate-card button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .gate-msg { margin-top: 18px; font-size: 13px; color: var(--ink-dim); font-style: italic; min-height: 18px; }
+  .gate-msg.err { color: var(--err); }
+
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+  }
+  .shake { animation: shake 0.4s ease; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ── Login gate ─────────────────────────────────────── -->
+<div id="gate" class="gate hidden">
+  <div class="gate-card">
+    <h1>Blabby <span class="gold">Admin</span></h1>
+    <p>Sign in with your admin email. We'll send a magic link.</p>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="email" placeholder="you@example.com">
+    <button id="sendLink">Send magic link</button>
+    <div id="gateMsg" class="gate-msg"></div>
+  </div>
+</div>
+
+<!-- ── Dashboard ──────────────────────────────────────── -->
+<main id="dash" class="hidden">
+  <header class="brand">
+    <h1>Blabby <span class="gold">Admin</span></h1>
+    <div class="who">
+      <span id="whoEmail"></span>
+      <button id="logout">sign out</button>
+    </div>
+  </header>
+
+  <section id="waitlistSection">
+    <h2>Waitlist — <span class="count" id="waitlistCount">…</span> souls awaiting admittance</h2>
+    <div id="waitlistBody">
+      <div class="empty">Loading…</div>
+    </div>
+  </section>
+
+  <section id="activitySection">
+    <h2>Users</h2>
+    <div id="activityBody">
+      <div class="empty">Loading…</div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const cfg = window.BLABBY_CONFIG || {};
+  const SUPABASE_URL = cfg.supabaseUrl;
+  const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
+  const API_BASE = 'https://blabby-backend.onrender.com';
+  const TOKEN_KEY = 'sb_admin_access_token';
+  const EMAIL_KEY = 'sb_admin_email';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.body.innerHTML = '<main><p class="err">Missing Supabase config.</p></main>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+  });
+
+  const $gate = document.getElementById('gate');
+  const $dash = document.getElementById('dash');
+  const $email = document.getElementById('email');
+  const $send = document.getElementById('sendLink');
+  const $gateMsg = document.getElementById('gateMsg');
+  const $whoEmail = document.getElementById('whoEmail');
+  const $logout = document.getElementById('logout');
+
+  // ── 1. Magic-link return: parse #access_token from URL ─────────────
+  function parseHashToken() {
+    if (!location.hash) return null;
+    const params = new URLSearchParams(location.hash.slice(1));
+    const token = params.get('access_token');
+    if (!token) return null;
+    return {
+      access_token: token,
+      refresh_token: params.get('refresh_token') || '',
+    };
+  }
+
+  async function consumeHashTokenIfPresent() {
+    const t = parseHashToken();
+    if (!t) return false;
+    sessionStorage.setItem(TOKEN_KEY, t.access_token);
+    // get email from token via supabase
+    try {
+      const { data, error } = await sb.auth.getUser(t.access_token);
+      if (!error && data?.user?.email) {
+        sessionStorage.setItem(EMAIL_KEY, data.user.email);
+      }
+    } catch (_) { /* ignore — backend will still gate */ }
+    history.replaceState(null, '', location.pathname + location.search);
+    return true;
+  }
+
+  // ── 2. Auth state UI ───────────────────────────────────────────────
+  function showGate(msg, isErr) {
+    $dash.classList.add('hidden');
+    $gate.classList.remove('hidden');
+    if (msg) {
+      $gateMsg.textContent = msg;
+      $gateMsg.classList.toggle('err', !!isErr);
+    }
+  }
+  function showDash() {
+    $gate.classList.add('hidden');
+    $dash.classList.remove('hidden');
+    $whoEmail.textContent = sessionStorage.getItem(EMAIL_KEY) || '';
+  }
+
+  function clearAuth() {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(EMAIL_KEY);
+  }
+
+  // ── 3. Login form ─────────────────────────────────────────────────
+  $send.addEventListener('click', async () => {
+    const email = ($email.value || '').trim().toLowerCase();
+    if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+      $email.classList.remove('shake');
+      void $email.offsetWidth;
+      $email.classList.add('shake');
+      $email.value = '';
+      $gateMsg.textContent = 'Enter a valid email.';
+      $gateMsg.classList.add('err');
+      return;
+    }
+    $send.disabled = true;
+    $gateMsg.classList.remove('err');
+    $gateMsg.textContent = 'Sending…';
+    try {
+      const { error } = await sb.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: location.origin + location.pathname }
+      });
+      if (error) throw error;
+      $gateMsg.textContent = 'Check your inbox. The link will sign you in here.';
+    } catch (e) {
+      $gateMsg.classList.add('err');
+      $gateMsg.textContent = e.message || 'Failed to send link.';
+    } finally {
+      $send.disabled = false;
+    }
+  });
+
+  $logout.addEventListener('click', () => {
+    clearAuth();
+    location.reload();
+  });
+
+  // ── 4. Data fetches ───────────────────────────────────────────────
+  async function authFetch(path) {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    if (!token) throw new Error('no_token');
+    const r = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (r.status === 401 || r.status === 403) {
+      const reason = r.status === 403 ? 'Access denied — your email is not in the admin list.' : 'Session expired. Sign in again.';
+      throw new Error(reason);
+    }
+    if (!r.ok) throw new Error(`Request failed (${r.status})`);
+    return r.json();
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d)) return '—';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function renderWaitlist({ waitlist, total }) {
+    document.getElementById('waitlistCount').textContent = total ?? 0;
+    const container = document.getElementById('waitlistBody');
+    if (!waitlist || waitlist.length === 0) {
+      container.innerHTML = '<div class="empty">No reservations yet.</div>';
+      return;
+    }
+    const rows = waitlist.map(w => `
+      <tr>
+        <td>${escapeHtml(w.email)}</td>
+        <td class="gold">NT$${escapeHtml(w.reserved_price ?? '—')}</td>
+        <td class="mono">${fmtDate(w.reserved_at)}</td>
+        <td class="dim">${escapeHtml(w.source || '—')}</td>
+      </tr>
+    `).join('');
+    container.innerHTML = `
+      <table>
+        <thead><tr><th>Email</th><th>Price</th><th>Signed up</th><th>Source</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
+  function renderActivity({ users }) {
+    const container = document.getElementById('activityBody');
+    if (!users || users.length === 0) {
+      container.innerHTML = '<div class="empty">No users yet.</div>';
+      return;
+    }
+    const rows = users.map(u => `
+      <tr>
+        <td class="mono">${escapeHtml((u.user_id || '').slice(0,8))}</td>
+        <td class="${u.is_pro ? 'gold' : 'dim'}">${u.is_pro ? '✦' : '—'}</td>
+        <td>${u.practice_count ?? 0}</td>
+        <td>${u.drill_count ?? 0}</td>
+        <td class="mono">${u.last_practice ? fmtDate(u.last_practice) : 'never'}</td>
+      </tr>
+    `).join('');
+    container.innerHTML = `
+      <table>
+        <thead><tr><th>User</th><th>Pro</th><th>Sessions</th><th>Drills</th><th>Last active</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
+  async function loadDashboard() {
+    showDash();
+    try {
+      const [waitlist, activity] = await Promise.all([
+        authFetch('/admin/waitlist'),
+        authFetch('/admin/activity'),
+      ]);
+      renderWaitlist(waitlist);
+      renderActivity(activity);
+    } catch (e) {
+      const msg = e.message || 'Failed to load.';
+      const denied = /denied|expired|no_token/i.test(msg);
+      if (denied) {
+        clearAuth();
+        showGate(msg, true);
+      } else {
+        document.getElementById('waitlistBody').innerHTML = `<div class="err">${escapeHtml(msg)}</div>`;
+        document.getElementById('activityBody').innerHTML = '';
+      }
+    }
+  }
+
+  // ── 5. Boot ───────────────────────────────────────────────────────
+  (async () => {
+    await consumeHashTokenIfPresent();
+    if (sessionStorage.getItem(TOKEN_KEY)) {
+      loadDashboard();
+    } else {
+      showGate('', false);
+    }
+  })();
+})();
+</script>
+</body>
+</html>

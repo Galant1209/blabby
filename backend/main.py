@@ -2479,6 +2479,46 @@ async def admin_recent(
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
 
 
+@app.get("/admin/waitlist")
+@limiter.limit("30/minute")
+async def admin_waitlist(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        verify_admin(authorization)
+        response = (
+            supabase_admin.table("upgrade_intent")
+            .select("email, reserved_price, reserved_at, source")
+            .order("reserved_at", desc=True)
+            .execute()
+        )
+        rows = response.data or []
+        return {"waitlist": rows, "total": len(rows)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin waitlist endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load waitlist") from exc
+
+
+@app.get("/admin/activity")
+@limiter.limit("30/minute")
+async def admin_activity(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        verify_admin(authorization)
+        response = supabase_admin.rpc("get_admin_user_activity").execute()
+        return {"users": response.data or []}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin activity endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load activity") from exc
+
+
 @app.get("/admin/users")
 @limiter.limit("30/minute")
 async def admin_users(
