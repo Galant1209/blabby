@@ -1468,7 +1468,6 @@
                 <div class="daily-question__meta" id="daily-question-meta"></div>
                 <button id="daily-question-btn" class="practice-hub-btn daily-question__cta">開始練習</button>
             </section>
-            <section id="weakness-summary" class="weakness-summary" style="display:none" aria-label="近期練習弱點摘要"></section>
             <div class="skill-entry-list" aria-label="技能入口">
                 <div class="skill-entry skill-entry-open">
                     <span>Speaking</span>
@@ -1488,6 +1487,11 @@
                 </div>
             </div>
         </section>
+
+        <!-- Weakness summary block — owned by feature/weakness-summary.
+             Sits BELOW Scenario A (#practice-hub). Reuses .weakness-summary*
+             CSS rules from the prototype block (lines 210-280). -->
+        <section id="weakness-summary-block" class="weakness-summary" style="display:none" aria-label="近期練習弱點摘要"></section>
 
         <section id="speaking-practice" class="speaking-practice">
             <section class="question-card">
@@ -1875,9 +1879,11 @@
             }
         }
 
+        // Loader for the canonical weakness summary block (lives below
+        // Scenario A as <section id="weakness-summary-block">).
+        // Body rewritten; name kept so Promise.allSettled call site at
+        // line ~2078 still resolves.
         async function loadWeaknessSummary() {
-            // Mirror loadPendingResume: any failure silently sets
-            // weaknessSummary = null so the hub still renders cleanly.
             if (!sb) {
                 weaknessSummary = null;
                 return;
@@ -1889,11 +1895,13 @@
                     weaknessSummary = null;
                     return;
                 }
-                const res = await fetch(`${API_BASE}/api/practice-records/weakness-summary`, {
+                const res = await fetch(`${API_BASE}/api/practice-records/weakness-summary?last_n=10`, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 if (!res.ok) {
-                    console.error('weakness-summary fetch non-OK:', res.status);
+                    let body = '';
+                    try { body = await res.text(); } catch (_) {}
+                    console.error('weakness-summary fetch non-OK:', res.status, body);
                     weaknessSummary = null;
                     return;
                 }
@@ -2025,73 +2033,88 @@
             setRecorderStatus('準備好就開始 — drill mode');
         }
 
+        // TODO[pro-gate]: enhanced trend visualization for pro
+        // Renders into #weakness-summary-block (the canonical position
+        // BELOW Scenario A). Two-layer copy strategy:
+        //   - Diagnostic layer (heading / subline / "occasions") = Old English
+        //   - CTA layer (drill button label / quota / upgrade nudge) = existing
+        //     Chinese, preserved verbatim because it drives revenue.
         function renderWeaknessSummary() {
-            const container = document.getElementById('weakness-summary');
+            const container = document.getElementById('weakness-summary-block');
             if (!container) return;
             container.innerHTML = '';
 
-            // Threshold gate is enforced server-side too (returns tag_counts: []
-            // when total < 5), but check both here so a stale cached payload
-            // can't slip past.
-            if (!weaknessSummary || typeof weaknessSummary.total !== 'number'
-                || weaknessSummary.total < 5) {
+            // Loader sets weaknessSummary = null on any failure → hide.
+            if (!weaknessSummary
+                || typeof weaknessSummary.total_practices !== 'number') {
                 container.style.display = 'none';
                 return;
             }
-            const rawCounts = Array.isArray(weaknessSummary.tag_counts)
-                ? weaknessSummary.tag_counts : [];
-            const top = [];
-            for (const item of rawCounts) {
-                if (top.length >= 3) break;
-                if (!item || typeof item !== 'object') continue;
-                const tag = item.tag;
-                const count = item.count;
-                // Defensive: silently drop any tag missing from WEAKNESS_LABELS
-                // (e.g. a future backend tag the frontend hasn't shipped yet).
-                if (!tag || !WEAKNESS_LABELS[tag]) continue;
-                if (typeof count !== 'number' || count <= 0) continue;
-                top.push({ tag, label: WEAKNESS_LABELS[tag], count });
-            }
-            if (top.length === 0) {
-                container.style.display = 'none';
-                return;
-            }
+            const total = weaknessSummary.total_practices;
+            const dist = Array.isArray(weaknessSummary.weakness_distribution)
+                ? weaknessSummary.weakness_distribution : [];
 
             const header = document.createElement('div');
             header.className = 'weakness-summary__header';
-            header.textContent = `你最近 ${weaknessSummary.total} 次練習`;
+            header.textContent = 'An Account of Thy Recent Practice';
+            container.appendChild(header);
+
+            // 0-practice fallback (Old English, no list).
+            if (total === 0) {
+                const empty = document.createElement('div');
+                empty.style.cssText = 'font-style:italic;color:var(--muted);font-size:14px;line-height:1.6;';
+                empty.textContent = 'Thou hast yet to begin thy practice. The page is blank, awaiting thy voice.';
+                container.appendChild(empty);
+                container.style.display = '';
+                try {
+                    if (window.analytics && typeof window.analytics.track === 'function') {
+                        window.analytics.track('weakness_summary_viewed', { total_practices: 0, top_tag: null });
+                    } else {
+                        console.log('[track]', 'weakness_summary_viewed', { total_practices: 0, top_tag: null });
+                    }
+                } catch (_) { /* never block UI on tracking */ }
+                return;
+            }
+
+            const sub = document.createElement('div');
+            sub.style.cssText = 'font-style:italic;color:var(--muted);font-size:13px;margin:-10px 0 14px;';
+            sub.textContent = `Drawn from thy last ${total} attempts.`;
+            container.appendChild(sub);
 
             const list = document.createElement('ul');
             list.className = 'weakness-summary__list';
-            // Sprint 2B: only weak_vocab and lack_detail have drill prompts
-            // wired today; other tags get a disabled button with hover copy.
+            // Drill targeting wired only for the two tags that have drill
+            // prompts — sprint 2B contract, do not relax without backend
+            // pairing.
             const DRILLABLE_TAGS = new Set(['weak_vocab', 'lack_detail']);
-            for (const entry of top) {
+            for (const entry of dist) {
+                if (!entry || typeof entry !== 'object') continue;
+                const tag = entry.tag;
+                const label = entry.label || tag;
+                const count = entry.count;
+                if (!tag || typeof count !== 'number' || count <= 0) continue;
+
                 const li = document.createElement('li');
                 const key = document.createElement('span');
                 key.className = 'ledger-key';
-                key.textContent = entry.label;
-                const dots = document.createElement('span');
-                dots.className = 'ledger-dots';
-                dots.setAttribute('aria-hidden', 'true');
-                const val = document.createElement('span');
-                val.className = 'ledger-val';
-                val.textContent = entry.count;
+                key.textContent = `${label} — ${count} occasions`;
+
                 const btn = document.createElement('button');
                 btn.className = 'drill-button';
                 btn.textContent = '🎯 針對性訓練';
-                btn.dataset.drillTag = entry.tag;
-                if (DRILLABLE_TAGS.has(entry.tag)) {
+                btn.dataset.drillTag = tag;
+                if (DRILLABLE_TAGS.has(tag)) {
                     btn.addEventListener('click', () => {
-                        window.analytics.track('drill_button_clicked', { tag: entry.tag });
-                        startDrillForTag(entry.tag);
+                        window.analytics.track('drill_button_clicked', { tag: tag });
+                        startDrillForTag(tag);
                     });
                 } else {
                     btn.disabled = true;
                     btn.title = '目前無法針對此弱點訓練';
                 }
-                // Quota label: only shown for free users with known quota state.
-                // Pro users (is_pro=true) have no limit — label is omitted.
+
+                // Quota label: free users only. Pro users skip the label
+                // entirely (their drill is unlimited).
                 if (drillQuotaState && !drillQuotaState.is_pro) {
                     const quotaLabel = document.createElement('div');
                     quotaLabel.className = 'drill-quota-label';
@@ -2106,23 +2129,17 @@
                     wrap.appendChild(btn);
                     wrap.appendChild(quotaLabel);
                     li.appendChild(key);
-                    li.appendChild(dots);
-                    li.appendChild(val);
                     li.appendChild(wrap);
                     list.appendChild(li);
                     continue;
                 }
                 li.appendChild(key);
-                li.appendChild(dots);
-                li.appendChild(val);
                 li.appendChild(btn);
                 list.appendChild(li);
             }
-
-            container.appendChild(header);
             container.appendChild(list);
-            // Upgrade nudge: only for free users with a known quota state.
-            // Pro users (is_pro=true) never see this.
+
+            // Upgrade nudge: free users only. Same gating logic as before.
             if (drillQuotaState && !drillQuotaState.is_pro) {
                 const nudge = document.createElement('div');
                 nudge.className = 'weakness-summary__upgrade';
@@ -2136,6 +2153,15 @@
                 container.appendChild(nudge);
             }
             container.style.display = '';
+
+            try {
+                const top_tag = (dist[0] && dist[0].tag) ? dist[0].tag : null;
+                if (window.analytics && typeof window.analytics.track === 'function') {
+                    window.analytics.track('weakness_summary_viewed', { total_practices: total, top_tag });
+                } else {
+                    console.log('[track]', 'weakness_summary_viewed', { total_practices: total, top_tag });
+                }
+            } catch (_) { /* never block UI on tracking */ }
         }
 
         async function showPracticeHub() {

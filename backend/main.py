@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Request, Form, Header, HTTPException
+from fastapi import FastAPI, UploadFile, File, Request, Form, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from openai import OpenAI
@@ -473,7 +473,15 @@ but score = 0, evidence arrays may all be empty, threshold_passed = false.
 Off-topic rule from baseline still wins for correction content."""
     },
 }
-WEAKNESS_SUMMARY_WINDOW = 20
+# MIRROR of frontend WEAKNESS_LABELS at frontend/app/index.html — keep in sync when modified
+WEAKNESS_LABELS = {
+    "weak_vocab":    "用字太安全",
+    "safe_answer":   "答得太保險",
+    "lack_detail":   "缺少具體細節",
+    "grammar_minor": "小文法",
+    "off_topic":     "答非所問",
+}
+
 QUESTION_EXCLUSION_DAYS = 3
 FREE_DRILL_QUOTA = 3
 DRILL_QUOTA_WINDOW_DAYS = 7
@@ -2047,69 +2055,87 @@ async def last_unresolved_practice_record(
     return rows[0] if rows else None
 
 
+def _build_weakness_summary(rows: list[dict], is_pro: bool = False) -> dict:
+    """
+    Pure function: rows → response shape. Separated so tests can drive
+    the aggregation without touching the DB.
+
+    is_pro is currently a no-op flag — see TODO below.
+    """
+    # TODO[pro-gate]: free 顯示 top 3, pro 顯示全部 + trend over time
+    # When the gate ships, slice the distribution at 3 for !is_pro and
+    # add a trend payload (counts per day for the last 14 days).
+    counts: Counter = Counter()
+    for row in rows:
+        tag = (row.get("weakness_tag") or "").strip()
+        if not tag:
+            continue
+        counts[tag] += 1
+
+    # Sort: count desc, then tag alphabetical (stable tie-break per spec).
+    ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    distribution = [
+        {
+            "tag":   tag,
+            # Unknown tags fall back to the raw tag string — never raise,
+            # never return None, so frontend rendering never breaks on a
+            # future backend tag that the labels mirror hasn't picked up.
+            "label": WEAKNESS_LABELS.get(tag, tag),
+            "count": count,
+        }
+        for tag, count in ordered
+    ]
+    return {
+        "total_practices": sum(counts.values()),
+        "weakness_distribution": distribution,
+    }
+
+
 @app.get("/api/practice-records/weakness-summary")
 @limiter.limit("10/minute")
 async def practice_records_weakness_summary(
     request: Request,
     authorization: Optional[str] = Header(None),
+    last_n: int = Query(10, ge=1, le=50),
 ):
     """
-    Aggregate the caller's last WEAKNESS_SUMMARY_WINDOW practice_records by
-    weakness_tag, returning total eligible rows + tag counts sorted by count
-    desc (ties broken by the tag's most recent created_at).
+    Aggregate the caller's last `last_n` practice_records by weakness_tag.
+    Returns { total_practices, weakness_distribution: [{tag, label, count}] }
+    sorted by count desc with tag alphabetical tie-break.
 
-    Below the 5-row threshold the response is shaped {"total": N, "tag_counts": []}
-    so the client can decide rendering without a second round-trip.
+    Filter: weakness_tag IS NOT NULL AND != ''. Resolved status is NOT
+    filtered — diagnosis must show the full picture (4/24 red line).
+
+    Empty result → {"total_practices": 0, "weakness_distribution": []}.
     """
     user_id = verify_token(authorization)
     if supabase_admin is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     try:
+        # Filter weakness_tag IS NOT NULL at the DB layer; the empty-string
+        # filter happens in Python (PostgREST `.neq("col", "")` works but
+        # the helper sticks to filters used elsewhere in this file).
         response = (
             supabase_admin.table("practice_records")
-            .select("id, weakness_tag, created_at")
+            .select("weakness_tag, created_at")
             .eq("user_id", user_id)
+            .not_.is_("weakness_tag", "null")
             .order("created_at", desc=True)
-            .limit(WEAKNESS_SUMMARY_WINDOW)
+            .limit(last_n)
             .execute()
         )
-        rows = response.data or []
-
-        eligible = [
-            row for row in rows
-            if (row.get("weakness_tag") or "") in ALLOWED_WEAKNESS_TAGS
-        ]
-        total = len(eligible)
-        if total < 5:
-            return {"total": total, "tag_counts": []}
-
-        counts: Counter = Counter()
-        # ISO-8601 strings sort lexicographically, so the lex max is the most
-        # recent timestamp — no need to parse datetimes for the tie-breaker.
-        latest_seen: dict[str, str] = {}
-        for row in eligible:
-            tag = row["weakness_tag"]
-            counts[tag] += 1
-            ts = row.get("created_at") or ""
-            if tag not in latest_seen or ts > latest_seen[tag]:
-                latest_seen[tag] = ts
-
-        ordered = sorted(
-            counts.items(),
-            key=lambda kv: (kv[1], latest_seen.get(kv[0], "")),
-            reverse=True,
-        )
-        return {
-            "total": total,
-            "tag_counts": [{"tag": tag, "count": count} for tag, count in ordered],
-        }
-    except HTTPException:
-        raise
     except Exception:
         logger.exception(
             "weakness-summary query failed", extra={"user_id": user_id}
         )
-        raise HTTPException(status_code=500, detail="Failed to load weakness summary")
+        raise HTTPException(
+            status_code=503,
+            detail="Failed to load weakness summary, please try again",
+        )
+
+    rows = response.data or []
+    # TODO[pro-gate]: pass real is_pro once free/pro split lands.
+    return _build_weakness_summary(rows, is_pro=True)
 
 
 @app.get("/api/questions/bank")
