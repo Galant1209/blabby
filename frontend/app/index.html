@@ -1404,6 +1404,13 @@
             <p class="tagline">每天開口，讓單字從腦袋跑到嘴巴</p>
         </header>
 
+        <!-- Diagnosis entry card — sits ABOVE Scenario A. Owned by feature/student-diagnosis. -->
+        <section id="diagnosis-entry" class="practice-hub" style="margin-bottom: 16px;">
+            <h2>Behold Thy Progress</h2>
+            <p class="practice-hub-copy">An honest examination of thy speaking patterns, drawn from every practice thou hast undertaken.</p>
+            <button id="diagnosis-entry-btn" class="practice-hub-btn">View Mine Diagnosis</button>
+        </section>
+
         <section id="practice-hub" class="practice-hub">
             <h2>今天的口說練習</h2>
             <p class="practice-hub-copy" id="practice-hub-copy">先把一個卡點修掉，再往下一題走。</p>
@@ -1577,6 +1584,23 @@
         const practiceHub     = document.getElementById('practice-hub');
         const speakingPractice = document.getElementById('speaking-practice');
         const startPracticeBtn = document.getElementById('start-practice-btn');
+
+        // Diagnosis entry — owned by feature/student-diagnosis.
+        // No site-wide track() helper exists yet, so log to console
+        // (matches CLAUDE.md "關鍵用戶行為加 track()"; analytics dep
+        // can attach to window.analytics later without changing callers).
+        const diagnosisEntryBtn = document.getElementById('diagnosis-entry-btn');
+        if (diagnosisEntryBtn) {
+            diagnosisEntryBtn.addEventListener('click', () => {
+                try {
+                    console.log('[track]', 'diagnosis_entry_clicked');
+                    if (window.analytics && typeof window.analytics.track === 'function') {
+                        window.analytics.track('diagnosis_entry_clicked');
+                    }
+                } catch (_) { /* never block navigation on tracking */ }
+                window.location = '/diagnosis.html';
+            });
+        }
         const practiceHubCopy = document.getElementById('practice-hub-copy');
         const practiceHubLabel = document.getElementById('practice-hub-label');
         const practiceHubFocus = document.getElementById('practice-hub-focus');

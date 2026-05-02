@@ -3032,6 +3032,97 @@ async def admin_user_records(
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
 
 
+def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
+    """
+    Build a diagnosis for one user from their practice records. Used by
+    both POST /admin/user/{id}/diagnosis (admin) and POST /api/diagnosis/me
+    (student). Caller is responsible for auth — this trusts the user_id.
+
+    Returns the response dict. Raises HTTPException(503) if Groq fails
+    after exhausted retries; HTTPException(400) on invalid user_id.
+
+    is_pro is currently a no-op flag — see TODO below.
+    """
+    try:
+        uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+    # TODO[pro-gate]: free 限 last 10 practice, pro 全部.
+    # When the gate ships, prepend `.limit(10)` for !is_pro.
+    response = (
+        supabase_admin.table("practice_records")
+        .select("question, user_transcript, coach_response, created_at")
+        .eq("user_id", user_id)
+        .order("created_at", desc=False)
+        .execute()
+    )
+
+    records = response.data or []
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    if len(records) == 0:
+        return {
+            "user_id": user_id,
+            "total_records": 0,
+            "practice_count": 0,
+            "generated_at": now_iso,
+            "diagnosis_markdown": (
+                "Thou hast yet to record thy first practice. Begin, and "
+                "thy patterns shall reveal themselves."
+            ),
+        }
+
+    system_prompt, user_prompt = build_diagnosis_prompt(records)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    # 3 attempts, exponential backoff 1s → 2s. Mirrors run_groq() policy
+    # but plain-text completion (not JSON mode), so we own the loop.
+    max_attempts = 3
+    last_error: Optional[Exception] = None
+    diagnosis_text: Optional[str] = None
+    for attempt in range(max_attempts):
+        try:
+            completion = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                temperature=0.3,
+                max_tokens=800,
+            )
+            diagnosis_text = (completion.choices[0].message.content or "").strip()
+            if diagnosis_text:
+                break
+            last_error = ValueError("empty diagnosis from Groq")
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "diagnosis groq attempt %s/%s failed: %s",
+                attempt + 1, max_attempts, exc,
+            )
+        if attempt < max_attempts - 1:
+            time.sleep(2 ** attempt)
+
+    if not diagnosis_text:
+        logger.error(
+            "diagnosis groq exhausted retries for %s: %s", user_id, last_error
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Diagnosis service unavailable, please try again",
+        )
+
+    return {
+        "user_id": user_id,
+        "total_records": len(records),
+        "practice_count": len(records),
+        "generated_at": now_iso,
+        "diagnosis_markdown": diagnosis_text,
+    }
+
+
 @app.post("/admin/user/{user_id}/diagnosis")
 @limiter.limit("10/minute")
 async def admin_user_diagnosis(
@@ -3041,56 +3132,33 @@ async def admin_user_diagnosis(
 ):
     try:
         verify_admin(authorization)
-
-        try:
-            uuid.UUID(user_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid user_id format")
-
-        response = (
-            supabase_admin.table("practice_records")
-            .select("question, user_transcript, coach_response, created_at")
-            .eq("user_id", user_id)
-            .order("created_at", desc=False)
-            .execute()
-        )
-
-        records = response.data or []
-
-        if len(records) == 0:
-            return {
-                "user_id": user_id,
-                "total_records": 0,
-                "generated_at": datetime.utcnow().isoformat() + "Z",
-                "diagnosis_markdown": "（這位使用者還沒有練習記錄，無法診斷）",
-            }
-
-        system_prompt, user_prompt = build_diagnosis_prompt(records)
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-
-        completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            temperature=0.3,
-            max_tokens=800,
-        )
-
-        diagnosis_text = completion.choices[0].message.content
-
-        return {
-            "user_id": user_id,
-            "total_records": len(records),
-            "generated_at": datetime.utcnow().isoformat() + "Z",
-            "diagnosis_markdown": diagnosis_text,
-        }
-
+        # Admin sees full history.
+        return _generate_user_diagnosis(user_id, is_pro=True)
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("admin diagnosis endpoint failed", extra={"target_user_id": user_id})
+        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(exc)}") from exc
+
+
+@app.post("/api/diagnosis/me")
+@limiter.limit("10/minute")
+async def my_diagnosis(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Student-facing diagnosis. user_id ALWAYS comes from JWT — body is
+    ignored. Anyone passing target_user_id in body would have it dropped.
+    """
+    try:
+        user_id = verify_token(authorization)
+        # TODO[pro-gate]: pass real is_pro once free/pro split lands.
+        return _generate_user_diagnosis(user_id, is_pro=True)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("my_diagnosis endpoint failed")
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(exc)}") from exc
 
 

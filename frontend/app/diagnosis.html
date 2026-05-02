@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Thy Diagnosis · Blabby</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./config.js"></script>
+<style>
+  /* Mirrors index.html token names so the page reads consistent. */
+  :root {
+    --bg:         #F5F0E8;
+    --surface:    #FDFAF4;
+    --ink:        #1C1008;
+    --navy:       #1A3550;
+    --gold:       #C9A84C;
+    --gold-warm:  #E8C866;
+    --red:        #6B1A1A;
+    --border:     #C4B89A;
+    --muted:      #7A6E5F;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg); color: var(--ink);
+    font-family: 'EB Garamond', 'Noto Serif TC', Georgia, serif;
+    font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+  .page { max-width: 600px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  header.brand { text-align: center; margin-bottom: 32px; }
+  header.brand .back {
+    display: inline-block; color: var(--muted); text-decoration: none;
+    font-style: italic; font-size: 13px; letter-spacing: 0.04em;
+    margin-bottom: 28px;
+  }
+  header.brand .back:hover { color: var(--gold); }
+  header.brand h1 {
+    font-family: 'Playfair Display', 'EB Garamond', serif;
+    font-size: 32px; font-weight: 700; letter-spacing: 0.01em;
+    color: var(--ink);
+  }
+  header.brand .rule {
+    display: flex; align-items: center; justify-content: center;
+    gap: 14px; margin: 14px 0 10px; color: var(--gold);
+  }
+  header.brand .rule span:first-child,
+  header.brand .rule span:last-child {
+    width: 60px; height: 1px; background: var(--gold); display: inline-block;
+  }
+  header.brand .subtitle {
+    font-style: italic; color: var(--muted); font-size: 15px;
+  }
+
+  .panel {
+    background: var(--surface); border: 1.5px solid var(--border);
+    padding: 32px 28px; margin-top: 24px;
+  }
+  .panel.center { text-align: center; }
+
+  .state-loading, .state-error {
+    font-style: italic; color: var(--muted); font-size: 16px;
+    line-height: 1.6;
+  }
+  .state-error { color: var(--red); }
+  .state-error button {
+    display: inline-block; margin-top: 18px; padding: 10px 22px;
+    background: transparent; border: 1.5px solid var(--gold); color: var(--gold);
+    font-family: inherit; font-size: 14px; font-style: italic; cursor: pointer;
+    letter-spacing: 0.04em; transition: background 120ms ease;
+  }
+  .state-error button:hover { background: rgba(201,168,76,0.08); }
+
+  /* Markdown rendering — mirrors body type, gold rules between sections */
+  .md h1, .md h2 { font-family: 'Playfair Display', 'EB Garamond', serif;
+    font-size: 22px; font-weight: 700; color: var(--navy);
+    margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+    letter-spacing: 0.01em;
+  }
+  .md h1:first-child, .md h2:first-child { margin-top: 0; }
+  .md h3 { font-size: 17px; font-weight: 700; color: var(--ink); margin: 20px 0 8px; }
+  .md p  { margin: 0 0 14px; }
+  .md ul { margin: 0 0 16px 22px; }
+  .md li { margin-bottom: 6px; }
+  .md em { color: var(--navy); font-style: italic; }
+  .md strong { color: var(--ink); font-weight: 700; }
+
+  .meta {
+    margin-top: 32px; padding-top: 20px; border-top: 1px dashed var(--border);
+    text-align: center; font-style: italic; color: var(--muted); font-size: 13px;
+  }
+
+  /* Mobile (375px) — tighter padding, slightly smaller heading */
+  @media (max-width: 480px) {
+    .page { padding: 28px 16px 60px; }
+    header.brand h1 { font-size: 26px; }
+    .panel { padding: 24px 18px; }
+    .md h1, .md h2 { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="brand">
+    <div><a class="back" href="/">← Return to the practice</a></div>
+    <h1>Thy Diagnosis</h1>
+    <div class="rule"><span></span>◆<span></span></div>
+    <div class="subtitle" id="subtitle">A studied account of thy practices.</div>
+  </header>
+
+  <div id="container">
+    <div class="panel center">
+      <div class="state-loading">Examining thy practice history…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// TODO[pro-gate]: enhanced sections for pro users (deeper history,
+// trend analysis, comparison vs. cohort).
+(() => {
+  const cfg = window.BLABBY_CONFIG || {};
+  const SUPABASE_URL = cfg.supabaseUrl;
+  const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
+  const API_BASE = 'https://blabby-backend.onrender.com';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.getElementById('container').innerHTML =
+      '<div class="panel center"><div class="state-error">Configuration is missing. Pray, alert the keeper of this site.</div></div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Lightweight tracking — console in dev, no-op in prod (no analytics
+  // dep is loaded yet; this is the agreed hook point per CLAUDE.md
+  // "關鍵用戶行為加 track()").
+  function track(event, props) {
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[track]', event, props || {});
+      if (window.analytics && typeof window.analytics.track === 'function') {
+        window.analytics.track(event, props || {});
+      }
+    } catch (_) { /* never break UI on tracking failure */ }
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // Minimal markdown: headings, bold, italic, ordered/unordered lists,
+  // paragraphs. Used because marked.js isn't loaded site-wide. Inputs
+  // are escaped FIRST, then we re-introduce a small set of tags — so
+  // model output can't inject HTML.
+  function renderMarkdown(src) {
+    if (window.marked && typeof window.marked.parse === 'function') {
+      return window.marked.parse(src);
+    }
+    const lines = String(src || '').replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    let inList = false;
+    const flushList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+    function inline(s) {
+      // Order matters: bold before italic so **a** doesn't get split.
+      return escapeHtml(s)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|\W)\*(?!\s)([^*]+?)\*(?!\w)/g, '$1<em>$2</em>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>');
+    }
+    for (const raw of lines) {
+      const line = raw.trimEnd();
+      if (!line.trim()) { flushList(); continue; }
+      const h = line.match(/^(#{1,3})\s+(.+)$/);
+      if (h) {
+        flushList();
+        const lvl = h[1].length;
+        out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`);
+        continue;
+      }
+      const li = line.match(/^[-*]\s+(.+)$/);
+      if (li) {
+        if (!inList) { out.push('<ul>'); inList = true; }
+        out.push(`<li>${inline(li[1])}</li>`);
+        continue;
+      }
+      flushList();
+      out.push(`<p>${inline(line)}</p>`);
+    }
+    flushList();
+    return out.join('\n');
+  }
+
+  function showError(msg) {
+    document.getElementById('container').innerHTML = `
+      <div class="panel center">
+        <div class="state-error">
+          ${escapeHtml(msg || 'The examination could not be completed. Pray, try once more.')}
+          <div><button id="retry">Try Again</button></div>
+        </div>
+      </div>`;
+    document.getElementById('retry').addEventListener('click', loadDiagnosis);
+  }
+
+  async function loadDiagnosis() {
+    document.getElementById('container').innerHTML =
+      '<div class="panel center"><div class="state-loading">Examining thy practice history…</div></div>';
+
+    let token = null;
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      token = session && session.access_token;
+    } catch (e) {
+      console.error('getSession failed', e);
+    }
+    if (!token) {
+      // Not signed in — bounce home where the auth panel lives.
+      showError('Thou must first sign in. Returning to the practice.');
+      setTimeout(() => { window.location = '/'; }, 1500);
+      return;
+    }
+
+    let res, data;
+    try {
+      res = await fetch(`${API_BASE}/api/diagnosis/me`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (e) {
+      console.error('fetch failed', e);
+      showError('The examination could not be completed. Pray, try once more.');
+      return;
+    }
+
+    if (!res.ok) {
+      let detail = `Status ${res.status}`;
+      try { const j = await res.json(); if (j?.detail) detail = j.detail; } catch (_) {}
+      console.error('/api/diagnosis/me failed:', detail);
+      showError('The examination could not be completed. Pray, try once more.');
+      return;
+    }
+
+    try { data = await res.json(); }
+    catch (e) {
+      console.error('json parse failed', e);
+      showError('The examination could not be completed. Pray, try once more.');
+      return;
+    }
+
+    const count = data.practice_count ?? data.total_records ?? 0;
+    document.getElementById('subtitle').textContent =
+      count === 0
+        ? 'No practices yet recorded.'
+        : `A studied account of ${count} ${count === 1 ? 'practice' : 'practices'} undertaken.`;
+
+    document.getElementById('container').innerHTML = `
+      <div class="panel">
+        <div class="md">${renderMarkdown(data.diagnosis_markdown || '')}</div>
+        <div class="meta">Compiled ${new Date(data.generated_at || Date.now()).toLocaleString()}</div>
+      </div>`;
+
+    track('diagnosis_viewed', { practice_count: count });
+  }
+
+  loadDiagnosis();
+})();
+</script>
+</body>
+</html>
