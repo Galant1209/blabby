@@ -1940,6 +1940,13 @@
              CSS rules from the prototype block (lines 210-280). -->
         <section id="weakness-summary-block" class="weakness-summary" style="display:none" aria-label="近期練習弱點摘要"></section>
 
+        <section id="vocab-entry" class="practice-hub card-v3" style="margin-bottom: 16px;">
+            <h2 class="practice-hub-title">今日單字任務</h2>
+            <p class="practice-hub-copy">複習 5 個單字，讓今天的回答更具體。</p>
+            <div id="vocab-due-count" style="font-size:13px;color:var(--muted);margin-bottom:12px;"></div>
+            <button class="practice-hub-btn" onclick="window.location.href='/vocabulary.html'">開始單字訓練</button>
+        </section>
+
         <section id="speaking-practice" class="speaking-practice">
             <section class="question-card">
                 <div class="label">考官問你</div>
@@ -2418,6 +2425,26 @@
             }
         }
 
+        // Hub vocab-entry — show due-count subline if any items are due
+        // for review. Fail-silently: any error leaves the line blank, the
+        // CTA still works.
+        async function loadVocabDueCount() {
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session) return;
+                const res = await fetch(`${API_BASE}/api/vocabulary/review/today`, {
+                    headers: { Authorization: `Bearer ${session.access_token}` }
+                });
+                if (!res.ok) return;
+                const body = await res.json();
+                const items = Array.isArray(body && body.items) ? body.items : [];
+                const el = document.getElementById('vocab-due-count');
+                if (el && items.length > 0) {
+                    el.textContent = `今日待複習：${items.length} 個單字`;
+                }
+            } catch (_) { /* fail-silent */ }
+        }
+
         // Sprint 2B: drill mode entry from Hub weakness ledger.
         // Path: button click → /api/drill/check_quota → either show speaking
         // UI with currentDrillTag set, or redirect to /upgrade.
@@ -2672,6 +2699,7 @@
                 loadWeaknessSummary(),
                 loadDailyQuestion(),
                 loadDrillQuota(),
+                loadVocabDueCount(),
             ]);
             if (practiceHub) practiceHub.style.display = '';
             updatePracticeHubState();

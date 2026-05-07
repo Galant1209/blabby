@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Vocabulary Training · Blabby</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="./config.js"></script>
+<!-- PostHog Analytics -->
+<script>
+    !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    posthog.init('phc_yx3H55CAUHfsKFabX4ZQ5JHxTijKzHdyCiKzxvddaLTt', {
+        api_host: 'https://us.i.posthog.com',
+        person_profiles: 'identified_only',
+    });
+    window.analytics = {
+        track: function(event, props) { try { posthog.capture(event, props || {}); } catch(_) {} },
+        identify: function(userId, traits) { try { posthog.identify(userId, traits || {}); } catch(_) {} }
+    };
+</script>
+<style>
+:root {
+    --bg: #F5F0E8;
+    --surface: #FDFAF4;
+    --paper: #F1E9D6;
+    --ink: #2C2416;
+    --ink-soft: #3a3022;
+    --green: #2D5016;
+    --green-dark: #1f3810;
+    --gold: #C9A84C;
+    --gold-warm: #E8C866;
+    --wine: #6B1A1A;
+    --border: #C4B89A;
+    --muted: #8A7E6E;
+    --serif: 'EB Garamond', 'Cormorant Garamond', Georgia, serif;
+    --sans: 'Inter Tight', 'Inter', -apple-system, sans-serif;
+    --serif-tc: 'Noto Serif TC', 'EB Garamond', serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 16px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+}
+.page { max-width: 520px; margin: 0 auto; padding: 24px 18px 60px; }
+.back-link {
+    display: inline-block; font-family: var(--sans); font-size: 13px;
+    color: var(--muted); text-decoration: none; margin-bottom: 8px;
+}
+.back-link:hover { color: var(--green); }
+header.brand { text-align: center; padding: 8px 0 24px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+header.brand .crown {
+    width: 42px; height: 42px; margin: 0 auto 8px; display: block;
+}
+header.brand h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 32px;
+    color: var(--green); letter-spacing: 0.01em;
+    padding-bottom: 6px; display: inline-block;
+    border-bottom: 2px solid var(--gold); margin: 0;
+}
+header.brand .subtitle {
+    font-family: var(--serif); font-style: italic; font-size: 14px;
+    color: var(--ink-soft); margin-top: 12px;
+}
+.section-title {
+    font-family: var(--serif); font-weight: 500; font-size: 22px;
+    color: var(--ink); margin: 28px 0 14px;
+}
+.card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 18px; margin-bottom: 16px;
+    position: relative;
+}
+
+/* Today's review card */
+#today-review .card-headline {
+    font-family: var(--serif); font-size: 19px; color: var(--ink);
+    margin-bottom: 6px;
+}
+#today-review .card-sub {
+    font-size: 13px; color: var(--muted); margin-bottom: 14px;
+}
+#today-review .due-count {
+    font-family: var(--serif); font-size: 36px; font-weight: 500;
+    color: var(--gold); line-height: 1;
+}
+#today-review .due-label {
+    font-size: 12px; color: var(--muted); margin-top: 4px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+}
+.btn-primary {
+    display: block; width: 100%; padding: 13px 18px;
+    background: var(--green); color: var(--gold); border: none;
+    border-radius: 6px; font-family: var(--serif); font-size: 15px;
+    letter-spacing: 0.04em; cursor: pointer; margin-top: 16px;
+}
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary:hover:not(:disabled) { background: var(--green-dark); }
+
+/* Bank — filters + search + grid */
+.topic-filters {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;
+}
+.topic-filters button {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--muted); border-radius: 999px;
+    padding: 5px 12px; font-size: 12px; font-family: var(--sans);
+    cursor: pointer; transition: all 120ms ease;
+}
+.topic-filters button.active {
+    background: var(--green); border-color: var(--green); color: var(--gold);
+}
+.topic-filters button:hover:not(.active) { border-color: var(--gold); color: var(--ink); }
+.vocab-search {
+    width: 100%; padding: 10px 14px; margin-bottom: 16px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; font-family: var(--sans); font-size: 14px;
+    color: var(--ink); outline: none;
+}
+.vocab-search:focus { border-color: var(--gold); }
+#vocab-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+}
+@media (max-width: 360px) { #vocab-grid { grid-template-columns: 1fr; } }
+.vocab-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 12px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.vocab-card__head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.vocab-card__word { font-family: var(--serif); font-size: 19px; font-weight: 500; color: var(--ink); }
+.vocab-card__pos { font-size: 11px; color: var(--muted); font-style: italic; }
+.vocab-card__zh { font-family: var(--serif-tc); color: var(--gold); font-size: 14px; font-weight: 500; }
+.vocab-card__chunk { font-size: 12px; color: var(--ink-soft); font-style: italic; }
+.vocab-card__sentence {
+    font-size: 12px; color: var(--muted); line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.vocab-card__meta {
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    font-size: 10px; color: var(--muted); margin-top: auto;
+}
+.vocab-card__topic {
+    border: 1px solid var(--border); padding: 1px 8px; border-radius: 999px;
+    text-transform: capitalize;
+}
+.vocab-card__band { color: var(--gold); font-weight: 500; }
+.vocab-card__add {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--green); padding: 7px; border-radius: 4px;
+    font-size: 11px; font-family: var(--sans); cursor: pointer;
+    margin-top: 6px; transition: all 120ms ease;
+}
+.vocab-card__add:hover:not(:disabled) { background: var(--green); color: var(--gold); border-color: var(--green); }
+.vocab-card__add:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.6; }
+
+/* My vocabulary list */
+.my-vocab-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 0; border-bottom: 1px dashed var(--border);
+}
+.my-vocab-row:last-child { border-bottom: none; }
+.my-vocab-row__main { flex: 1; }
+.my-vocab-row__word { font-family: var(--serif); font-size: 16px; color: var(--ink); }
+.my-vocab-row__zh { font-size: 12px; color: var(--gold); }
+.my-vocab-row__meta { font-size: 11px; color: var(--muted); text-align: right; }
+.srs-pip {
+    display: inline-block; width: 8px; height: 8px;
+    margin-right: 2px; border-radius: 1px;
+    background: var(--border);
+}
+.srs-pip--filled { background: var(--gold); }
+
+.empty-state {
+    text-align: center; padding: 24px 8px; color: var(--muted);
+    font-style: italic; font-size: 13px;
+}
+.loading-state { text-align: center; padding: 24px 8px; color: var(--gold); font-style: italic; font-size: 13px; }
+.error-state { color: var(--wine); padding: 12px 0; font-size: 13px; }
+
+/* Review modal — full-screen overlay */
+#review-modal[hidden] { display: none; }
+#review-modal {
+    position: fixed; inset: 0; z-index: 100;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    padding: 20px 18px;
+}
+.review-progress {
+    height: 4px; background: var(--border); border-radius: 2px;
+    overflow: hidden; margin-bottom: 18px;
+}
+.review-progress__bar {
+    height: 100%; background: var(--gold); transition: width 200ms ease;
+}
+.review-counter {
+    font-size: 11px; color: var(--muted); letter-spacing: 0.06em;
+    text-transform: uppercase; text-align: center; margin-bottom: 16px;
+}
+.review-card {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 28px 22px; cursor: pointer;
+    text-align: center; min-height: 60vh;
+}
+.review-card__front { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.review-card__word {
+    font-family: var(--serif); font-size: 38px; font-weight: 500;
+    color: var(--ink); line-height: 1.1;
+}
+.review-card__pos { font-size: 14px; color: var(--muted); font-style: italic; }
+.review-card__hint {
+    font-size: 11px; color: var(--muted); letter-spacing: 0.08em;
+    text-transform: uppercase; margin-top: 18px;
+}
+.review-card__back {
+    text-align: left; width: 100%;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.review-card__back .word-back {
+    font-family: var(--serif); font-size: 24px; color: var(--ink); margin-bottom: 4px;
+}
+.review-card__back .zh { font-family: var(--serif-tc); color: var(--gold); font-size: 18px; font-weight: 500; }
+.review-card__back .chunk { font-style: italic; font-size: 13px; color: var(--ink-soft); }
+.review-card__back .sentence { font-size: 14px; color: var(--ink); line-height: 1.5; }
+.review-card__back .note {
+    font-size: 12px; color: var(--muted); padding-top: 8px;
+    border-top: 1px dashed var(--border);
+}
+.review-actions {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    margin-top: 14px;
+}
+.review-btn {
+    padding: 11px 6px; border: 1px solid var(--border);
+    background: var(--surface); border-radius: 6px;
+    font-family: var(--sans); font-size: 12px; font-weight: 500;
+    cursor: pointer;
+}
+.review-btn--again { color: var(--wine); }
+.review-btn--hard  { color: var(--ink-soft); }
+.review-btn--good  { color: var(--green); }
+.review-btn--easy  { color: var(--gold); border-color: var(--gold); }
+.review-btn:hover { border-color: var(--gold); }
+.review-summary {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; gap: 16px; padding: 20px;
+}
+.review-summary__title { font-family: var(--serif); font-size: 28px; color: var(--green); }
+.review-summary__count { font-family: var(--serif); font-size: 48px; color: var(--gold); font-weight: 500; }
+.review-summary__quote { font-family: var(--serif-tc); font-style: italic; font-size: 15px; color: var(--ink-soft); max-width: 320px; line-height: 1.6; }
+.review-close {
+    margin-top: 24px; background: transparent; border: 1px solid var(--border);
+    color: var(--muted); padding: 10px 18px; border-radius: 6px; cursor: pointer;
+    font-family: var(--sans); font-size: 13px;
+}
+.review-close:hover { color: var(--green); border-color: var(--green); }
+</style>
+</head>
+<body>
+<main class="page">
+    <a href="/" class="back-link">← Back to Practice</a>
+    <header class="brand">
+        <svg class="crown" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="32" cy="32" r="30" fill="none" stroke="#C9A84C" stroke-width="1.5"/>
+            <circle cx="32" cy="32" r="26" fill="none" stroke="#C9A84C" stroke-width="0.5"/>
+            <path d="M18 38 L18 28 L24 33 L32 22 L40 33 L46 28 L46 38 Z" fill="none" stroke="#C9A84C" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+            <line x1="18" y1="38" x2="46" y2="38" stroke="#C9A84C" stroke-width="1.5"/>
+            <circle cx="32" cy="21" r="1.5" fill="#C9A84C"/>
+            <circle cx="18" cy="27" r="1.5" fill="#C9A84C"/>
+            <circle cx="46" cy="27" r="1.5" fill="#C9A84C"/>
+        </svg>
+        <h1>Vocabulary Training</h1>
+        <div class="subtitle">Don't just remember words. Learn to say better sentences.</div>
+    </header>
+
+    <!-- Section 1: Today's Review -->
+    <section id="today-review">
+        <div class="card">
+            <div class="card-headline">Today's Review</div>
+            <div class="due-count" id="due-count">—</div>
+            <div class="due-label" id="due-label">words due for review</div>
+            <button class="btn-primary" id="start-review-btn" disabled>開始今日複習</button>
+        </div>
+    </section>
+
+    <!-- Section 2: Vocabulary Bank -->
+    <section id="vocab-bank">
+        <h2 class="section-title">Vocabulary Bank</h2>
+        <div class="topic-filters" id="topic-filters">
+            <button class="active" data-topic="">All</button>
+            <button data-topic="people">People</button>
+            <button data-topic="place">Place</button>
+            <button data-topic="experience">Experience</button>
+            <button data-topic="shopping">Shopping</button>
+            <button data-topic="travel">Travel</button>
+            <button data-topic="study">Study</button>
+            <button data-topic="work">Work</button>
+            <button data-topic="technology">Technology</button>
+            <button data-topic="emotion">Emotion</button>
+            <button data-topic="hobby">Hobby</button>
+        </div>
+        <input type="text" class="vocab-search" id="vocab-search" placeholder="Search word or 中文…">
+        <div id="vocab-grid"><div class="loading-state">Loading vocabulary…</div></div>
+    </section>
+
+    <!-- Section 3: My Vocabulary -->
+    <section id="my-vocab">
+        <h2 class="section-title">My Vocabulary</h2>
+        <div class="card">
+            <div id="my-vocab-list"><div class="loading-state">Loading your collection…</div></div>
+        </div>
+    </section>
+</main>
+
+<!-- Review Modal -->
+<div id="review-modal" hidden role="dialog" aria-modal="true" aria-label="Vocabulary review">
+    <div class="review-progress"><div class="review-progress__bar" id="review-progress-bar" style="width:0%"></div></div>
+    <div class="review-counter" id="review-counter">0 / 0</div>
+    <div id="review-stage"><!-- review-card or review-summary inserted here --></div>
+</div>
+
+<script>
+(() => {
+    const cfg = window.BLABBY_CONFIG || {};
+    const SUPABASE_URL = cfg.supabaseUrl;
+    const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
+    const API_BASE = window.BLABBY_API_BASE || 'https://blabby-backend.onrender.com';
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !window.supabase) {
+        document.body.innerHTML = '<main class="page"><p class="error-state">Missing Supabase config or SDK.</p></main>';
+        return;
+    }
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ── State
+    let allItems = [];                  // catalog from /api/vocabulary/items
+    let myItems = [];                   // from /api/vocabulary/my (joined)
+    let mySetOfItemIds = new Set();     // fast membership check
+    let activeTopic = '';
+    let activeSearch = '';
+    let reviewQueue = [];               // user_vocabulary rows due
+    let reviewIdx = 0;
+    let reviewCompleted = 0;
+
+    // ── Helpers
+    function escapeHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function fmtDate(iso) {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        if (isNaN(d)) return '—';
+        const now = new Date();
+        const diffDays = Math.round((d - now) / 86400000);
+        if (diffDays < 0) return 'overdue';
+        if (diffDays === 0) return 'today';
+        if (diffDays === 1) return 'tomorrow';
+        return `in ${diffDays}d`;
+    }
+    async function getToken() {
+        try {
+            const { data: { session } } = await sb.auth.getSession();
+            return (session && session.access_token) || null;
+        } catch (_) { return null; }
+    }
+    async function authJson(method, path, body) {
+        const token = await getToken();
+        if (!token) throw new Error('not_signed_in');
+        const r = await fetch(`${API_BASE}${path}`, {
+            method,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+            },
+            body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+        if (r.status === 401 || r.status === 403) throw new Error('auth_failed');
+        if (!r.ok) {
+            let detail = `Request failed (${r.status})`;
+            try { const j = await r.json(); if (j?.detail) detail = j.detail; } catch (_) {}
+            throw new Error(detail);
+        }
+        return r.json();
+    }
+
+    // Identify on auth ready (one-shot per page load)
+    (async () => {
+        try {
+            const { data: { session } } = await sb.auth.getSession();
+            if (session && session.user) window.analytics.identify(session.user.id);
+        } catch (_) {}
+    })();
+
+    window.analytics?.track('vocabulary_page_viewed');
+
+    // ── Section 2: Bank fetch + render ────────────────────────────────
+    async function loadBank() {
+        try {
+            const r = await fetch(`${API_BASE}/api/vocabulary/items`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const body = await r.json();
+            allItems = Array.isArray(body.items) ? body.items : [];
+            renderBank();
+        } catch (e) {
+            console.error('loadBank failed', e);
+            document.getElementById('vocab-grid').innerHTML =
+                `<div class="error-state">Failed to load vocabulary bank.</div>`;
+        }
+    }
+    function renderBank() {
+        const grid = document.getElementById('vocab-grid');
+        const term = activeSearch.trim().toLowerCase();
+        const filtered = allItems.filter(it => {
+            if (activeTopic && (it.topic || '') !== activeTopic) return false;
+            if (term) {
+                const hay = `${it.word || ''} ${it.zh_meaning || ''}`.toLowerCase();
+                if (!hay.includes(term)) return false;
+            }
+            return true;
+        });
+        if (filtered.length === 0) {
+            grid.innerHTML = '<div class="empty-state">No words match these filters.</div>';
+            return;
+        }
+        grid.innerHTML = filtered.map(it => {
+            const inMine = mySetOfItemIds.has(it.id);
+            return `
+                <div class="vocab-card" data-id="${escapeHtml(it.id)}" data-topic="${escapeHtml(it.topic || '')}">
+                    <div class="vocab-card__head">
+                        <span class="vocab-card__word">${escapeHtml(it.word || '')}</span>
+                        <span class="vocab-card__pos">${escapeHtml(it.part_of_speech || '')}</span>
+                    </div>
+                    <div class="vocab-card__zh">${escapeHtml(it.zh_meaning || '')}</div>
+                    ${it.common_chunk ? `<div class="vocab-card__chunk">${escapeHtml(it.common_chunk)}</div>` : ''}
+                    ${it.speaking_sentence ? `<div class="vocab-card__sentence">${escapeHtml(it.speaking_sentence)}</div>` : ''}
+                    <div class="vocab-card__meta">
+                        ${it.topic ? `<span class="vocab-card__topic">${escapeHtml(it.topic)}</span>` : ''}
+                        ${it.ielts_band_level ? `<span class="vocab-card__band">B${escapeHtml(it.ielts_band_level)}</span>` : ''}
+                    </div>
+                    <button class="vocab-card__add" data-id="${escapeHtml(it.id)}" data-word="${escapeHtml(it.word || '')}" data-topic="${escapeHtml(it.topic || '')}" ${inMine ? 'disabled' : ''}>
+                        ${inMine ? '✓ 已加入' : '＋ 加入我的單字'}
+                    </button>
+                </div>`;
+        }).join('');
+        grid.querySelectorAll('.vocab-card__add').forEach(btn => btn.addEventListener('click', onAddClick));
+    }
+
+    async function onAddClick(ev) {
+        const btn = ev.currentTarget;
+        if (btn.disabled) return;
+        const id = btn.dataset.id;
+        const word = btn.dataset.word;
+        const topic = btn.dataset.topic;
+        btn.disabled = true;
+        btn.textContent = 'Adding…';
+        try {
+            await authJson('POST', '/api/vocabulary/my', {
+                vocabulary_item_id: id,
+                source: 'manual_added',
+            });
+            mySetOfItemIds.add(id);
+            btn.textContent = '✓ 已加入';
+            window.analytics?.track('vocabulary_item_added', { word, topic });
+            await loadMy();         // refresh My Vocabulary list
+            await loadDueCount();   // due count may shift if backend sets next_review_at = now
+        } catch (e) {
+            btn.disabled = false;
+            btn.textContent = '＋ 加入我的單字';
+            alert(e.message === 'not_signed_in' ? '請先登入' : (e.message || 'Failed to add'));
+        }
+    }
+
+    // Topic filter clicks
+    document.getElementById('topic-filters').addEventListener('click', (ev) => {
+        const btn = ev.target.closest('button[data-topic]');
+        if (!btn) return;
+        activeTopic = btn.dataset.topic || '';
+        document.querySelectorAll('#topic-filters button').forEach(b => b.classList.toggle('active', b === btn));
+        renderBank();
+    });
+    // Search
+    document.getElementById('vocab-search').addEventListener('input', (ev) => {
+        activeSearch = ev.target.value || '';
+        renderBank();
+    });
+
+    // ── Section 3: My Vocabulary ──────────────────────────────────────
+    async function loadMy() {
+        const list = document.getElementById('my-vocab-list');
+        try {
+            const body = await authJson('GET', '/api/vocabulary/my');
+            myItems = Array.isArray(body.items) ? body.items : [];
+            mySetOfItemIds = new Set(myItems.map(r => r.vocabulary_item_id).filter(Boolean));
+            if (myItems.length === 0) {
+                list.innerHTML = '<div class="empty-state">No saved words yet. Add some from the bank above.</div>';
+            } else {
+                list.innerHTML = myItems.map(r => {
+                    const item = r.vocabulary_items || {};
+                    const lvl = Math.max(0, Math.min(5, r.srs_level || 0));
+                    const pips = Array.from({length: 5}, (_, i) =>
+                        `<span class="srs-pip ${i < lvl ? 'srs-pip--filled' : ''}"></span>`).join('');
+                    return `
+                        <div class="my-vocab-row">
+                            <div class="my-vocab-row__main">
+                                <div class="my-vocab-row__word">${escapeHtml(item.word || '')}</div>
+                                <div class="my-vocab-row__zh">${escapeHtml(item.zh_meaning || '')}</div>
+                            </div>
+                            <div class="my-vocab-row__meta">
+                                <div>${pips}</div>
+                                <div>${escapeHtml(fmtDate(r.next_review_at))}</div>
+                            </div>
+                        </div>`;
+                }).join('');
+            }
+            // Re-render bank so the +/✓ state reflects the updated mySet.
+            renderBank();
+        } catch (e) {
+            console.error('loadMy failed', e);
+            if (e.message === 'not_signed_in') {
+                list.innerHTML = '<div class="empty-state">請先登入以查看你的單字。</div>';
+            } else {
+                list.innerHTML = '<div class="error-state">Failed to load your vocabulary.</div>';
+            }
+        }
+    }
+
+    // ── Section 1: Today's Review count + start ───────────────────────
+    async function loadDueCount() {
+        const cnt = document.getElementById('due-count');
+        const lbl = document.getElementById('due-label');
+        const btn = document.getElementById('start-review-btn');
+        try {
+            const body = await authJson('GET', '/api/vocabulary/review/today');
+            reviewQueue = Array.isArray(body.items) ? body.items : [];
+            cnt.textContent = String(reviewQueue.length);
+            if (reviewQueue.length === 0) {
+                lbl.textContent = 'All caught up. Come back tomorrow.';
+                btn.disabled = true;
+            } else {
+                lbl.textContent = reviewQueue.length === 1 ? 'word due for review' : 'words due for review';
+                btn.disabled = false;
+            }
+        } catch (e) {
+            console.error('loadDueCount failed', e);
+            if (e.message === 'not_signed_in') {
+                cnt.textContent = '—';
+                lbl.textContent = '請先登入';
+                btn.disabled = true;
+            } else {
+                cnt.textContent = '!';
+                lbl.textContent = 'Failed to load';
+                btn.disabled = true;
+            }
+        }
+    }
+
+    document.getElementById('start-review-btn').addEventListener('click', () => {
+        if (!reviewQueue.length) return;
+        reviewIdx = 0;
+        reviewCompleted = 0;
+        window.analytics?.track('vocabulary_review_started', { due_count: reviewQueue.length });
+        showModal();
+        renderReviewCard();
+    });
+
+    // ── Review modal ─────────────────────────────────────────────────
+    function showModal() { document.getElementById('review-modal').hidden = false; }
+    function hideModal() { document.getElementById('review-modal').hidden = true; }
+
+    function updateProgress() {
+        const total = reviewQueue.length || 1;
+        const pct = Math.min(100, Math.round((reviewCompleted / total) * 100));
+        document.getElementById('review-progress-bar').style.width = pct + '%';
+        document.getElementById('review-counter').textContent = `${reviewCompleted} / ${reviewQueue.length}`;
+    }
+
+    function renderReviewCard() {
+        updateProgress();
+        const stage = document.getElementById('review-stage');
+        if (reviewIdx >= reviewQueue.length) {
+            renderSummary();
+            return;
+        }
+        const row = reviewQueue[reviewIdx];
+        const item = row.vocabulary_items || {};
+        stage.innerHTML = `
+            <div class="review-card" id="review-card-flip">
+                <div class="review-card__front">
+                    <div class="review-card__word">${escapeHtml(item.word || '—')}</div>
+                    <div class="review-card__pos">${escapeHtml(item.part_of_speech || '')}</div>
+                    <div class="review-card__hint">tap to reveal</div>
+                </div>
+            </div>`;
+        document.getElementById('review-card-flip').addEventListener('click', () => flipCard(row, item), { once: true });
+    }
+
+    function flipCard(row, item) {
+        const stage = document.getElementById('review-stage');
+        stage.innerHTML = `
+            <div class="review-card">
+                <div class="review-card__back">
+                    <div class="word-back">${escapeHtml(item.word || '')}</div>
+                    <div class="zh">${escapeHtml(item.zh_meaning || '')}</div>
+                    ${item.common_chunk ? `<div class="chunk">${escapeHtml(item.common_chunk)}</div>` : ''}
+                    ${item.speaking_sentence ? `<div class="sentence">${escapeHtml(item.speaking_sentence)}</div>` : ''}
+                    ${item.usage_note_zh ? `<div class="note">${escapeHtml(item.usage_note_zh)}</div>` : ''}
+                </div>
+            </div>
+            <div class="review-actions">
+                <button class="review-btn review-btn--again" data-result="again">Again</button>
+                <button class="review-btn review-btn--hard"  data-result="hard">Hard</button>
+                <button class="review-btn review-btn--good"  data-result="good">Good</button>
+                <button class="review-btn review-btn--easy"  data-result="easy">Easy</button>
+            </div>`;
+        stage.querySelectorAll('.review-btn').forEach(b =>
+            b.addEventListener('click', () => submitReview(row, item, b.dataset.result), { once: true }));
+    }
+
+    async function submitReview(row, item, result) {
+        // Disable all buttons immediately to prevent double-submits.
+        document.querySelectorAll('.review-btn').forEach(b => b.disabled = true);
+        const prevLevel = row.srs_level || 0;
+        try {
+            const updated = await authJson('POST', '/api/vocabulary/review', {
+                user_vocabulary_id: row.id,
+                result,
+                review_type: 'flashcard',
+            });
+            window.analytics?.track('vocabulary_review_submitted', {
+                word: item.word, result,
+                previous_level: prevLevel,
+                new_level: updated && typeof updated.srs_level === 'number' ? updated.srs_level : prevLevel,
+            });
+        } catch (e) {
+            console.error('submitReview failed', e);
+            // Soft-fail: keep advancing through the queue. The user can repeat
+            // the word the next time it surfaces in /review/today.
+        }
+        reviewCompleted += 1;
+        reviewIdx += 1;
+        renderReviewCard();
+    }
+
+    function renderSummary() {
+        document.getElementById('review-stage').innerHTML = `
+            <div class="review-summary">
+                <div class="review-summary__title">Review complete</div>
+                <div class="review-summary__count">${reviewCompleted}</div>
+                <div class="review-summary__quote">The goal is not to know the word. The goal is to use it in speaking.</div>
+                <button class="review-close" id="review-close-btn">Close</button>
+            </div>`;
+        updateProgress();
+        document.getElementById('review-close-btn').addEventListener('click', async () => {
+            window.analytics?.track('vocabulary_review_completed', { words_reviewed: reviewCompleted });
+            hideModal();
+            // Refresh both the due count and My Vocabulary so the SRS state
+            // surfaces in the listing immediately.
+            await loadDueCount();
+            await loadMy();
+        });
+    }
+
+    // ── Boot — fire bank + my + due in parallel ───────────────────────
+    (async () => {
+        await Promise.allSettled([
+            loadBank(),
+            loadMy(),
+            loadDueCount(),
+        ]);
+    })();
+})();
+</script>
+</body>
+</html>
