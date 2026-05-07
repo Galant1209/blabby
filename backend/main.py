@@ -1578,6 +1578,11 @@ async def process(
             finally:
                 os.unlink(tmp_path)
             user_text = transcript.text
+            if not user_text or not user_text.strip():
+                raise HTTPException(
+                    status_code=422,
+                    detail="No speech detected. Please speak clearly and try again."
+                )
         # weakness_tag is now produced by Groq in the JSON response below;
         # here we only need the repeat-detection to feed the prompt.
         repeated_weak_words = detect_repeated_weak_words(user_text, weak_patterns)

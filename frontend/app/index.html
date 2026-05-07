@@ -2676,11 +2676,11 @@
                 }
             } catch (err) { /* fall through to no-token branch */ }
             if (!token) {
-                // Not signed in — bounce to /upgrade isn't right here either,
-                // since this is auth-failure not quota. Silently no-op; the
-                // Hub shouldn't have rendered a drill button without auth
-                // anyway (weakness-summary is auth-gated upstream).
+                // Not signed in — surface visible feedback rather than
+                // silent no-op so the user knows why the click did nothing.
                 console.warn('startDrillForTag: no session');
+                setRecorderStatus('請先登入才能開始訓練');
+                showPracticeHub();
                 return;
             }
             let body;
@@ -3097,6 +3097,8 @@
         let isRecording   = false;
 
         async function startRecording() {
+            if (isRecording) return;
+            recordBtn.disabled = true;
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
@@ -3113,6 +3115,7 @@
 
                 mediaRecorder.start();
                 isRecording = true;
+                recordBtn.disabled = false;
                 recordBtn.classList.add('recording');
                 recordBtn.setAttribute('aria-label', '停止錄音');
                 setRecorderStatus('錄音中...');
@@ -3129,6 +3132,7 @@
                 console.error('getUserMedia error:', err);
                 clearGentleLoading();
                 setRecorderStatus('無法取得麥克風權限');
+                recordBtn.disabled = false;
             }
         }
 
@@ -3177,13 +3181,27 @@
                     return;
                 }
 
-                const res = await fetch(`${API_BASE}/process`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`
-                    },
-                    body: form
-                });
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 60000);
+                let res;
+                try {
+                    res = await fetch(`${API_BASE}/process`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`
+                        },
+                        body: form,
+                        signal: controller.signal,
+                    });
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+                if (res.status === 401) {
+                    clearGentleLoading();
+                    setRecorderStatus('登入已過期，請重新整理頁面後再試。');
+                    recordBtn.disabled = false;
+                    return;
+                }
                 const data = await res.json();
                 clearGentleLoading();
                 if (data.error) {
@@ -3203,7 +3221,11 @@
             } catch (err) {
                 console.error('submit error:', err);
                 clearGentleLoading();
-                setRecorderStatus('網路錯誤，請稍後再試');
+                if (err && err.name === 'AbortError') {
+                    setRecorderStatus('請求逾時，請再試一次');
+                } else {
+                    setRecorderStatus('網路錯誤，請稍後再試');
+                }
                 if (isRetryingSameQuestion && lastFeedbackData) {
                     feedbackSection.classList.add('visible');
                 }

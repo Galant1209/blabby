@@ -430,14 +430,14 @@
           </div>
         </div>
         <div class="diagnosis-cta fade-in">
-          <button id="diagnosis-cta-primary" class="diagnosis-cta__primary">開始針對性訓練 →</button>
+          <button id="diagnosis-cta-primary" class="diagnosis-cta__primary">前往單字訓練 →</button>
           <button id="diagnosis-cta-secondary" class="diagnosis-cta__secondary"${isPro ? ' style="display:none"' : ''}>Upgrade to Pro →</button>
         </div>
       </div>`;
 
     document.getElementById('diagnosis-cta-primary').addEventListener('click', () => {
       track('diagnosis_drill_clicked');
-      window.location.href = '/';
+      window.location.href = '/vocabulary.html';
     });
     const upgradeBtn = document.getElementById('diagnosis-cta-secondary');
     if (upgradeBtn && !isPro) {
