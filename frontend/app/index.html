@@ -1349,6 +1349,39 @@
         @media (max-width: 768px) {
             .admin-layout { grid-template-columns: 1fr; }
         }
+        .weakness-hero {
+            padding: 20px 0 8px;
+        }
+        .weakness-hero__headline {
+            font-family: 'Libre Baskerville', serif;
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--ink);
+            margin: 0 0 6px;
+            line-height: 1.3;
+        }
+        .weakness-hero__diagnosis {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--gold);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin: 0 0 8px;
+        }
+        .weakness-hero__explanation {
+            font-size: 14px;
+            color: var(--muted);
+            font-style: italic;
+            margin: 0 0 16px;
+            line-height: 1.5;
+        }
+        .weakness-ledger {
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--muted);
+        }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -2054,67 +2087,85 @@
             const dist = Array.isArray(weaknessSummary.weakness_distribution)
                 ? weaknessSummary.weakness_distribution : [];
 
-            const header = document.createElement('div');
-            header.className = 'weakness-summary__header';
-            header.textContent = 'An Account of Thy Recent Practice';
-            container.appendChild(header);
+            // Sprint 3 — "Today's Weakness Block":
+            //   1-3. Hero (brutal headline + diagnosis + explanation) for top tag
+            //   4-6. CTA cluster (drill button + quota + upgrade nudge) for top tag
+            //   7.   Secondary ledger of full distribution (visually muted)
+            // Top-tag-only copy keeps the diagnostic punch — the rest of the
+            // distribution still appears in the ledger so the user sees the
+            // full picture without two competing focal points.
 
-            // 0-practice fallback (Old English, no list).
+            // 0-practice fallback (Old English, no hero).
             if (total === 0) {
                 const empty = document.createElement('div');
-                empty.style.cssText = 'font-style:italic;color:var(--muted);font-size:14px;line-height:1.6;';
+                empty.style.cssText = 'font-style:italic;color:var(--muted);font-size:14px;line-height:1.6;padding:20px 0;';
                 empty.textContent = 'Thou hast yet to begin thy practice. The page is blank, awaiting thy voice.';
                 container.appendChild(empty);
                 container.style.display = '';
-                try {
-                    if (window.analytics && typeof window.analytics.track === 'function') {
-                        window.analytics.track('weakness_summary_viewed', { total_practices: 0, top_tag: null });
-                    } else {
-                        console.log('[track]', 'weakness_summary_viewed', { total_practices: 0, top_tag: null });
-                    }
-                } catch (_) { /* never block UI on tracking */ }
+                try { window.analytics.track('weakness_block_viewed', { top_tag: null, total_practices: 0 }); } catch (_) {}
                 return;
             }
 
-            const sub = document.createElement('div');
-            sub.style.cssText = 'font-style:italic;color:var(--muted);font-size:13px;margin:-10px 0 14px;';
-            sub.textContent = `Drawn from thy last ${total} attempts.`;
-            container.appendChild(sub);
+            const top = dist[0];
+            const topTag = (top && top.tag) || null;
 
-            const list = document.createElement('ul');
-            list.className = 'weakness-summary__list';
-            // Drill targeting wired only for the two tags that have drill
-            // prompts — sprint 2B contract, do not relax without backend
-            // pairing.
+            // Copy banks. Headline has a fallback for unknown tags;
+            // diagnosis/explanation lines are simply omitted when no
+            // copy exists (rather than rendering an empty element).
+            const HEADLINES = {
+                weak_vocab:  'You sound fluent, but forgettable.',
+                lack_detail: 'Your answers are too general.',
+            };
+            const DIAGNOSES = {
+                weak_vocab:  'Today we fix your vocabulary range.',
+                lack_detail: 'Today we fix lack of detail.',
+            };
+            const EXPLANATIONS = {
+                weak_vocab:  'Thou repeatest the same words where a richer tongue would serve thee better.',
+                lack_detail: 'Thy answers lack the specific detail that examiners reward.',
+            };
+
+            const hero = document.createElement('div');
+            hero.className = 'weakness-hero';
+
+            const headline = document.createElement('div');
+            headline.className = 'weakness-hero__headline';
+            headline.textContent = HEADLINES[topTag] || 'A pattern hath emerged in thy practice.';
+            hero.appendChild(headline);
+
+            if (DIAGNOSES[topTag]) {
+                const dx = document.createElement('div');
+                dx.className = 'weakness-hero__diagnosis';
+                dx.textContent = DIAGNOSES[topTag];
+                hero.appendChild(dx);
+            }
+            if (EXPLANATIONS[topTag]) {
+                const ex = document.createElement('div');
+                ex.className = 'weakness-hero__explanation';
+                ex.textContent = EXPLANATIONS[topTag];
+                hero.appendChild(ex);
+            }
+            container.appendChild(hero);
+
+            // CTA cluster: drill button + quota label + upgrade nudge,
+            // attached to the top tag only. Behaviour preserved from the
+            // previous render; visually centered under the hero.
             const DRILLABLE_TAGS = new Set(['weak_vocab', 'lack_detail']);
-            for (const entry of dist) {
-                if (!entry || typeof entry !== 'object') continue;
-                const tag = entry.tag;
-                const label = entry.label || tag;
-                const count = entry.count;
-                if (!tag || typeof count !== 'number' || count <= 0) continue;
-
-                const li = document.createElement('li');
-                const key = document.createElement('span');
-                key.className = 'ledger-key';
-                key.textContent = `${label} — ${count} occasions`;
-
+            if (topTag) {
                 const btn = document.createElement('button');
                 btn.className = 'drill-button';
                 btn.textContent = '🎯 針對性訓練';
-                btn.dataset.drillTag = tag;
-                if (DRILLABLE_TAGS.has(tag)) {
+                btn.dataset.drillTag = topTag;
+                if (DRILLABLE_TAGS.has(topTag)) {
                     btn.addEventListener('click', () => {
-                        window.analytics.track('drill_button_clicked', { tag: tag });
-                        startDrillForTag(tag);
+                        window.analytics.track('drill_button_clicked', { tag: topTag });
+                        startDrillForTag(topTag);
                     });
                 } else {
                     btn.disabled = true;
                     btn.title = '目前無法針對此弱點訓練';
                 }
 
-                // Quota label: free users only. Pro users skip the label
-                // entirely (their drill is unlimited).
                 if (drillQuotaState && !drillQuotaState.is_pro) {
                     const quotaLabel = document.createElement('div');
                     quotaLabel.className = 'drill-quota-label';
@@ -2128,18 +2179,12 @@
                     wrap.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;';
                     wrap.appendChild(btn);
                     wrap.appendChild(quotaLabel);
-                    li.appendChild(key);
-                    li.appendChild(wrap);
-                    list.appendChild(li);
-                    continue;
+                    container.appendChild(wrap);
+                } else {
+                    container.appendChild(btn);
                 }
-                li.appendChild(key);
-                li.appendChild(btn);
-                list.appendChild(li);
             }
-            container.appendChild(list);
 
-            // Upgrade nudge: free users only. Same gating logic as before.
             if (drillQuotaState && !drillQuotaState.is_pro) {
                 const nudge = document.createElement('div');
                 nudge.className = 'weakness-summary__upgrade';
@@ -2152,15 +2197,27 @@
                 nudge.appendChild(link);
                 container.appendChild(nudge);
             }
+
+            // Secondary ledger: full distribution, muted. Plain rows, no
+            // buttons (the CTA path lives in the hero above).
+            const ledger = document.createElement('div');
+            ledger.className = 'weakness-ledger';
+            for (const entry of dist) {
+                if (!entry || typeof entry !== 'object') continue;
+                const tag = entry.tag;
+                const label = entry.label || tag;
+                const count = entry.count;
+                if (!tag || typeof count !== 'number' || count <= 0) continue;
+                const row = document.createElement('div');
+                row.textContent = `${label} — ${count} occasions`;
+                ledger.appendChild(row);
+            }
+            if (ledger.childElementCount > 0) container.appendChild(ledger);
+
             container.style.display = '';
 
             try {
-                const top_tag = (dist[0] && dist[0].tag) ? dist[0].tag : null;
-                if (window.analytics && typeof window.analytics.track === 'function') {
-                    window.analytics.track('weakness_summary_viewed', { total_practices: total, top_tag });
-                } else {
-                    console.log('[track]', 'weakness_summary_viewed', { total_practices: total, top_tag });
-                }
+                window.analytics.track('weakness_block_viewed', { top_tag: topTag, total_practices: total });
             } catch (_) { /* never block UI on tracking */ }
         }
 
