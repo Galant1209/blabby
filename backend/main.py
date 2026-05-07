@@ -1915,6 +1915,97 @@ async def process(
                     "threshold_passed":  drill_score_data.get("threshold_passed"),
                     "evidence":          drill_score_data.get("evidence"),
                 }
+
+        # Vocab suggestion enrichment — fail-open, never blocks the main
+        # response. Two optional fields:
+        #   suggested_vocab        : best match to the better_phrasing_en hint
+        #   vocab_recommendations  : 3 same-topic items when weakness=weak_vocab
+        try:
+            VOCAB_SUGGEST_STOPWORDS = {
+                "a", "an", "the", "to", "it", "is", "be",
+                "of", "in", "on", "at", "for", "and", "or", "but",
+            }
+            VOCAB_RETURN_COLS = "id, word, zh_meaning, common_chunk, topic"
+            suggested_vocab: Optional[dict] = None
+
+            if better_phrasing_en and supabase_admin is not None:
+                tokens = [
+                    t.strip(".,;:!?\"'()[]").lower()
+                    for t in better_phrasing_en.split()
+                ]
+                target_word = next(
+                    (t for t in tokens if t and t not in VOCAB_SUGGEST_STOPWORDS),
+                    None,
+                )
+                if target_word:
+                    try:
+                        # Exact match (case-insensitive via lowercased compare)
+                        exact = (
+                            supabase_admin.table("vocabulary_items")
+                            .select(VOCAB_RETURN_COLS)
+                            .ilike("word", target_word)
+                            .limit(1)
+                            .execute()
+                        )
+                        rows = exact.data or []
+                        if not rows:
+                            # Substring fallback
+                            fuzzy = (
+                                supabase_admin.table("vocabulary_items")
+                                .select(VOCAB_RETURN_COLS)
+                                .ilike("word", f"%{target_word}%")
+                                .limit(1)
+                                .execute()
+                            )
+                            rows = fuzzy.data or []
+                        if rows:
+                            suggested_vocab = {
+                                "id":           rows[0].get("id"),
+                                "word":         rows[0].get("word"),
+                                "zh_meaning":   rows[0].get("zh_meaning"),
+                                "common_chunk": rows[0].get("common_chunk"),
+                                "topic":        rows[0].get("topic"),
+                            }
+                    except Exception:
+                        logger.exception(
+                            "[/process] suggested_vocab lookup failed (omitted)",
+                            extra={"target_word": target_word},
+                        )
+
+            if suggested_vocab:
+                response_payload["suggested_vocab"] = suggested_vocab
+
+            # vocab_recommendations: only for weak_vocab with a topic. Random
+            # ordering done client-side (PostgREST has no order=random); the
+            # per-topic catalog is small (≤ tens of rows) so this is cheap.
+            practice_topic = (topic or "").strip()
+            if (
+                weakness_tag == "weak_vocab"
+                and practice_topic
+                and supabase_admin is not None
+            ):
+                try:
+                    pool_resp = (
+                        supabase_admin.table("vocabulary_items")
+                        .select("id, word, zh_meaning, common_chunk")
+                        .eq("topic", practice_topic.lower())
+                        .execute()
+                    )
+                    pool = list(pool_resp.data or [])
+                    if suggested_vocab and suggested_vocab.get("id"):
+                        sid = suggested_vocab["id"]
+                        pool = [r for r in pool if r.get("id") != sid]
+                    if pool:
+                        random.shuffle(pool)
+                        response_payload["vocab_recommendations"] = pool[:3]
+                except Exception:
+                    logger.exception(
+                        "[/process] vocab_recommendations lookup failed (omitted)",
+                        extra={"topic": practice_topic, "weakness_tag": weakness_tag},
+                    )
+        except Exception:
+            logger.exception("[/process] vocab enrichment outer guard tripped")
+
         return response_payload
     except HTTPException:
         raise
