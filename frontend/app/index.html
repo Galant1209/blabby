@@ -2702,7 +2702,7 @@
             }
             if (body && body.should_upgrade) {
                 window.analytics.track('upgrade_redirect', { source: 'drill_quota', tag: tag });
-                window.location.href = '/upgrade.html';
+                window.location.href = `/upgrade.html?source=drill_quota&weakness_tag=${encodeURIComponent(tag || '')}&practice_count=0`;
                 return;
             }
             currentDrillTag = tag;
@@ -2840,7 +2840,7 @@
                 const nudge = document.createElement('div');
                 nudge.className = 'weakness-summary__upgrade';
                 const link = document.createElement('a');
-                link.href = '/upgrade.html';
+                link.href = `/upgrade.html?source=weakness&weakness_tag=${encodeURIComponent(topTag || '')}`;
                 link.textContent = 'Upgrade to Pro →';
                 link.addEventListener('click', () => {
                     window.analytics.track('upgrade_nudge_clicked', { source: 'weakness_summary' });

@@ -302,6 +302,76 @@
             h1.hero__headline { font-size: 50px; }
             .price-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
+        /* === Context-aware paywall additions === */
+        .hero__context {
+            font-size: 14px;
+            color: var(--muted);
+            font-style: italic;
+            margin: 12px 0 0;
+            padding: 10px 14px;
+            border-left: 3px solid var(--gold);
+            background: rgba(201,168,76,0.06);
+            border-radius: 0 4px 4px 0;
+        }
+        .compare-table {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin: 16px 0;
+        }
+        .compare-col {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .compare-header {
+            padding: 10px 16px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 600;
+        }
+        .compare-header.free  { background: var(--border); color: var(--muted); }
+        .compare-header.pro   { background: #2D5016; color: var(--gold); }
+        .compare-list {
+            list-style: none;
+            margin: 0;
+            padding: 12px 16px;
+            font-size: 13px;
+            line-height: 1.8;
+            color: var(--ink);
+        }
+        .pro-list li::before {
+            content: '✓ ';
+            color: #2D5016;
+            font-weight: 600;
+        }
+        body { padding-bottom: 88px; }
+        #bottom-nav {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            height: 60px;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            display: flex; align-items: stretch;
+            z-index: 50;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .nav-tab {
+            flex: 1; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 3px;
+            text-decoration: none; color: var(--muted);
+            font-size: 10px; letter-spacing: 0.04em;
+            font-family: 'Inter Tight', 'Inter', -apple-system, sans-serif;
+            transition: color 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .nav-tab:hover, .nav-tab.active { color: #2D5016; }
+        .nav-tab.active svg { stroke: #2D5016; }
+        .nav-tab svg { transition: stroke 0.15s; }
+        @media (min-width: 681px) {
+            #bottom-nav { max-width: 680px; left: 50%; transform: translateX(-50%); }
+        }
     </style>
 </head>
 <body>
@@ -311,6 +381,7 @@
         <p class="hero__kicker">Blabby Pro</p>
         <h1 class="hero__headline">免費版讓你<br>再犯一次同樣的錯。</h1>
         <p class="hero__sub">Pro 會陪你練到你不再犯為止。</p>
+        <p id="practice-context" class="hero__context" style="display:none"></p>
     </header>
 
     <div class="rule" aria-hidden="true">
@@ -330,11 +401,27 @@
 
     <section class="section">
         <h2 class="section__title">Pro 為你做什麼</h2>
-        <ul class="prop-list">
-            <li>無限次針對性訓練，直到弱點被根除</li>
-            <li>顯示精確的語言證據——哪個字、哪個句子出賣了你</li>
-            <li>記錄每一次練習的進步，讓你親眼看見自己的成長</li>
-        </ul>
+        <div class="compare-table">
+            <div class="compare-col">
+                <div class="compare-header free">Free</div>
+                <ul class="compare-list">
+                    <li>找到你的弱點</li>
+                    <li>每週 3 次針對性訓練</li>
+                    <li>AI 診斷報告（基本版）</li>
+                    <li>每日練習題</li>
+                </ul>
+            </div>
+            <div class="compare-col">
+                <div class="compare-header pro">Pro</div>
+                <ul class="compare-list pro-list">
+                    <li>無限針對性訓練</li>
+                    <li>完整 Before/After 分析</li>
+                    <li>7 天弱點修正計畫</li>
+                    <li>進階 AI 診斷（含例句）</li>
+                    <li>優先新功能</li>
+                </ul>
+            </div>
+        </div>
     </section>
 
     <section id="intent-section" class="section">
@@ -371,6 +458,54 @@
 </main>
 
 <script>
+// ---- URL context — paywall is reached from drill quota / diagnosis /
+//      weakness summary / direct link. Headline + sub copy adapts.
+const params = new URLSearchParams(window.location.search);
+const source = params.get('source') || 'direct';
+const weaknessTag = params.get('weakness_tag') || '';
+const practiceCount = parseInt(params.get('practice_count') || '0', 10);
+
+const HEADLINES = {
+    drill_quota: {
+        kicker: '本週訓練次數已用完',
+        headline: '你找到問題了。\n現在你需要重複練習。',
+        sub: 'Pro 讓你無限次針對同一個弱點訓練，直到真正修好為止。',
+    },
+    diagnosis: {
+        kicker: 'AI 診斷完成',
+        headline: '免費版告訴你問題在哪。\nPro 陪你把問題修掉。',
+        sub: '診斷只是開始。修好才算數。',
+    },
+    weakness: {
+        kicker: weaknessTag === 'lack_detail' ? '弱點：缺少具體細節'
+              : weaknessTag === 'weak_vocab'  ? '弱點：用字太安全'
+              : '弱點已識別',
+        headline: '你的弱點已經找到。\n現在需要的是重複修正。',
+        sub: 'Pro 讓你針對這個弱點無限練習，不是讓你做更多題目。',
+    },
+    direct: {
+        kicker: 'Blabby Pro',
+        headline: '免費版讓你\n再犯一次同樣的錯。',
+        sub: 'Pro 會陪你練到你不再犯為止。',
+    },
+};
+const copy = HEADLINES[source] || HEADLINES.direct;
+(function applyHeroCopy() {
+    const k = document.querySelector('.hero__kicker');
+    const h = document.querySelector('.hero__headline');
+    const s = document.querySelector('.hero__sub');
+    if (k) k.textContent = copy.kicker;
+    if (h) h.innerHTML = copy.headline.replace('\n', '<br>');
+    if (s) s.textContent = copy.sub;
+    if (practiceCount > 0) {
+        const ctx = document.getElementById('practice-context');
+        if (ctx) {
+            ctx.textContent = `你已經練習了 ${practiceCount} 次。Blabby 看到了你的進步，也看到了卡點。`;
+            ctx.style.display = '';
+        }
+    }
+})();
+
 const form = document.getElementById('upgrade-form');
 const intentSection = document.getElementById('intent-section');
 const emailInput = document.getElementById('email');
@@ -389,8 +524,13 @@ function track(name, props = {}) {
     });
 }
 
-// 1. page viewed
+// 1. page viewed — also surface to PostHog with the URL context.
 track('upgrade_page_viewed');
+window.analytics?.track('paywall_viewed', {
+    source: source,
+    weakness_tag: weaknessTag,
+    practice_count: practiceCount,
+});
 
 // 2. price selected (fires on change)
 priceInputs.forEach(input => {
@@ -468,6 +608,11 @@ async function submitIntent(event) {
     submitBtn.disabled = true;
 
     track('intent_submitted', { price });
+    window.analytics?.track('paywall_cta_clicked', {
+        source: source,
+        weakness_tag: weaknessTag,
+        practice_count: practiceCount,
+    });
 
     const metadata = {
         opt_out: price === 0,
@@ -585,5 +730,36 @@ function showOptOutFinal() {
 
 form.addEventListener('submit', submitIntent);
 </script>
+
+<nav id="bottom-nav" aria-label="Main navigation">
+    <a href="/" class="nav-tab" data-page="home">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/>
+            <path d="M9 21V12h6v9"/>
+        </svg>
+        <span>練習</span>
+    </a>
+    <a href="/vocabulary.html" class="nav-tab" data-page="vocabulary">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        <span>單字</span>
+    </a>
+    <a href="/diagnosis.html" class="nav-tab" data-page="diagnosis">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 8v4l3 3"/>
+        </svg>
+        <span>診斷</span>
+    </a>
+    <a href="/" class="nav-tab" data-page="account">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span>帳號</span>
+    </a>
+</nav>
 </body>
 </html>
