@@ -417,6 +417,35 @@ header.brand .subtitle {
     border-radius: 0 6px 6px 0;
     line-height: 1.6;
 }
+
+/* Generate vocab button (Recommended for Today) */
+.generate-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: transparent;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-family: var(--serif, 'EB Garamond', serif);
+    font-size: 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 20px;
+    transition: 0.15s;
+    letter-spacing: 0.03em;
+}
+.generate-btn:hover { background: rgba(201,168,76,0.08); }
+.generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.generate-btn svg { animation: none; }
+.generate-btn.loading svg { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.generate-status {
+    font-size: 12px;
+    color: var(--muted);
+    font-style: italic;
+    margin-bottom: 12px;
+}
 </style>
 </head>
 <body>
@@ -465,6 +494,13 @@ header.brand .subtitle {
     <section id="recommended-section" class="fade-in">
         <h2 class="section-title">Recommended for Today</h2>
         <p class="section-subtitle">Start with words you can use in real IELTS answers.</p>
+        <button id="generate-vocab-btn" class="generate-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+            </svg>
+            根據我的弱點生成單字
+        </button>
+        <p id="generate-status" class="generate-status" style="display:none"></p>
         <div id="recommended-grid" class="vocab-grid">
             <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
             <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
@@ -680,13 +716,94 @@ header.brand .subtitle {
                 return;
             }
             grid.innerHTML = items.map(it => renderVocabCardHtml(it, { compact: true, source: 'recommended' })).join('');
-            grid.querySelectorAll('.vocab-card__add').forEach(btn => btn.addEventListener('click', onAddClick));
+            wireAddButtons(grid);
             window.analytics?.track('vocabulary_recommended_viewed', { count: items.length });
         } catch (e) {
             console.error('loadRecommended failed', e);
             grid.innerHTML = '<div class="error-state">Failed to load recommendations.</div>';
         }
     }
+
+    // Shared helper — attach onAddClick to every .vocab-card__add inside `container`.
+    function wireAddButtons(container) {
+        if (!container) return;
+        container.querySelectorAll('.vocab-card__add').forEach(btn =>
+            btn.addEventListener('click', onAddClick)
+        );
+    }
+
+    // Generate vocab on demand — POST /api/vocabulary/generate seeds the
+    // Recommended grid with topic+weakness-aligned items, falling back to
+    // LLM-generated rows if the catalog is thin.
+    async function generateVocab() {
+        const btn = document.getElementById('generate-vocab-btn');
+        const status = document.getElementById('generate-status');
+        if (!btn) return;
+
+        try {
+            const { data: { session } } = await sb.auth.getSession();
+            if (!session) {
+                if (status) { status.textContent = '請先登入。'; status.style.display = ''; }
+                return;
+            }
+
+            btn.disabled = true;
+            btn.classList.add('loading');
+            if (status) { status.textContent = '正在根據你的練習記錄生成單字...'; status.style.display = ''; }
+
+            const res = await fetch(`${API_BASE}/api/vocabulary/generate`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${session.access_token}` }
+            });
+
+            if (!res.ok) {
+                if (status) {
+                    status.textContent = res.status === 404
+                        ? '請先完成幾次練習，系統才能根據你的弱點生成單字。'
+                        : '生成失敗，請稍後再試。';
+                    status.style.display = '';
+                }
+                return;
+            }
+
+            const body = await res.json();
+            const items = body.items || [];
+            const generatedCount = body.generated_count || 0;
+
+            if (status) {
+                status.textContent = generatedCount > 0
+                    ? `已生成 ${generatedCount} 個新單字（主題：${body.topic || ''}，弱點：${body.weakness_tag || ''}）`
+                    : `已找到 ${items.length} 個相關單字`;
+                status.style.display = '';
+            }
+
+            const grid = document.getElementById('recommended-grid');
+            if (grid && items.length) {
+                grid.innerHTML = '';
+                items.forEach(item => {
+                    grid.insertAdjacentHTML(
+                        'beforeend',
+                        renderVocabCardHtml(item, { compact: true, source: 'generated' })
+                    );
+                });
+                wireAddButtons(grid);
+            }
+
+            window.analytics?.track('vocabulary_generated', {
+                weakness_tag: body.weakness_tag,
+                topic: body.topic,
+                generated_count: generatedCount,
+                total: items.length,
+            });
+        } catch (err) {
+            console.error('generateVocab failed', err);
+            if (status) { status.textContent = '生成失敗，請稍後再試。'; status.style.display = ''; }
+        } finally {
+            btn.disabled = false;
+            btn.classList.remove('loading');
+        }
+    }
+    document.getElementById('generate-vocab-btn')?.addEventListener('click', generateVocab);
 
     async function onAddClick(ev) {
         const btn = ev.currentTarget;
