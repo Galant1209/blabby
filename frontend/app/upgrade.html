@@ -38,6 +38,44 @@
             width: min(100% - 32px, 620px);
             margin: 0 auto;
             padding: 52px 0 72px;
+            position: relative;
+            z-index: 1;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.45;
+            z-index: 0;
+            background-image:
+                radial-gradient(circle at 22% 18%, rgba(196, 184, 154, 0.18) 0%, transparent 38%),
+                radial-gradient(circle at 78% 72%, rgba(201, 168, 76, 0.07) 0%, transparent 36%);
+        }
+        /* Watermark crest behind everything (mobile-first; full viewport) */
+        #bg-watermark {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.06;
+            color: var(--accent);
+        }
+        #bg-watermark svg {
+            width: min(80vw, 420px);
+            height: auto;
+        }
+        .bg-diamond {
+            position: fixed;
+            font-size: 8px;
+            color: var(--gold);
+            opacity: 0.3;
+            pointer-events: none;
+            z-index: 0;
+            font-family: 'Libre Baskerville', serif;
         }
 
         /* ── Hero ───────────────────────────────────────────── */
@@ -46,9 +84,9 @@
         .hero__kicker {
             margin: 0 0 22px;
             font-family: 'Libre Baskerville', serif;
-            font-style: italic;
+            font-style: normal;
             font-size: 14px;
-            letter-spacing: 0.18em;
+            letter-spacing: 0.12em;
             text-transform: uppercase;
             color: var(--gold);
         }
@@ -399,6 +437,25 @@
     </script>
 </head>
 <body>
+    <!-- Decorative layers (purely visual, pointer-events: none) -->
+    <div id="bg-watermark" aria-hidden="true">
+        <svg viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+            <g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
+                <path d="M100 18 L160 50 L160 120 Q160 180 100 220 Q40 180 40 120 L40 50 Z"/>
+                <path d="M100 50 L100 200"/>
+                <path d="M60 100 L140 100"/>
+                <circle cx="100" cy="100" r="22"/>
+                <path d="M100 78 L100 122 M78 100 L122 100"/>
+                <path d="M70 145 Q100 165 130 145"/>
+            </g>
+        </svg>
+    </div>
+    <span class="bg-diamond" style="top:8%;left:6%">◆</span>
+    <span class="bg-diamond" style="top:14%;right:9%">◆</span>
+    <span class="bg-diamond" style="top:42%;left:4%">◆</span>
+    <span class="bg-diamond" style="bottom:24%;right:5%">◆</span>
+    <span class="bg-diamond" style="bottom:8%;left:11%">◆</span>
+    <span class="bg-diamond" style="bottom:38%;left:48%">◆</span>
 <main>
 
     <header class="hero">
