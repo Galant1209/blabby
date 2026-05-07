@@ -136,6 +136,14 @@
             text-align: center;
             letter-spacing: 0.02em;
         }
+        .urgency-note {
+            font-size: 13px;
+            color: var(--gold);
+            font-style: italic;
+            text-align: center;
+            margin: 0 0 16px;
+            letter-spacing: 0.02em;
+        }
 
         /* ── Form ───────────────────────────────────────────── */
         form { display: grid; gap: 14px; }
@@ -409,9 +417,10 @@
     <section class="section">
         <h2 class="section__title">Pro 適合你，如果</h2>
         <ul class="prop-list">
-            <li>你練習過同一題，卻在考場上說出同樣的句子</li>
-            <li>你知道自己的英文能力不止於此</li>
-            <li>你想要被糾正，不只是被鼓勵</li>
+            <li>你已經練習超過 10 次，但分數沒有進步</li>
+            <li>你知道自己英文有問題，但不知道具體在哪</li>
+            <li>你想在 3 個月內從 Band 5.5 升到 Band 6.5</li>
+            <li>你需要有人告訴你「今天只修這一件事」</li>
         </ul>
     </section>
 
@@ -442,6 +451,7 @@
 
     <section id="intent-section" class="section">
         <p class="price-banner">每月 NT$259 &nbsp;·&nbsp; 隨時可以取消</p>
+        <p class="urgency-note">現在登記，Pro 上線時第一個知道。不會是很久以後的事。</p>
         <form id="upgrade-form" novalidate>
             <fieldset>
                 <legend>這個價格值得嗎？</legend>
@@ -466,7 +476,7 @@
             </fieldset>
 
             <input id="email" type="email" placeholder="電子郵件（必填）" autocomplete="email" required>
-            <button id="submit-btn" type="submit">預約我的位置</button>
+            <button id="submit-btn" type="submit">我要修好這個弱點 →</button>
             <div id="error" class="error" role="status" aria-live="polite"></div>
         </form>
     </section>
