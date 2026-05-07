@@ -1446,6 +1446,19 @@
             color: var(--muted);
             cursor: pointer;
         }
+        .drill-next__next {
+            width: 100%;
+            padding: 11px;
+            margin-top: 8px;
+            background: var(--forest, #2D5016);
+            color: var(--gold, #C9A84C);
+            font-family: 'Libre Baskerville', serif;
+            font-size: 13px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            letter-spacing: 0.03em;
+        }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -1641,6 +1654,7 @@
                   <div class="drill-next__label">明日任務</div>
                   <div id="drill-next-text" class="drill-next__text"></div>
                   <button id="drill-repeat-btn" class="drill-next__repeat">🔁 再練一次</button>
+                  <button id="drill-next-step-btn" class="drill-next__next">繼續練習 →</button>
                 </div>
                 <div class="feedback-item feedback-item-primary">
                     <div class="feedback-label">這一題真正的問題</div>
@@ -2806,6 +2820,7 @@
         // The repeat button reads currentDrillTag at click-time, so we
         // wire the listener once and let it pick up the latest tag.
         let drillRepeatWired = false;
+        let drillNextStepWired = false;
         const NEXT_ACTION_COPY = {
             weak_vocab: {
                 pass: 'Tomorrow, answer the same question again. This time, replace at least 3 common words with more specific vocabulary. Record yourself and notice the difference.',
@@ -2837,6 +2852,22 @@
                     if (currentDrillTag) startDrillForTag(currentDrillTag);
                 });
                 drillRepeatWired = true;
+            }
+
+            // Next-step button — same one-time-attach pattern; reads
+            // currentDrillTag at click-time, then exits drill mode and
+            // returns to the Hub.
+            const nextStepBtn = document.getElementById('drill-next-step-btn');
+            if (nextStepBtn && !drillNextStepWired) {
+                nextStepBtn.addEventListener('click', () => {
+                    try {
+                        window.analytics.track('next_step_clicked', { tag: currentDrillTag });
+                    } catch (_) { /* never block click on tracking */ }
+                    currentDrillTag = null;
+                    setDrillModeIndicator(null);
+                    showPracticeHub();
+                });
+                drillNextStepWired = true;
             }
 
             try {
