@@ -2904,6 +2904,189 @@ async def vocabulary_review_submit(
         raise HTTPException(status_code=503, detail="Failed to submit review")
 
 
+@app.post("/api/vocabulary/generate")
+@limiter.limit("6/minute")
+async def vocabulary_generate(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    DB-first vocab fetch with LLM fallback.
+      1. Pull caller's top weakness_tag + most-recent topic from practice_records.
+      2. Query vocabulary_items by topic.
+      3. If < 10 hits: ask Groq for the rest, persist, return combined set.
+      4. Returns {items, generated_count, weakness_tag, topic}.
+
+    Fail-open on Groq: returns whatever we have from DB with generated_count=0
+    so the user still sees something useful when the LLM is down.
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    # 1. Top weakness_tag + most recent topic from practice_records.
+    try:
+        recs_resp = (
+            supabase_admin.table("practice_records")
+            .select("weakness_tag, topic, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+    except Exception:
+        logger.exception("vocabulary_generate practice_records query failed")
+        raise HTTPException(status_code=503, detail="Failed to load practice history")
+
+    rows = recs_resp.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="No practice records yet — practice a few times first")
+
+    tag_counts: Counter = Counter(
+        (r.get("weakness_tag") or "").strip()
+        for r in rows
+        if (r.get("weakness_tag") or "").strip()
+    )
+    weakness_tag = tag_counts.most_common(1)[0][0] if tag_counts else ""
+    topic = ""
+    for r in rows:
+        t = (r.get("topic") or "").strip()
+        if t:
+            topic = t
+            break
+
+    if not topic:
+        raise HTTPException(status_code=404, detail="No topic in practice records — practice a few times first")
+
+    # 2. DB lookup by topic. Topic in vocab catalog is lowercase short keys
+    # (people/place/work/...); practice topic is human text (Free Time / Hometown).
+    # Try lowercase exact first, then broader fallback.
+    norm_topic = topic.lower()
+    db_items: list[dict] = []
+    try:
+        db_resp = (
+            supabase_admin.table("vocabulary_items")
+            .select(_vocab_item_select())
+            .eq("topic", norm_topic)
+            .limit(10)
+            .execute()
+        )
+        db_items = db_resp.data or []
+    except Exception:
+        logger.exception("vocabulary_generate db lookup failed")
+        # Continue with empty db_items; LLM may still succeed.
+
+    if len(db_items) >= 10:
+        return {
+            "items": db_items[:10],
+            "generated_count": 0,
+            "weakness_tag": weakness_tag,
+            "topic": topic,
+        }
+
+    needed = 10 - len(db_items)
+    existing_words = [it.get("word") for it in db_items if it.get("word")]
+
+    # 3. Groq generation. Fail-open: any error returns DB items unchanged.
+    system_prompt = (
+        "You are an IELTS Speaking vocabulary expert. "
+        "Generate vocabulary items as JSON only. No explanation."
+    )
+    user_prompt = f"""Generate {needed} IELTS Speaking vocabulary items for topic "{norm_topic}" targeting weakness "{weakness_tag}".
+
+Return a JSON array. Each item must have exactly these fields:
+- word (string)
+- part_of_speech (string: adjective/verb/noun/adverb/phrase)
+- zh_meaning (string, Traditional Chinese)
+- difficulty_level (string: B1/B2/C1)
+- ielts_band_level (string: 5.5/6.0/6.5/7.0)
+- topic (string, use: {norm_topic})
+- common_chunk (string, 3-6 words)
+- speaking_sentence (string, natural IELTS Speaking sentence, no apostrophes)
+- usage_note_zh (string, Traditional Chinese, when/how to use this word)
+- tags (array of strings, include "{weakness_tag}")
+
+Rules:
+- Words must be genuinely useful for IELTS Speaking Band 5.5-7.0
+- speaking_sentence must be a complete natural sentence without apostrophes
+- Do not repeat words already in this list: {existing_words}
+- Return ONLY the JSON array, no markdown, no explanation
+"""
+
+    generated_items: list[dict] = []
+    try:
+        completion = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.4,
+            max_tokens=2000,
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+        # LLM sometimes wraps JSON in ```json ... ```. Strip fences.
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list):
+            raise ValueError("LLM did not return a JSON array")
+
+        existing_lower = {(w or "").lower() for w in existing_words}
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            word = (item.get("word") or "").strip()
+            zh = (item.get("zh_meaning") or "").strip()
+            chunk = (item.get("common_chunk") or "").strip()
+            if not (word and zh and chunk):
+                continue
+            if word.lower() in existing_lower:
+                continue
+            existing_lower.add(word.lower())
+            tags = item.get("tags")
+            if not isinstance(tags, list):
+                tags = [weakness_tag] if weakness_tag else []
+            elif weakness_tag and weakness_tag not in tags:
+                tags = [*tags, weakness_tag]
+            row = {
+                "word": word,
+                "part_of_speech": (item.get("part_of_speech") or "").strip() or None,
+                "zh_meaning": zh,
+                "difficulty_level": (item.get("difficulty_level") or "").strip() or None,
+                "ielts_band_level": (item.get("ielts_band_level") or "").strip() or None,
+                "topic": (item.get("topic") or norm_topic).strip().lower() or norm_topic,
+                "tags": tags,
+                "common_chunk": chunk,
+                "speaking_sentence": (item.get("speaking_sentence") or "").strip() or None,
+                "usage_note_zh": (item.get("usage_note_zh") or "").strip() or None,
+            }
+            generated_items.append(row)
+            if len(generated_items) >= needed:
+                break
+    except Exception:
+        logger.exception("vocabulary_generate Groq generation failed (fail-open)")
+        # Soft-fail: return DB items only.
+
+    inserted_items: list[dict] = []
+    if generated_items:
+        try:
+            ins = supabase_admin.table("vocabulary_items").insert(generated_items).execute()
+            inserted_items = ins.data or []
+        except Exception:
+            logger.exception("vocabulary_generate insert failed (using in-memory items)")
+            inserted_items = generated_items  # surface to client even if persist failed
+
+    combined = (db_items + inserted_items)[:10]
+    return {
+        "items": combined,
+        "generated_count": len(inserted_items),
+        "weakness_tag": weakness_tag,
+        "topic": topic,
+    }
+
+
 @app.get("/admin/recent")
 @limiter.limit("30/minute")
 async def admin_recent(
