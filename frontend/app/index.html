@@ -1382,6 +1382,40 @@
             font-size: 12px;
             color: var(--muted);
         }
+        #drill-before-after {
+            margin-top: 16px;
+            padding: 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .drill-ba__label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        .drill-ba__text {
+            font-size: 14px;
+            color: var(--ink);
+            line-height: 1.5;
+            padding: 10px 12px;
+            background: #f5f0e8;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        .drill-ba__text--after {
+            background: #edf4e8;
+            color: #2a4a1a;
+            font-weight: 500;
+        }
+        .drill-ba__arrow {
+            text-align: center;
+            font-size: 18px;
+            color: var(--gold);
+            margin: 4px 0;
+        }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -1565,6 +1599,13 @@
                         <div id="drill-evidence-feedback" class="drill-evidence-feedback"></div>
                     </div>
                     <div id="drill-evidence-list" class="drill-evidence-list"></div>
+                </div>
+                <div id="drill-before-after" style="display:none">
+                  <div class="drill-ba__label">Before</div>
+                  <div id="drill-ba-before" class="drill-ba__text"></div>
+                  <div class="drill-ba__arrow">↓</div>
+                  <div class="drill-ba__label">After (IELTS-ready)</div>
+                  <div id="drill-ba-after" class="drill-ba__text drill-ba__text--after"></div>
                 </div>
                 <div class="feedback-item feedback-item-primary">
                     <div class="feedback-label">這一題真正的問題</div>
@@ -2676,6 +2717,58 @@
             drillEvidenceItem.hidden = false;
         }
 
+        // Sprint 3 — Before/After block for drill results.
+        // Adapts to the actual flat evidence shape (safe_words_found /
+        // b2_plus_found / *_dimensions_found arrays). Hides if there's
+        // no useful diff to show. Also fires drill_completed analytics.
+        function renderDrillBeforeAfter(data) {
+            const baBlock  = document.getElementById('drill-before-after');
+            const beforeEl = document.getElementById('drill-ba-before');
+            const afterEl  = document.getElementById('drill-ba-after');
+            if (!baBlock || !beforeEl || !afterEl) return;
+            baBlock.style.display = 'none';
+
+            const drillScore = data && typeof data.drill_score === 'object' ? data.drill_score : null;
+            const evidence = drillScore && typeof drillScore.evidence === 'object' && !Array.isArray(drillScore.evidence)
+                ? drillScore.evidence : null;
+            if (!drillScore || !evidence) return;
+
+            // weak_vocab path: safe_words_found = Before, b2_plus_found = After
+            const safeWords = Array.isArray(evidence.safe_words_found) ? evidence.safe_words_found.filter(Boolean) : [];
+            const b2Words   = Array.isArray(evidence.b2_plus_found)    ? evidence.b2_plus_found.filter(Boolean)    : [];
+            if (safeWords.length > 0 || b2Words.length > 0) {
+                beforeEl.textContent = safeWords.length > 0 ? safeWords.join(', ') : '—';
+                afterEl.textContent  = b2Words.length   > 0 ? b2Words.join(', ')   : '—';
+                baBlock.style.display = '';
+            } else {
+                // lack_detail path: list dimensions whose array came back empty
+                const DIMENSIONS = [
+                    ['time',   'time_dimensions_found'],
+                    ['place',  'place_dimensions_found'],
+                    ['number', 'number_dimensions_found'],
+                    ['sense',  'sense_dimensions_found'],
+                    ['person', 'person_dimensions_found'],
+                ];
+                const isDetailEvidence = DIMENSIONS.some(([, key]) => key in evidence);
+                if (!isDetailEvidence) return;
+                const missing = DIMENSIONS
+                    .filter(([, key]) => !Array.isArray(evidence[key]) || evidence[key].length === 0)
+                    .map(([name]) => name);
+                if (missing.length === 0) return;
+                beforeEl.textContent = `Missing: ${missing.join(', ')}`;
+                afterEl.textContent  = `Include: ${missing.join(', ')} in your answer`;
+                baBlock.style.display = '';
+            }
+
+            try {
+                window.analytics.track('drill_completed', {
+                    tag: currentDrillTag,
+                    score: drillScore.score,
+                    passed: !!drillScore.threshold_passed,
+                });
+            } catch (_) { /* never block UI on tracking */ }
+        }
+
         function resetForRetrySameQuestion() {
             isRetryingSameQuestion = true;
             feedbackSection.classList.remove('visible');
@@ -2697,6 +2790,7 @@
             // 顯示用戶說的話
             document.getElementById('user-transcript').textContent = data.text || '';
             renderDrillEvidence(data);
+            renderDrillBeforeAfter(data);
 
             // 批改回饋
             const fullResponse = data.coach_response || '';
