@@ -2965,8 +2965,44 @@ async def vocabulary_generate(
 
     # 2. DB lookup by topic. Topic in vocab catalog is lowercase short keys
     # (people/place/work/...); practice topic is human text (Free Time / Hometown).
-    # Try lowercase exact first, then broader fallback.
-    norm_topic = topic.lower()
+    # Map common practice topics to their catalog equivalents; unknown topics
+    # fall through to lowercased raw value (still tried, may return zero rows
+    # → LLM fallback path takes over).
+    TOPIC_MAP = {
+        'free time':   'hobby',
+        'hobbies':     'hobby',
+        'hobby':       'hobby',
+        'shopping':    'shopping',
+        'travel':      'travel',
+        'travelling':  'travel',
+        'work':        'work',
+        'job':         'work',
+        'study':       'study',
+        'education':   'study',
+        'technology':  'technology',
+        'tech':        'technology',
+        'people':      'people',
+        'family':      'people',
+        'friends':     'people',
+        'place':       'place',
+        'hometown':    'place',
+        'city':        'place',
+        'environment': 'place',
+        'experience':  'experience',
+        'memory':      'experience',
+        'event':       'experience',
+        'emotion':     'emotion',
+        'feelings':    'emotion',
+        'health':      'emotion',
+        'nature':      'place',
+        'sport':       'hobby',
+        'sports':      'hobby',
+        'music':       'hobby',
+        'food':        'experience',
+        'cooking':     'experience',
+    }
+    raw_topic = topic.lower().strip()
+    norm_topic = TOPIC_MAP.get(raw_topic, raw_topic)
     db_items: list[dict] = []
     try:
         db_resp = (
@@ -2987,6 +3023,7 @@ async def vocabulary_generate(
             "generated_count": 0,
             "weakness_tag": weakness_tag,
             "topic": topic,
+            "mapped_topic": norm_topic,
         }
 
     needed = 10 - len(db_items)
@@ -3089,6 +3126,7 @@ Rules:
         "generated_count": len(inserted_items),
         "weakness_tag": weakness_tag,
         "topic": topic,
+        "mapped_topic": norm_topic,
     }
 
 
