@@ -1843,6 +1843,67 @@
         @media (min-width: 1024px) {
             .vocab-grid { grid-template-columns: repeat(3, 1fr); }
         }
+
+        /* Vocab suggestions appended to practice result */
+        #vocab-suggestions {
+            margin-top: 16px;
+            padding: 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .vocab-suggestions__label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--gold);
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+        .vocab-suggestions__list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .vocab-suggestion-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px dotted var(--border);
+        }
+        .vocab-suggestion-item:last-child { border-bottom: none; }
+        .vocab-suggestion-word {
+            font-family: var(--serif, 'EB Garamond', serif);
+            font-size: 17px;
+            color: var(--ink);
+        }
+        .vocab-suggestion-zh {
+            font-size: 12px;
+            color: #8B6914;
+            margin-top: 2px;
+        }
+        .vocab-suggestion-chunk {
+            font-size: 12px;
+            color: var(--muted);
+            font-style: italic;
+            margin-top: 2px;
+        }
+        .vocab-suggestion-add {
+            flex-shrink: 0;
+            padding: 5px 12px;
+            font-size: 11px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--muted);
+            border-radius: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: 0.15s;
+        }
+        .vocab-suggestion-add:hover { border-color: var(--green); color: var(--green); }
+        .vocab-suggestion-add.added { color: var(--muted); border-color: var(--border); cursor: default; opacity: 0.6; }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -2077,6 +2138,10 @@
                   <div id="drill-next-text" class="drill-next__text"></div>
                   <button id="drill-repeat-btn" class="drill-next__repeat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-2px;margin-right:4px"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>再練一次</button>
                   <button id="drill-next-step-btn" class="drill-next__next">繼續練習 →</button>
+                </div>
+                <div id="vocab-suggestions" style="display:none">
+                  <div class="vocab-suggestions__label">今日推薦單字</div>
+                  <div id="vocab-suggestions-list" class="vocab-suggestions__list"></div>
                 </div>
                 <div class="feedback-item feedback-item-primary">
                     <div class="feedback-label">這一題真正的問題</div>
@@ -3001,6 +3066,9 @@
                 recordBtn.setAttribute('aria-label', '停止錄音');
                 setRecorderStatus('錄音中...');
                 feedbackSection.classList.remove('visible');
+                // Reset drill/vocab result blocks so a new recording starts clean.
+                const vs = document.getElementById('vocab-suggestions');
+                if (vs) vs.style.display = 'none';
             } catch (err) {
                 console.error('getUserMedia error:', err);
                 clearGentleLoading();
@@ -3324,6 +3392,94 @@
             } catch (_) { /* never block UI on tracking */ }
         }
 
+        // Render vocab suggestions surfaced by /process — mixes
+        // suggested_vocab (better_phrasing match, highlighted) with
+        // vocab_recommendations (topic-based) into one list. Each row
+        // gets a one-shot "+ 加入" button that POSTs to /api/vocabulary/my.
+        async function renderVocabSuggestions(data) {
+            const block = document.getElementById('vocab-suggestions');
+            const list  = document.getElementById('vocab-suggestions-list');
+            if (!block || !list) return;
+
+            const items = [];
+            if (data && data.suggested_vocab && data.suggested_vocab.word) {
+                items.push({ ...data.suggested_vocab, highlight: true });
+            }
+            if (data && Array.isArray(data.vocab_recommendations)) {
+                for (const r of data.vocab_recommendations) {
+                    if (r && r.word && !items.find(i => i.id === r.id)) {
+                        items.push(r);
+                    }
+                }
+            }
+
+            if (!items.length) {
+                block.style.display = 'none';
+                return;
+            }
+
+            list.innerHTML = '';
+            for (const item of items) {
+                const row = document.createElement('div');
+                row.className = 'vocab-suggestion-item';
+
+                const info = document.createElement('div');
+                info.style.flex = '1';
+
+                const wordEl = document.createElement('div');
+                wordEl.className = 'vocab-suggestion-word';
+                wordEl.textContent = item.word;
+                if (item.highlight) wordEl.style.color = 'var(--green)';
+
+                info.appendChild(wordEl);
+                if (item.zh_meaning) {
+                    const zhEl = document.createElement('div');
+                    zhEl.className = 'vocab-suggestion-zh';
+                    zhEl.textContent = item.zh_meaning;
+                    info.appendChild(zhEl);
+                }
+                if (item.common_chunk) {
+                    const chunkEl = document.createElement('div');
+                    chunkEl.className = 'vocab-suggestion-chunk';
+                    chunkEl.textContent = item.common_chunk;
+                    info.appendChild(chunkEl);
+                }
+
+                const addBtn = document.createElement('button');
+                addBtn.className = 'vocab-suggestion-add';
+                addBtn.textContent = '+ 加入';
+                addBtn.addEventListener('click', async () => {
+                    try {
+                        const { data: { session } } = await sb.auth.getSession();
+                        if (!session) return;
+                        const res = await fetch(`${API_BASE}/api/vocabulary/my`, {
+                            method: 'POST',
+                            headers: {
+                                Authorization: `Bearer ${session.access_token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ vocabulary_item_id: item.id, source: 'practice_suggestion' })
+                        });
+                        if (res.ok) {
+                            addBtn.textContent = '✓ 已加入';
+                            addBtn.classList.add('added');
+                            addBtn.disabled = true;
+                            window.analytics?.track('vocabulary_item_added', {
+                                word: item.word,
+                                topic: item.topic,
+                                source: 'practice_suggestion'
+                            });
+                        }
+                    } catch (_) { /* never block on add failure */ }
+                });
+
+                row.appendChild(info);
+                row.appendChild(addBtn);
+                list.appendChild(row);
+            }
+            block.style.display = '';
+        }
+
         function resetForRetrySameQuestion() {
             isRetryingSameQuestion = true;
             feedbackSection.classList.remove('visible');
@@ -3354,6 +3510,7 @@
                 const nextBlock = document.getElementById('drill-next-action');
                 if (nextBlock) nextBlock.style.display = 'none';
             }
+            renderVocabSuggestions(data);
 
             // 批改回饋
             const fullResponse = data.coach_response || '';
