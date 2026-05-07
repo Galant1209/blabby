@@ -48,11 +48,6 @@ html, body {
     -webkit-font-smoothing: antialiased; min-height: 100vh;
 }
 .page { max-width: 680px; margin-left: auto; margin-right: auto; width: 100%; padding: 24px 18px 88px; }
-.back-link {
-    display: inline-block; font-family: var(--sans); font-size: 13px;
-    color: var(--muted); text-decoration: none; margin-bottom: 8px;
-}
-.back-link:hover { color: var(--green); }
 header.brand { text-align: center; padding: 8px 0 24px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
 header.brand .crown {
     width: 42px; height: 42px; margin: 0 auto 8px; display: block;
@@ -375,11 +370,24 @@ header.brand .subtitle {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
 }
+
+/* === RWD audit additions === */
+@media (max-width: 390px) {
+    body { font-size: 14px; }
+    .wordmark, h1 { font-size: 36px !important; }
+    .practice-hub-title, .section-title { font-size: 18px; }
+    .vocab-card__word { font-size: 18px; }
+}
+@media (min-width: 681px) {
+    #bottom-nav { max-width: 680px; left: 50%; transform: translateX(-50%); }
+}
+@media (min-width: 1024px) {
+    .vocab-grid { grid-template-columns: repeat(3, 1fr); }
+}
 </style>
 </head>
 <body>
 <main class="page">
-    <a href="/" class="back-link">← Back to Practice</a>
     <header class="brand">
         <svg class="crown" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <circle cx="32" cy="32" r="30" fill="none" stroke="#C9A84C" stroke-width="1.5"/>

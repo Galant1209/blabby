@@ -1707,29 +1707,17 @@
         }
         .skill-entry-list-v3 .skill-entry-open .skill-entry-status { color: var(--green); }
 
-        /* Weakness block — gold left border + ::before badge + ::after quill */
+        /* Weakness block — gold left border + ::after quill (lightbulb
+           badge removed; ℞ rx-mark inside the rendered hero is the
+           single icon now). */
         #weakness-summary-block {
             position: relative;
             background: var(--surface);
             border: 1px solid var(--border);
             border-left: 4px solid var(--gold);
             border-radius: 0 12px 12px 0;
-            padding: 24px 18px 26px 60px;
+            padding: 24px 18px 26px;
             overflow: hidden;
-        }
-        #weakness-summary-block::before {
-            content: '';
-            position: absolute;
-            top: 22px;
-            left: 14px;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background-color: var(--green);
-            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23C9A84C' stroke-width='1.5'><line x1='9' y1='18' x2='15' y2='18'/><line x1='10' y1='22' x2='14' y2='22'/><path d='M12 2a7 7 0 0 1 7 7c0 3-1.8 5.4-4.5 6.5V17h-5v-1.5C6.8 14.4 5 12 5 9a7 7 0 0 1 7-7z'/></svg>");
-            background-repeat: no-repeat;
-            background-position: center;
-            pointer-events: none;
         }
         #weakness-summary-block::after {
             content: '✦';
@@ -1840,6 +1828,20 @@
         .fade-in.visible {
             opacity: 1;
             transform: translateY(0);
+        }
+
+        /* === RWD audit additions === */
+        @media (max-width: 390px) {
+            body { font-size: 14px; }
+            .wordmark, h1 { font-size: 36px !important; }
+            .practice-hub-title, .section-title { font-size: 18px; }
+            .vocab-card__word { font-size: 18px; }
+        }
+        @media (min-width: 681px) {
+            #bottom-nav { max-width: 680px; left: 50%; transform: translateX(-50%); }
+        }
+        @media (min-width: 1024px) {
+            .vocab-grid { grid-template-columns: repeat(3, 1fr); }
         }
     </style>
     <!-- PostHog Analytics -->
