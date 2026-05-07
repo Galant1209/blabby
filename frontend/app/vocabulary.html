@@ -47,7 +47,7 @@ html, body {
     font-family: var(--sans); font-size: 16px; line-height: 1.55;
     -webkit-font-smoothing: antialiased; min-height: 100vh;
 }
-.page { max-width: 520px; margin: 0 auto; padding: 24px 18px 60px; }
+.page { max-width: 520px; margin: 0 auto; padding: 24px 18px 88px; }
 .back-link {
     display: inline-block; font-family: var(--sans); font-size: 13px;
     color: var(--muted); text-decoration: none; margin-bottom: 8px;
@@ -295,6 +295,28 @@ header.brand .subtitle {
     font-family: var(--sans); font-size: 13px;
 }
 .review-close:hover { color: var(--green); border-color: var(--green); }
+/* Bottom tab nav — fixed across all pages */
+#bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 60px;
+    background: var(--surface, #FDFAF4);
+    border-top: 1px solid var(--border, #C4B89A);
+    display: flex; align-items: stretch;
+    z-index: 50;
+    padding-bottom: env(safe-area-inset-bottom);
+}
+.nav-tab {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 3px;
+    text-decoration: none; color: var(--muted, #8A7E6E);
+    font-size: 10px; letter-spacing: 0.04em;
+    font-family: var(--sans, 'Inter Tight', sans-serif);
+    transition: color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+}
+.nav-tab:hover, .nav-tab.active { color: var(--green, #2D5016); }
+.nav-tab.active svg { stroke: var(--green, #2D5016); }
+.nav-tab svg { transition: stroke 0.15s; }
 </style>
 </head>
 <body>
@@ -824,6 +846,51 @@ header.brand .subtitle {
             loadRecommended(),
         ]);
     })();
+})();
+</script>
+
+<nav id="bottom-nav" aria-label="Main navigation">
+    <a href="/" class="nav-tab" data-page="home">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/>
+            <path d="M9 21V12h6v9"/>
+        </svg>
+        <span>練習</span>
+    </a>
+    <a href="/vocabulary.html" class="nav-tab" data-page="vocabulary">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        <span>單字</span>
+    </a>
+    <a href="/diagnosis.html" class="nav-tab" data-page="diagnosis">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 8v4l3 3"/>
+        </svg>
+        <span>診斷</span>
+    </a>
+    <a href="/" class="nav-tab" data-page="account" id="nav-account">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span>帳號</span>
+    </a>
+</nav>
+<script>
+(function() {
+    const path = window.location.pathname;
+    const map = {
+        '/': 'home',
+        '/index.html': 'home',
+        '/vocabulary.html': 'vocabulary',
+        '/diagnosis.html': 'diagnosis',
+    };
+    const current = map[path] || 'home';
+    const tab = document.querySelector(`.nav-tab[data-page="${current}"]`);
+    if (tab) tab.classList.add('active');
 })();
 </script>
 </body>
