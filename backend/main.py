@@ -3078,7 +3078,7 @@ def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
     # When the gate ships, prepend `.limit(10)` for !is_pro.
     response = (
         supabase_admin.table("practice_records")
-        .select("question, user_transcript, coach_response, created_at")
+        .select("question, user_transcript, coach_response, weakness_tag, created_at")
         .eq("user_id", user_id)
         .order("created_at", desc=False)
         .execute()
@@ -3099,7 +3099,30 @@ def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
             ),
         }
 
+    # Pull one real sentence from the user's practice to ground the
+    # diagnosis. Logic: top weakness tag by count → most recent record
+    # matching that tag with a non-empty transcript → first 150 chars.
+    # If none qualifies, omit the line entirely (no hallucination).
+    example_sentence: Optional[str] = None
+    tag_counts: Counter = Counter(
+        (r.get("weakness_tag") or "").strip()
+        for r in records
+        if (r.get("weakness_tag") or "").strip()
+    )
+    if tag_counts:
+        top_tag = tag_counts.most_common(1)[0][0]
+        for r in reversed(records):  # records sorted ASC → reverse for newest-first
+            if (r.get("weakness_tag") or "").strip() != top_tag:
+                continue
+            transcript = (r.get("user_transcript") or "").strip()
+            if not transcript:
+                continue
+            example_sentence = transcript[:150]
+            break
+
     system_prompt, user_prompt = build_diagnosis_prompt(records)
+    if example_sentence:
+        user_prompt += f"\n\nReal example from this user's practice: \"{example_sentence}\""
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
