@@ -44,10 +44,10 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
     background: var(--bg); color: var(--ink);
-    font-family: var(--sans); font-size: 16px; line-height: 1.55;
+    font-family: var(--sans); font-size: 16px; line-height: 1.7;
     -webkit-font-smoothing: antialiased; min-height: 100vh;
 }
-.page { max-width: 520px; margin: 0 auto; padding: 24px 18px 88px; }
+.page { max-width: 680px; margin-left: auto; margin-right: auto; width: 100%; padding: 24px 18px 88px; }
 .back-link {
     display: inline-block; font-family: var(--sans); font-size: 13px;
     color: var(--muted); text-decoration: none; margin-bottom: 8px;
@@ -317,6 +317,64 @@ header.brand .subtitle {
 .nav-tab:hover, .nav-tab.active { color: var(--green, #2D5016); }
 .nav-tab.active svg { stroke: var(--green, #2D5016); }
 .nav-tab svg { transition: stroke 0.15s; }
+
+/* === v3 quality pass — hover lift, active press, fade-in, skeletons === */
+.card,
+.vocab-card {
+    transition: box-shadow 0.15s, transform 0.15s;
+}
+.card:hover,
+.vocab-card:hover {
+    box-shadow: 0 4px 16px rgba(44,36,22,0.09);
+    transform: translateY(-1px);
+}
+.btn-primary,
+.vocab-card__add,
+.review-btn,
+.review-close {
+    transition: transform 0.1s, opacity 0.1s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+.btn-primary:active,
+.vocab-card__add:active,
+.review-btn:active,
+.review-close:active {
+    transform: scale(0.97);
+    opacity: 0.88;
+}
+.card p { margin-bottom: 0.85em; }
+.card p:last-child { margin-bottom: 0; }
+
+.fade-in {
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+}
+.fade-in.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.skeleton-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+}
+.skeleton-line {
+    height: 12px;
+    background: linear-gradient(90deg, #ede8df 25%, #f5f0e8 50%, #ede8df 75%);
+    background-size: 200% 100%;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    animation: shimmer 1.4s infinite;
+}
+.skeleton-line.wide { width: 70%; }
+.skeleton-line.medium { width: 50%; }
+.skeleton-line.narrow { width: 35%; }
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
 </style>
 </head>
 <body>
@@ -337,7 +395,7 @@ header.brand .subtitle {
     </header>
 
     <!-- Section 1: Today's Review -->
-    <section id="today-review">
+    <section id="today-review" class="fade-in">
         <div class="card">
             <div class="card-headline">Today's Review</div>
             <div class="due-count" id="due-count">—</div>
@@ -350,7 +408,7 @@ header.brand .subtitle {
     </section>
 
     <!-- Section 1b: My Speaking Words summary -->
-    <section id="vocab-summary">
+    <section id="vocab-summary" class="fade-in">
         <h3 class="summary-title">My Speaking Words</h3>
         <div class="summary-stats">
             <div class="summary-stat"><span id="stat-saved">0</span><label>saved</label></div>
@@ -363,14 +421,17 @@ header.brand .subtitle {
     </section>
 
     <!-- Section 1c: Recommended for Today -->
-    <section id="recommended-section">
+    <section id="recommended-section" class="fade-in">
         <h2 class="section-title">Recommended for Today</h2>
         <p class="section-subtitle">Start with words you can use in real IELTS answers.</p>
-        <div id="recommended-grid" class="vocab-grid"><div class="loading-state">Loading…</div></div>
+        <div id="recommended-grid" class="vocab-grid">
+            <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+        </div>
     </section>
 
     <!-- Section 2: Vocabulary Bank -->
-    <section id="vocab-bank">
+    <section id="vocab-bank" class="fade-in">
         <h2 class="section-title">Vocabulary Bank</h2>
         <div class="topic-filters" id="topic-filters">
             <button class="active" data-topic="">All</button>
@@ -386,7 +447,12 @@ header.brand .subtitle {
             <button data-topic="hobby">Hobby</button>
         </div>
         <input type="text" class="vocab-search" id="vocab-search" placeholder="搜尋單字、主題，或你想替換的 basic word...">
-        <div id="vocab-grid"><div class="loading-state">Loading vocabulary…</div></div>
+        <div id="vocab-grid">
+            <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+        </div>
     </section>
 
     <!-- Section 3: My Vocabulary -->
@@ -891,6 +957,23 @@ header.brand .subtitle {
     const current = map[path] || 'home';
     const tab = document.querySelector(`.nav-tab[data-page="${current}"]`);
     if (tab) tab.classList.add('active');
+
+    // Scroll-entrance fade-in. Fall back to immediate visibility when
+    // IntersectionObserver isn't supported.
+    const fadeEls = document.querySelectorAll('.fade-in');
+    if ('IntersectionObserver' in window) {
+        const obs = new IntersectionObserver((entries) => {
+            entries.forEach(e => {
+                if (e.isIntersecting) {
+                    e.target.classList.add('visible');
+                    obs.unobserve(e.target);
+                }
+            });
+        }, { threshold: 0.1 });
+        fadeEls.forEach(el => obs.observe(el));
+    } else {
+        fadeEls.forEach(el => el.classList.add('visible'));
+    }
 })();
 </script>
 </body>

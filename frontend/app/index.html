@@ -40,7 +40,7 @@
             color: var(--ink);
             font-family: var(--sans);
             font-size: 16px;
-            line-height: 1.55;
+            line-height: 1.7;
             -webkit-font-smoothing: antialiased;
         }
         body::before {
@@ -56,8 +56,10 @@
         }
 
         .app {
-            max-width: 520px;
-            margin: 0 auto;
+            max-width: 680px;
+            margin-left: auto;
+            margin-right: auto;
+            width: 100%;
             padding: 32px 24px 88px;
             display: flex;
             flex-direction: column;
@@ -1798,6 +1800,47 @@
         .nav-tab.active { color: var(--green, #2D5016); }
         .nav-tab.active svg { stroke: var(--green, #2D5016); }
         .nav-tab svg { transition: stroke 0.15s; }
+
+        /* === v3 quality pass — hover lift, active press, fade-in === */
+        .practice-hub,
+        .weakness-summary,
+        .feedback-item,
+        .admin-card {
+            transition: box-shadow 0.15s, transform 0.15s;
+        }
+        .practice-hub:hover,
+        .weakness-summary:hover,
+        .feedback-item:hover,
+        .admin-card:hover {
+            box-shadow: 0 4px 16px rgba(44,36,22,0.09);
+            transform: translateY(-1px);
+        }
+        .practice-hub-btn,
+        .drill-button,
+        .drill-next__repeat,
+        .drill-next__next {
+            transition: transform 0.1s, opacity 0.1s, background 0.15s, color 0.15s;
+        }
+        .practice-hub-btn:active,
+        .drill-button:active,
+        .drill-next__repeat:active,
+        .drill-next__next:active {
+            transform: scale(0.97);
+            opacity: 0.88;
+        }
+        .app .practice-hub p,
+        .app .weakness-summary p { margin-bottom: 0.85em; }
+        .app .practice-hub p:last-child,
+        .app .weakness-summary p:last-child { margin-bottom: 0; }
+        .fade-in {
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.35s ease, transform 0.35s ease;
+        }
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -1916,7 +1959,7 @@
         </header>
 
         <!-- Diagnosis entry card — sits ABOVE Scenario A. Owned by feature/student-diagnosis. -->
-        <section id="diagnosis-entry" class="practice-hub card-v3" style="margin-bottom: 16px;">
+        <section id="diagnosis-entry" class="practice-hub card-v3 fade-in" style="margin-bottom: 16px;">
             <div class="card-v3__icon-badge" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
             </div>
@@ -1925,7 +1968,7 @@
             <button id="diagnosis-entry-btn" class="practice-hub-btn">查看我的診斷報告 ›</button>
         </section>
 
-        <section id="practice-hub" class="practice-hub card-v3">
+        <section id="practice-hub" class="practice-hub card-v3 fade-in">
             <div class="practice-deco" aria-hidden="true"></div>
             <h2><span class="card-v3__head-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>今天的口說練習</h2>
             <p class="practice-hub-copy" id="practice-hub-copy">先把一個卡點修掉，再往下一題走。</p>
@@ -1971,9 +2014,9 @@
         <!-- Weakness summary block — owned by feature/weakness-summary.
              Sits BELOW Scenario A (#practice-hub). Reuses .weakness-summary*
              CSS rules from the prototype block (lines 210-280). -->
-        <section id="weakness-summary-block" class="weakness-summary" style="display:none" aria-label="近期練習弱點摘要"></section>
+        <section id="weakness-summary-block" class="weakness-summary fade-in" style="display:none" aria-label="近期練習弱點摘要"></section>
 
-        <section id="vocab-entry" class="practice-hub card-v3" style="margin-bottom: 16px;">
+        <section id="vocab-entry" class="practice-hub card-v3 fade-in" style="margin-bottom: 16px;">
             <h2 class="practice-hub-title">今日單字任務</h2>
             <p class="practice-hub-copy">複習 5 個單字，讓今天的回答更具體。</p>
             <div id="vocab-due-count" style="font-size:13px;color:var(--muted);margin-bottom:12px;"></div>
@@ -4079,6 +4122,24 @@
                     const avatar = document.getElementById('user-avatar-btn');
                     if (avatar) avatar.click();
                 });
+            }
+
+            // Scroll-entrance fade-in. Fall back to immediate visibility
+            // when IntersectionObserver isn't supported (older browsers)
+            // so content never stays invisible.
+            const fadeEls = document.querySelectorAll('.fade-in');
+            if ('IntersectionObserver' in window) {
+                const obs = new IntersectionObserver((entries) => {
+                    entries.forEach(e => {
+                        if (e.isIntersecting) {
+                            e.target.classList.add('visible');
+                            obs.unobserve(e.target);
+                        }
+                    });
+                }, { threshold: 0.1 });
+                fadeEls.forEach(el => obs.observe(el));
+            } else {
+                fadeEls.forEach(el => el.classList.add('visible'));
             }
         })();
     </script>

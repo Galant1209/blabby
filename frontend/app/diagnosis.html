@@ -26,10 +26,10 @@
   html, body {
     background: var(--bg); color: var(--ink);
     font-family: 'EB Garamond', 'Noto Serif TC', Georgia, serif;
-    font-size: 16px; line-height: 1.6;
+    font-size: 16px; line-height: 1.7;
     -webkit-font-smoothing: antialiased; min-height: 100vh;
   }
-  .page { max-width: 600px; margin: 0 auto; padding: 40px 24px 88px; }
+  .page { max-width: 680px; margin-left: auto; margin-right: auto; width: 100%; padding: 40px 24px 88px; }
 
   header.brand { text-align: center; margin-bottom: 32px; }
   header.brand .back {
@@ -188,6 +188,37 @@
   .nav-tab:hover, .nav-tab.active { color: var(--green, #2D5016); }
   .nav-tab.active svg { stroke: var(--green, #2D5016); }
   .nav-tab svg { transition: stroke 0.15s; }
+
+  /* === v3 quality pass — hover lift, active press, fade-in === */
+  .panel,
+  .diagnosis-conversion {
+      transition: box-shadow 0.15s, transform 0.15s;
+  }
+  .panel:hover,
+  .diagnosis-conversion:hover {
+      box-shadow: 0 4px 16px rgba(44,36,22,0.09);
+      transform: translateY(-1px);
+  }
+  .diagnosis-cta__primary,
+  .diagnosis-cta__secondary {
+      transition: transform 0.1s, opacity 0.1s, background 0.15s, color 0.15s;
+  }
+  .diagnosis-cta__primary:active,
+  .diagnosis-cta__secondary:active {
+      transform: scale(0.97);
+      opacity: 0.88;
+  }
+  .panel p { margin-bottom: 0.85em; }
+  .panel p:last-child { margin-bottom: 0; }
+  .fade-in {
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+  }
 </style>
 <!-- PostHog Analytics -->
 <script>
@@ -370,10 +401,10 @@
     } catch (_) { /* keep isPro = false */ }
 
     document.getElementById('container').innerHTML = `
-      <div class="panel">
+      <div class="panel fade-in">
         <div class="md">${renderMarkdown(data.diagnosis_markdown || '')}</div>
         <div class="meta">Compiled ${new Date(data.generated_at || Date.now()).toLocaleString()}</div>
-        <div class="diagnosis-conversion">
+        <div class="diagnosis-conversion fade-in">
           <div class="diagnosis-conversion__free">
             <div class="diagnosis-conversion__tier">Free</div>
             <div class="diagnosis-conversion__value">Finds your weakness</div>
@@ -384,7 +415,7 @@
             <div class="diagnosis-conversion__value">Fixes it</div>
           </div>
         </div>
-        <div class="diagnosis-cta">
+        <div class="diagnosis-cta fade-in">
           <button id="diagnosis-cta-primary" class="diagnosis-cta__primary">開始針對性訓練 →</button>
           <button id="diagnosis-cta-secondary" class="diagnosis-cta__secondary"${isPro ? ' style="display:none"' : ''}>Upgrade to Pro →</button>
         </div>
@@ -403,6 +434,23 @@
     }
 
     track('diagnosis_viewed', { practice_count: count });
+
+    // Scroll-entrance fade-in. Run AFTER innerHTML so the panel,
+    // conversion box, and CTA cluster (all rendered above) get observed.
+    const fadeEls = document.querySelectorAll('.fade-in');
+    if ('IntersectionObserver' in window) {
+        const obs = new IntersectionObserver((entries) => {
+            entries.forEach(e => {
+                if (e.isIntersecting) {
+                    e.target.classList.add('visible');
+                    obs.unobserve(e.target);
+                }
+            });
+        }, { threshold: 0.1 });
+        fadeEls.forEach(el => obs.observe(el));
+    } else {
+        fadeEls.forEach(el => el.classList.add('visible'));
+    }
   }
 
   loadDiagnosis();
