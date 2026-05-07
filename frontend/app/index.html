@@ -1322,6 +1322,33 @@
                 margin-top: 8px;
             }
         }
+        .admin-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            padding: 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .admin-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .admin-panel h2 {
+            font-family: 'Libre Baskerville', serif;
+            font-size: 14px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--gold);
+            margin: 0 0 16px 0;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        @media (max-width: 768px) {
+            .admin-layout { grid-template-columns: 1fr; }
+        }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -1540,10 +1567,17 @@
         <footer class="footer">Blabby · AI IELTS Speaking Practice</footer>
 
         <section id="admin-section" class="admin-card" style="display:none">
-            <div id="admin-users"></div>
-            <div class="label">ADMIN · RECENT PRACTICES</div>
-            <div id="admin-list"></div>
-            <button id="admin-refresh-btn">Refresh</button>
+            <div class="admin-layout">
+                <div class="admin-panel">
+                    <h2>使用者列表</h2>
+                    <div id="admin-users"></div>
+                </div>
+                <div class="admin-panel">
+                    <h2>最近練習</h2>
+                    <div id="admin-list"></div>
+                    <button id="admin-refresh-btn">Refresh</button>
+                </div>
+            </div>
         </section>
     </main>
 
@@ -3252,6 +3286,7 @@
         }
 
         function handleAdminRoute() {
+            document.getElementById('diagnosis-entry').style.display = 'none';
             if (adminParams.get('admin') !== '1') return;
             if (practiceHub) practiceHub.style.display = 'none';
             if (speakingPractice) speakingPractice.classList.remove('visible');
