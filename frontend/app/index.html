@@ -1904,6 +1904,49 @@
         }
         .vocab-suggestion-add:hover { border-color: var(--green); color: var(--green); }
         .vocab-suggestion-add.added { color: var(--muted); border-color: var(--border); cursor: default; opacity: 0.6; }
+
+        /* Same-question retry context card */
+        #retry-context {
+            margin: 12px 0 16px;
+            padding: 14px 16px;
+            background: var(--surface);
+            border-left: 3px solid var(--gold);
+            border-radius: 0 6px 6px 0;
+        }
+        .retry-context__label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--muted);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        .retry-context__transcript {
+            font-size: 13px;
+            color: var(--ink);
+            line-height: 1.6;
+            margin-bottom: 12px;
+            font-style: italic;
+            opacity: 0.8;
+        }
+        .retry-context__target {
+            border-top: 1px dotted var(--border);
+            padding-top: 10px;
+        }
+        .retry-context__target-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--gold);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        .retry-context__target-text {
+            font-size: 13px;
+            color: var(--ink);
+            line-height: 1.6;
+            font-weight: 500;
+        }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -2097,6 +2140,14 @@
 
             <section class="recorder-card">
                 <div class="status-text" id="status-text">準備好了就按錄音</div>
+                <div id="retry-context" style="display:none">
+                  <div class="retry-context__label">上一次的回答</div>
+                  <div id="retry-prev-transcript" class="retry-context__transcript"></div>
+                  <div class="retry-context__target">
+                    <div class="retry-context__target-label">這次的目標</div>
+                    <div id="retry-target-text" class="retry-context__target-text"></div>
+                  </div>
+                </div>
                 <div id="topic-switch-hint" class="topic-switch-hint" style="display:none"></div>
                 <div id="drill-mode-indicator" class="drill-mode-indicator hidden">
                     Drill mode: <span id="drill-tag-label"></span>
@@ -3069,6 +3120,11 @@
                 // Reset drill/vocab result blocks so a new recording starts clean.
                 const vs = document.getElementById('vocab-suggestions');
                 if (vs) vs.style.display = 'none';
+                // Hide retry-context once a fresh (non-retry) recording starts.
+                if (!isRetryingSameQuestion) {
+                    const rc = document.getElementById('retry-context');
+                    if (rc) rc.style.display = 'none';
+                }
             } catch (err) {
                 console.error('getUserMedia error:', err);
                 clearGentleLoading();
@@ -3480,18 +3536,65 @@
             block.style.display = '';
         }
 
+        // Target copy bank for retry — keyed by weakness_tag from the
+        // last submission's feedback. Unknown tags fall through to a
+        // single-line generic prompt so the card is never empty.
+        const RETRY_TARGET_COPY = {
+            lack_detail: 'Add 3 specific details to your answer: one place, one time, one personal feeling.',
+            weak_vocab:  'Replace at least 2 basic words with more specific vocabulary. Think before you speak.',
+        };
+        const RETRY_TARGET_FALLBACK = 'Fix the one weakness from your last answer. Do not rush — say it better this time.';
+
         function resetForRetrySameQuestion() {
             isRetryingSameQuestion = true;
             feedbackSection.classList.remove('visible');
             recordBtn.disabled = false;
-            setRecorderStatus('再講一次同一題。這次只修剛剛那一個問題，不用重想答案。');
+
+            const retryCtx = document.getElementById('retry-context');
+            const prevTranscript = document.getElementById('retry-prev-transcript');
+            const targetText = document.getElementById('retry-target-text');
+
+            if (retryCtx && lastFeedbackData) {
+                if (prevTranscript) {
+                    const t = lastFeedbackData.text || '';
+                    prevTranscript.textContent = t
+                        ? `"${t.slice(0, 200)}${t.length > 200 ? '…' : ''}"`
+                        : '';
+                }
+                const tag = lastFeedbackData.weakness_tag || '';
+                if (targetText) {
+                    targetText.textContent = RETRY_TARGET_COPY[tag] || RETRY_TARGET_FALLBACK;
+                }
+                retryCtx.style.display = '';
+            }
+
+            setRecorderStatus('同一題，再說一次。這次只修一個問題。');
             scrollToRecorder();
+
+            try {
+                window.analytics?.track('retry_same_question_clicked', {
+                    weakness_tag: lastFeedbackData?.weakness_tag || '',
+                    question: currentQuestion,
+                });
+            } catch (_) { /* never block UI on tracking */ }
         }
 
         function renderFeedback(data) {
             if (data.error) {
                 setRecorderStatus('發生錯誤，請再試一次');
                 return;
+            }
+
+            // Track retry completion before flipping the flag — payload
+            // uses the FRESH response weakness_tag, not the previous one.
+            if (isRetryingSameQuestion) {
+                try {
+                    window.analytics?.track('retry_completed', {
+                        weakness_tag: data.weakness_tag || '',
+                        question: currentQuestion,
+                    });
+                } catch (_) { /* never block on tracking */ }
+                isRetryingSameQuestion = false;
             }
 
             lastFeedbackData = data;
@@ -3637,6 +3740,8 @@
             lastFeedbackData = null;
             isRetryingSameQuestion = false;
             feedbackSection.classList.remove('visible');
+            const rc = document.getElementById('retry-context');
+            if (rc) rc.style.display = 'none';
             setRecorderStatus('準備好了就按錄音');
         });
 
