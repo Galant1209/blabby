@@ -100,6 +100,72 @@
     .panel { padding: 24px 18px; }
     .md h1, .md h2 { font-size: 19px; }
   }
+  .diagnosis-conversion {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      margin: 32px 0 20px;
+      padding: 20px;
+      background: var(--surface, #faf8f3);
+      border: 1px solid var(--border, #e8e0d0);
+      border-radius: 8px;
+  }
+  .diagnosis-conversion__free,
+  .diagnosis-conversion__pro {
+      text-align: center;
+  }
+  .diagnosis-conversion__tier {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted, #8a7e6e);
+      margin-bottom: 4px;
+  }
+  .diagnosis-conversion__value {
+      font-family: 'Libre Baskerville', serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink, #2c2416);
+  }
+  .diagnosis-conversion__arrow {
+      font-size: 24px;
+      color: var(--gold, #C9A84C);
+      font-weight: 700;
+  }
+  .diagnosis-cta {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 8px;
+  }
+  .diagnosis-cta__primary {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      background: var(--forest, #2D5016);
+      color: var(--gold, #C9A84C);
+      font-family: 'Libre Baskerville', serif;
+      font-size: 15px;
+      text-align: center;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+  }
+  .diagnosis-cta__secondary {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      background: transparent;
+      color: var(--muted, #8a7e6e);
+      font-size: 13px;
+      text-align: center;
+      border: 1px solid var(--border, #e8e0d0);
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+  }
 </style>
 <!-- PostHog Analytics -->
 <script>
@@ -266,11 +332,53 @@
         ? 'No practices yet recorded.'
         : `A studied account of ${count} ${count === 1 ? 'practice' : 'practices'} undertaken.`;
 
+    // Pull pro status alongside the diagnosis so the upgrade button can be
+    // hidden for paying users. Fail-open: any error → assume non-pro and
+    // show the upgrade CTA (false positive is acceptable; false negative
+    // would silence a paid user with an "Upgrade" button which is worse).
+    let isPro = false;
+    try {
+      const qres = await fetch(`${API_BASE}/api/drill/check_quota`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (qres.ok) {
+        const q = await qres.json();
+        isPro = !!(q && q.is_pro);
+      }
+    } catch (_) { /* keep isPro = false */ }
+
     document.getElementById('container').innerHTML = `
       <div class="panel">
         <div class="md">${renderMarkdown(data.diagnosis_markdown || '')}</div>
         <div class="meta">Compiled ${new Date(data.generated_at || Date.now()).toLocaleString()}</div>
+        <div class="diagnosis-conversion">
+          <div class="diagnosis-conversion__free">
+            <div class="diagnosis-conversion__tier">Free</div>
+            <div class="diagnosis-conversion__value">Finds your weakness</div>
+          </div>
+          <div class="diagnosis-conversion__arrow">→</div>
+          <div class="diagnosis-conversion__pro">
+            <div class="diagnosis-conversion__tier">Pro</div>
+            <div class="diagnosis-conversion__value">Fixes it</div>
+          </div>
+        </div>
+        <div class="diagnosis-cta">
+          <button id="diagnosis-cta-primary" class="diagnosis-cta__primary">開始針對性訓練 →</button>
+          <button id="diagnosis-cta-secondary" class="diagnosis-cta__secondary"${isPro ? ' style="display:none"' : ''}>Upgrade to Pro →</button>
+        </div>
       </div>`;
+
+    document.getElementById('diagnosis-cta-primary').addEventListener('click', () => {
+      track('diagnosis_drill_clicked');
+      window.location.href = '/';
+    });
+    const upgradeBtn = document.getElementById('diagnosis-cta-secondary');
+    if (upgradeBtn && !isPro) {
+      upgradeBtn.addEventListener('click', () => {
+        track('diagnosis_upgrade_clicked');
+        window.location.href = '/upgrade.html';
+      });
+    }
 
     track('diagnosis_viewed', { practice_count: count });
   }
