@@ -8,8 +8,7 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500;600&display=swap" rel="stylesheet" />
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -17,15 +16,21 @@
         :root {
             --bg:         #F5F0E8;  /* 奶油白，像老紙 */
             --surface:    #FDFAF4;  /* 更淺的奶油，卡片背景 */
-            --ink:        #1C1008;  /* 深墨，主文字 */
-            --navy:       #1A3550;  /* 深藍，次要文字 */
-            --green:      #1B3A2D;  /* 深墨綠，主色 */
-            --green-dark: #11261D;
-            --gold:       #C9A84C;  /* 金色，裝飾 */
+            --paper:      #F1E9D6;  /* 卡紙底色 (v2) */
+            --ink:        #2C2416;  /* 主文字 (v2 — softer than #1C1008) */
+            --ink-soft:   #3a3022;  /* 副文字 (v2) */
+            --navy:       #1A3550;  /* 深藍，次要文字 (legacy) */
+            --green:      #2D5016;  /* 主色 (v2) */
+            --green-dark: #1f3810;  /* (v2) */
+            --gold:       #C9A84C;  /* 金色 */
             --gold-warm:  #E8C866;
-            --red:        #6B1A1A;  /* 酒紅，強調 */
+            --wine:       #6B1A1A;  /* 強調 (v2) */
+            --red:        #6B1A1A;  /* alias for wine — kept for legacy CSS */
             --border:     #C4B89A;  /* 暖米色邊框 */
-            --muted:      #7A6E5F;  /* 灰棕 */
+            --muted:      #8A7E6E;  /* (v2) */
+            --serif:      'EB Garamond', 'Cormorant Garamond', Georgia, serif;
+            --sans:       'Inter Tight', 'Inter', -apple-system, sans-serif;
+            --serif-tc:   'Noto Serif TC', 'EB Garamond', serif;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -33,10 +38,21 @@
         html, body {
             background: var(--bg);
             color: var(--ink);
-            font-family: 'EB Garamond', 'Noto Serif TC', Georgia, serif;
+            font-family: var(--sans);
             font-size: 16px;
             line-height: 1.55;
             -webkit-font-smoothing: antialiased;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.45;
+            z-index: 0;
+            background-image:
+                radial-gradient(circle at 22% 18%, rgba(196, 184, 154, 0.18) 0%, transparent 38%),
+                radial-gradient(circle at 78% 72%, rgba(201, 168, 76, 0.07) 0%, transparent 36%);
         }
 
         .app {
@@ -120,8 +136,8 @@
             opacity: 0.9;
         }
         .header h1 {
-            font-family: 'Playfair Display', 'Noto Serif TC', serif;
-            font-weight: 700;
+            font-family: var(--serif);
+            font-weight: 500;
             font-size: 48px;
             color: var(--green);
             letter-spacing: 0.01em;
@@ -1375,6 +1391,79 @@
             margin: 0 0 16px;
             line-height: 1.5;
         }
+        /* === v2 design system overrides — Prescription card === */
+        .weakness-hero {
+            position: relative;
+            background: var(--surface);
+            padding: 28px 24px 26px;
+            margin: 0 0 36px;
+            outline: 1px solid var(--border);
+            box-shadow:
+                0 0 0 1px var(--surface),
+                0 0 0 4px rgba(201, 168, 76, 0.55),
+                0 0 0 5px var(--surface),
+                0 0 0 6px var(--border);
+        }
+        .weakness-hero__rx-mark {
+            font-family: var(--serif);
+            font-style: italic;
+            font-size: 44px;
+            line-height: 0.85;
+            color: var(--gold);
+            font-weight: 500;
+            margin-bottom: 12px;
+        }
+        .weakness-hero__headline {
+            font-family: var(--serif);
+            font-weight: 500;
+            font-size: 32px;
+            line-height: 1.1;
+            color: var(--wine, #6B1A1A);
+            font-style: italic;
+            margin: 0 0 8px;
+        }
+        .weakness-hero__diagnosis {
+            font-family: var(--sans);
+            font-size: 9.5px;
+            letter-spacing: 0.28em;
+            text-transform: uppercase;
+            color: var(--gold);
+            margin: 0 0 12px;
+            font-weight: 500;
+        }
+        .weakness-hero__explanation {
+            font-family: var(--serif-tc);
+            font-size: 15px;
+            line-height: 1.7;
+            color: var(--ink-soft);
+            margin: 0 0 20px;
+        }
+        /* === v2 — exam paper card === */
+        #daily-question .question-card {
+            background:
+                repeating-linear-gradient(
+                    transparent 0,
+                    transparent 27px,
+                    rgba(196, 184, 154, 0.18) 27px,
+                    rgba(196, 184, 154, 0.18) 28px
+                ),
+                var(--paper, #F1E9D6);
+            border: 1px solid var(--border);
+            border-left: none;
+            border-right: none;
+            position: relative;
+        }
+        #daily-question .question-card::before,
+        #daily-question .question-card::after {
+            content: '';
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 1px;
+            background: var(--border);
+            opacity: 0.5;
+        }
+        #daily-question .question-card::before { left: 22px; }
+        #daily-question .question-card::after { right: 22px; }
         .weakness-ledger {
             margin-top: 16px;
             padding-top: 12px;
@@ -2214,6 +2303,12 @@
 
             const hero = document.createElement('div');
             hero.className = 'weakness-hero';
+
+            // v2 design — ℞ prescription mark above the headline
+            const rxMark = document.createElement('div');
+            rxMark.className = 'weakness-hero__rx-mark';
+            rxMark.textContent = '℞';
+            hero.appendChild(rxMark);
 
             const headline = document.createElement('div');
             headline.className = 'weakness-hero__headline';
