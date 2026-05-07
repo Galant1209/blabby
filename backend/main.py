@@ -485,6 +485,10 @@ WEAKNESS_LABELS = {
 QUESTION_EXCLUSION_DAYS = 3
 FREE_DRILL_QUOTA = 3
 DRILL_QUOTA_WINDOW_DAYS = 7
+
+# Vocabulary SRS — days until next review by srs_level (0..5)
+VOCAB_SRS_SCHEDULE = {0: 0, 1: 1, 2: 3, 3: 7, 4: 14, 5: 30}
+VOCAB_VALID_RESULTS = {"again", "hard", "good", "easy"}
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "because", "but", "by",
     "do", "for", "from", "get", "go", "had", "has", "have", "he", "her",
@@ -2497,6 +2501,316 @@ async def resolve_practice_record(
         raise HTTPException(status_code=500, detail="Failed to resolve record") from exc
 
     return Response(status_code=204)
+
+
+# ─── Vocabulary system ────────────────────────────────────────────────────────
+# vocabulary_items is a public-read catalog; user_vocabulary holds the SRS
+# state per user; vocabulary_review_logs is the audit trail. RLS handles
+# tenancy at the DB layer — these endpoints additionally use service-role
+# client with explicit user_id filtering for parity with the rest of the
+# /api/* surface.
+
+def _vocab_item_select() -> str:
+    """Columns we send to the client for both /items and joined queries."""
+    return (
+        "id, word, part_of_speech, zh_meaning, difficulty_level, ielts_band_level, "
+        "topic, tags, simple_definition_en, common_chunk, speaking_sentence, "
+        "common_mistake, better_than, usage_note_zh, created_at"
+    )
+
+
+@app.get("/api/vocabulary/items")
+@limiter.limit("30/minute")
+async def vocabulary_items_list(
+    request: Request,
+    topic: Optional[str] = None,
+    level: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    """
+    Public-ish catalog. Optional filters: topic, level (ielts_band_level),
+    search (substring match on word). Auth not required — RLS allows
+    anyone to SELECT from vocabulary_items.
+    """
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    topic = (topic or "").strip() or None
+    level = (level or "").strip() or None
+    search = (search or "").strip() or None
+    try:
+        query = supabase_admin.table("vocabulary_items").select(_vocab_item_select())
+        if topic:
+            query = query.eq("topic", topic)
+        if level:
+            query = query.eq("ielts_band_level", level)
+        if search:
+            # PostgREST ilike: case-insensitive LIKE; wildcards on both sides.
+            query = query.ilike("word", f"%{search}%")
+        resp = query.order("word", desc=False).execute()
+        return {"items": resp.data or []}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("vocabulary_items_list failed")
+        raise HTTPException(status_code=503, detail="Failed to load vocabulary items")
+
+
+@app.post("/api/vocabulary/my")
+@limiter.limit("30/minute")
+async def vocabulary_my_add(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Add a vocabulary_item to the caller's collection. Idempotent: if the
+    user already has the item, returns the existing row. Otherwise inserts
+    a fresh row with default SRS state (level 0, due immediately).
+
+    Body: { "vocabulary_item_id": "<uuid>", "source": "manual_added" | ... }
+    """
+    user_id = verify_token(authorization)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    item_id = (body.get("vocabulary_item_id") or "").strip()
+    if not item_id:
+        raise HTTPException(status_code=400, detail="vocabulary_item_id required")
+    try:
+        uuid.UUID(item_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid vocabulary_item_id format")
+    source = (body.get("source") or "manual_added").strip()
+    source_practice_record_id = body.get("source_practice_record_id")
+
+    select_cols = f"*, vocabulary_items({_vocab_item_select()})"
+
+    try:
+        # Existence check before insert — supabase-py upsert helpers don't
+        # round-trip the joined item cleanly, so we do explicit check+insert.
+        existing = (
+            supabase_admin.table("user_vocabulary")
+            .select(select_cols)
+            .eq("user_id", user_id)
+            .eq("vocabulary_item_id", item_id)
+            .maybe_single()
+            .execute()
+        )
+        if existing and existing.data:
+            return existing.data
+
+        # Verify the catalog item actually exists — fk would catch this on
+        # insert, but a 404 is more useful than a Postgres error string.
+        item_check = (
+            supabase_admin.table("vocabulary_items")
+            .select("id")
+            .eq("id", item_id)
+            .maybe_single()
+            .execute()
+        )
+        if not (item_check and item_check.data):
+            raise HTTPException(status_code=404, detail="Vocabulary item not found")
+
+        payload: dict = {
+            "user_id": user_id,
+            "vocabulary_item_id": item_id,
+            "source": source,
+        }
+        if source_practice_record_id:
+            try:
+                uuid.UUID(str(source_practice_record_id))
+                payload["source_practice_record_id"] = str(source_practice_record_id)
+            except ValueError:
+                pass  # silently drop bad practice id rather than 400
+
+        inserted = supabase_admin.table("user_vocabulary").insert(payload).execute()
+        if not inserted.data:
+            raise HTTPException(status_code=500, detail="Failed to add vocabulary item")
+        new_id = inserted.data[0]["id"]
+        # Re-fetch with the join for a consistent return shape.
+        full = (
+            supabase_admin.table("user_vocabulary")
+            .select(select_cols)
+            .eq("id", new_id)
+            .single()
+            .execute()
+        )
+        return full.data
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("vocabulary_my_add failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to add vocabulary item")
+
+
+@app.get("/api/vocabulary/my")
+@limiter.limit("30/minute")
+async def vocabulary_my_list(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """List all vocabulary items in the caller's collection, with the catalog data joined."""
+    user_id = verify_token(authorization)
+    select_cols = f"*, vocabulary_items({_vocab_item_select()})"
+    try:
+        resp = (
+            supabase_admin.table("user_vocabulary")
+            .select(select_cols)
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return {"items": resp.data or []}
+    except Exception:
+        logger.exception("vocabulary_my_list failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load vocabulary collection")
+
+
+@app.get("/api/vocabulary/review/today")
+@limiter.limit("30/minute")
+async def vocabulary_review_today(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Return up to 10 user_vocabulary rows due for review (next_review_at <= now)."""
+    user_id = verify_token(authorization)
+    select_cols = f"*, vocabulary_items({_vocab_item_select()})"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        resp = (
+            supabase_admin.table("user_vocabulary")
+            .select(select_cols)
+            .eq("user_id", user_id)
+            .lte("next_review_at", now_iso)
+            .order("next_review_at", desc=False)
+            .limit(10)
+            .execute()
+        )
+        return {"items": resp.data or []}
+    except Exception:
+        logger.exception("vocabulary_review_today failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load review queue")
+
+
+@app.post("/api/vocabulary/review")
+@limiter.limit("60/minute")
+async def vocabulary_review_submit(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Submit one flashcard review result. Updates SRS state, increments
+    review/correct/wrong counters, sets last_reviewed_at + next_review_at,
+    and writes a row to vocabulary_review_logs.
+
+    Body: { "user_vocabulary_id": "<uuid>", "result": "again|hard|good|easy",
+            "review_type": "flashcard" }
+    """
+    user_id = verify_token(authorization)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    uv_id = (body.get("user_vocabulary_id") or "").strip()
+    result = (body.get("result") or "").strip()
+    review_type = (body.get("review_type") or "flashcard").strip() or "flashcard"
+
+    if not uv_id:
+        raise HTTPException(status_code=400, detail="user_vocabulary_id required")
+    try:
+        uuid.UUID(uv_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_vocabulary_id format")
+    if result not in VOCAB_VALID_RESULTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid result; must be one of {sorted(VOCAB_VALID_RESULTS)}",
+        )
+
+    try:
+        existing = (
+            supabase_admin.table("user_vocabulary")
+            .select("*")
+            .eq("id", uv_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        if not (existing and existing.data):
+            raise HTTPException(status_code=404, detail="Vocabulary record not found")
+
+        row = existing.data
+        prev_level = int(row.get("srs_level") or 0)
+        review_count = int(row.get("review_count") or 0)
+        correct_count = int(row.get("correct_count") or 0)
+        wrong_count = int(row.get("wrong_count") or 0)
+
+        # SRS transitions per spec.
+        if result == "again":
+            new_level = max(prev_level - 1, 0)
+            days = 1
+            wrong_count += 1
+        elif result == "hard":
+            new_level = prev_level
+            days = 2
+        elif result == "good":
+            new_level = min(prev_level + 1, 5)
+            days = VOCAB_SRS_SCHEDULE.get(new_level, 0)
+            correct_count += 1
+        else:  # easy
+            new_level = min(prev_level + 2, 5)
+            days = VOCAB_SRS_SCHEDULE.get(new_level, 0)
+            correct_count += 1
+
+        now = datetime.now(timezone.utc)
+        next_review_at = (now + timedelta(days=days)).isoformat()
+        now_iso = now.isoformat()
+
+        update_payload = {
+            "srs_level": new_level,
+            "review_count": review_count + 1,
+            "correct_count": correct_count,
+            "wrong_count": wrong_count,
+            "last_reviewed_at": now_iso,
+            "next_review_at": next_review_at,
+            "status": "reviewing" if new_level > 0 else "new",
+        }
+        updated = (
+            supabase_admin.table("user_vocabulary")
+            .update(update_payload)
+            .eq("id", uv_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        if not updated.data:
+            raise HTTPException(status_code=500, detail="Failed to update review state")
+
+        # Audit log — failure here should not roll back the SRS update,
+        # but it should surface in logs so we can spot drift.
+        try:
+            supabase_admin.table("vocabulary_review_logs").insert({
+                "user_id": user_id,
+                "user_vocabulary_id": uv_id,
+                "vocabulary_item_id": row["vocabulary_item_id"],
+                "review_type": review_type,
+                "result": result,
+                "previous_level": prev_level,
+                "new_level": new_level,
+            }).execute()
+        except Exception:
+            logger.exception(
+                "[vocab/review] log insert failed (state already saved)",
+                extra={"user_id": user_id, "user_vocabulary_id": uv_id},
+            )
+
+        return updated.data[0]
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("vocabulary_review_submit failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to submit review")
 
 
 @app.get("/admin/recent")
