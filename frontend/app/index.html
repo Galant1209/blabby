@@ -1915,7 +1915,7 @@
                 startPracticeBtn.style.display = 'none';
                 if (dailyQuestionEl) {
                     if (dailyQuestionTextEl) {
-                        dailyQuestionTextEl.textContent = dailyQuestion.text;
+                        dailyQuestionTextEl.textContent = dailyQuestion.text.trim();
                     }
                     if (dailyQuestionMetaEl) {
                         const part = dailyQuestion.part || 2;
