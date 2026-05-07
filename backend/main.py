@@ -1612,13 +1612,14 @@ async def process(
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_text})
 
-        # Validation retry layer (2 attempts max): if the LLM returns a
+        # Validation retry layer (3 attempts max): if the LLM returns a
         # structurally invalid correction (wrong shape, missing fields,
-        # over char-limit), retry once. Independent of run_groq's
+        # over char-limit), retry. Independent of run_groq's
         # connection-level retries (which handle JSON parse / 5xx /
-        # json_validate_failed inside the SDK call). After 2 validation
-        # failures, surface a 503 to the client.
-        max_validation_attempts = 2
+        # json_validate_failed inside the SDK call). After exhaustion we
+        # try a truncation rescue (over-limit fields are clamped) before
+        # surfacing a 503 to the client.
+        max_validation_attempts = 3
         parsed: dict = {}
         is_valid = False
         last_validation_reason = ""
@@ -1639,15 +1640,64 @@ async def process(
                 last_validation_reason,
             )
         if not is_valid:
-            logger.error(
-                "correction validation exhausted after %s attempts; last reason: %s",
-                max_validation_attempts,
-                last_validation_reason,
-            )
-            raise HTTPException(
-                status_code=503,
-                detail="批改服務暫時不穩定，請稍後再試",
-            )
+            # Graceful degradation: trim over-limit string fields and
+            # re-validate once. Most validation failures we see are length
+            # overruns on better_phrasing_en / why_it_hurts / next_task,
+            # not missing fields — truncation salvages those without an
+            # extra LLM round-trip.
+            use_rescued = False
+            try:
+                if parsed and isinstance(parsed, dict):
+                    correction = parsed.get("correction")
+                    if isinstance(correction, dict):
+                        bpe = correction.get("better_phrasing_en") or ""
+                        if isinstance(bpe, str) and len(bpe) > 30:
+                            words = bpe.split()
+                            truncated = ""
+                            for w in words:
+                                candidate = (truncated + " " + w).strip()
+                                if len(candidate) <= 30:
+                                    truncated = candidate
+                                else:
+                                    break
+                            correction["better_phrasing_en"] = truncated or bpe[:30]
+
+                        wih = correction.get("why_it_hurts") or ""
+                        if isinstance(wih, str) and len(wih) > 60:
+                            correction["why_it_hurts"] = wih[:57] + "..."
+
+                        nxt = correction.get("next_task") or ""
+                        if isinstance(nxt, str) and len(nxt) > 80:
+                            correction["next_task"] = nxt[:77] + "..."
+
+                        parsed["correction"] = correction
+                        rescued_valid, rescued_reason = validate_correction_response(
+                            parsed,
+                            expected_drill_axis=expected_drill_axis,
+                        )
+                        if rescued_valid:
+                            logger.info(
+                                "correction rescued by truncation after validation exhaustion"
+                            )
+                            use_rescued = True
+                            is_valid = True
+                        else:
+                            logger.warning(
+                                "truncation rescue still invalid: %s", rescued_reason
+                            )
+            except Exception as rescue_err:
+                logger.warning("truncation rescue failed: %s", rescue_err)
+
+            if not use_rescued:
+                logger.error(
+                    "correction validation exhausted after %s attempts; last reason: %s",
+                    max_validation_attempts,
+                    last_validation_reason,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="批改服務暫時不穩定，請稍後再試",
+                )
 
         # New structured contract: correction is a dict with four required
         # subfields (quoted / why_it_hurts / better_phrasing / next_task),
