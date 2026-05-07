@@ -1323,6 +1323,22 @@
             }
         }
     </style>
+    <!-- PostHog Analytics -->
+    <script>
+        !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+        posthog.init('phc_yx3H55CAUHfsKFabX4ZQ5JHxTijKzHdyCiKzxvddaLTt', {
+            api_host: 'https://us.i.posthog.com',
+            person_profiles: 'identified_only',
+        });
+        window.analytics = {
+            track: function(event, props) {
+                try { posthog.capture(event, props || {}); } catch(_) {}
+            },
+            identify: function(userId, traits) {
+                try { posthog.identify(userId, traits || {}); } catch(_) {}
+            }
+        };
+    </script>
 </head>
 <body>
     <div id="auth-section">
@@ -1593,10 +1609,7 @@
         if (diagnosisEntryBtn) {
             diagnosisEntryBtn.addEventListener('click', () => {
                 try {
-                    console.log('[track]', 'diagnosis_entry_clicked');
-                    if (window.analytics && typeof window.analytics.track === 'function') {
-                        window.analytics.track('diagnosis_entry_clicked');
-                    }
+                    window.analytics.track('diagnosis_entry_clicked');
                 } catch (_) { /* never block navigation on tracking */ }
                 window.location = '/diagnosis.html';
             });
@@ -1938,6 +1951,9 @@
             try {
                 const { data: { session } } = await sb.auth.getSession();
                 token = (session && session.access_token) || '';
+                if (session && session.user) {
+                    window.analytics.identify(session.user.id);
+                }
             } catch (err) { /* fall through to no-token branch */ }
             if (!token) {
                 // Not signed in — bounce to /upgrade isn't right here either,
@@ -1965,6 +1981,7 @@
                 body = { remaining: 1, should_upgrade: false };
             }
             if (body && body.should_upgrade) {
+                window.analytics.track('upgrade_redirect', { source: 'drill_quota', tag: tag });
                 window.location.href = '/upgrade.html';
                 return;
             }
@@ -2031,7 +2048,10 @@
                 btn.textContent = '🎯 針對性訓練';
                 btn.dataset.drillTag = entry.tag;
                 if (DRILLABLE_TAGS.has(entry.tag)) {
-                    btn.addEventListener('click', () => startDrillForTag(entry.tag));
+                    btn.addEventListener('click', () => {
+                        window.analytics.track('drill_button_clicked', { tag: entry.tag });
+                        startDrillForTag(entry.tag);
+                    });
                 } else {
                     btn.disabled = true;
                     btn.title = '目前無法針對此弱點訓練';
@@ -2075,6 +2095,9 @@
                 const link = document.createElement('a');
                 link.href = '/upgrade.html';
                 link.textContent = 'Upgrade to Pro →';
+                link.addEventListener('click', () => {
+                    window.analytics.track('upgrade_nudge_clicked', { source: 'weakness_summary' });
+                });
                 nudge.appendChild(link);
                 container.appendChild(nudge);
             }
