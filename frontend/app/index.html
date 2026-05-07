@@ -1548,6 +1548,216 @@
             cursor: pointer;
             letter-spacing: 0.03em;
         }
+
+        /* === v3 mobile redesign — additive layer, ordered last for override === */
+
+        /* Watermark crest behind everything (mobile-first; full viewport) */
+        #bg-watermark {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.06;
+            color: var(--green);
+        }
+        #bg-watermark svg {
+            width: min(80vw, 420px);
+            height: auto;
+        }
+        .bg-diamond {
+            position: fixed;
+            font-size: 8px;
+            color: var(--gold);
+            opacity: 0.3;
+            pointer-events: none;
+            z-index: 0;
+            font-family: var(--serif);
+        }
+        /* Foreground stays above the decorative layers */
+        main.app, .app { position: relative; z-index: 1; }
+
+        /* Card v3 — surface card with subtle border + radius. Used by
+           #diagnosis-entry and #practice-hub via additional class. */
+        .card-v3 {
+            position: relative;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 18px;
+        }
+        .card-v3__icon-badge {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--green);
+            color: var(--gold);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+        .card-v3__icon-badge svg { display: block; }
+        .card-v3 h2 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-v3__head-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Practice card decorative pen overlay */
+        #practice-hub.card-v3 { overflow: hidden; }
+        .practice-deco {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 120px;
+            height: 100px;
+            background: linear-gradient(135deg, transparent 40%, rgba(201,168,76,0.08) 100%);
+            border-radius: 0 0 12px 0;
+            pointer-events: none;
+            z-index: 0;
+        }
+        #practice-hub.card-v3 > * { position: relative; z-index: 1; }
+
+        /* Pill-shape primary button (overrides default rectangle) */
+        #diagnosis-entry .practice-hub-btn,
+        #practice-hub .practice-hub-btn,
+        #daily-question .practice-hub-btn {
+            width: 100%;
+            background: var(--green);
+            color: var(--gold);
+            border-radius: 6px;
+            padding: 13px 18px;
+            border: none;
+            font-family: var(--serif);
+            letter-spacing: 0.04em;
+            font-size: 15px;
+        }
+
+        /* Daily question — gold left-border + warm bg */
+        #daily-question {
+            border-left: 3px solid var(--gold);
+            background: #FAF6EE;
+            padding: 18px 16px;
+            border-radius: 0 8px 8px 0;
+            margin-top: 14px;
+        }
+
+        /* Skill modules — 4-column grid (2x2 below 380px), vertical layout per cell */
+        .skill-entry-list-v3 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 18px;
+            padding: 12px 0;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+        @media (max-width: 380px) {
+            .skill-entry-list-v3 { grid-template-columns: repeat(2, 1fr); }
+        }
+        .skill-entry-list-v3 .skill-entry {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 4px;
+            background: transparent;
+            border: none;
+            padding: 6px 4px;
+            color: var(--muted);
+        }
+        .skill-entry-list-v3 .skill-entry-open { color: var(--green); }
+        .skill-entry__icon { display: inline-flex; }
+        .skill-entry__label {
+            font-family: var(--sans);
+            font-size: 12px;
+            font-weight: 500;
+            color: inherit;
+        }
+        .skill-entry__indicator {
+            display: block;
+            width: 24px;
+            height: 2px;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        .skill-entry__indicator--active { background: var(--green); }
+        .skill-entry-list-v3 .skill-entry-status {
+            font-size: 9px;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+        .skill-entry-list-v3 .skill-entry-open .skill-entry-status { color: var(--green); }
+
+        /* Weakness block — gold left border + ::before badge + ::after quill */
+        #weakness-summary-block {
+            position: relative;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--gold);
+            border-radius: 0 12px 12px 0;
+            padding: 24px 18px 26px 60px;
+            overflow: hidden;
+        }
+        #weakness-summary-block::before {
+            content: '';
+            position: absolute;
+            top: 22px;
+            left: 14px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: var(--green);
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23C9A84C' stroke-width='1.5'><line x1='9' y1='18' x2='15' y2='18'/><line x1='10' y1='22' x2='14' y2='22'/><path d='M12 2a7 7 0 0 1 7 7c0 3-1.8 5.4-4.5 6.5V17h-5v-1.5C6.8 14.4 5 12 5 9a7 7 0 0 1 7-7z'/></svg>");
+            background-repeat: no-repeat;
+            background-position: center;
+            pointer-events: none;
+        }
+        #weakness-summary-block::after {
+            content: '✦';
+            position: absolute;
+            right: 16px;
+            bottom: 0;
+            font-size: 48px;
+            color: var(--gold);
+            opacity: 0.12;
+            pointer-events: none;
+            line-height: 1;
+            font-family: var(--serif);
+        }
+        /* v3 hero typography sits above the v2 hero rules (CSS source order) */
+        .weakness-hero { padding: 0; outline: none; box-shadow: none; background: transparent; margin-bottom: 0; }
+        .weakness-hero__headline {
+            font-family: var(--serif);
+            font-size: 22px;
+            color: var(--ink);
+            font-style: normal;
+            font-weight: 500;
+        }
+
+        /* Footer — full-width dark green bar with gold italic copy */
+        .footer-v3 {
+            background: var(--green);
+            color: var(--gold);
+            text-align: center;
+            font-family: var(--serif);
+            font-style: italic;
+            padding: 16px 24px;
+            margin: 32px -24px -60px;
+            font-size: 14px;
+            letter-spacing: 0.02em;
+            position: relative;
+            z-index: 1;
+        }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -1567,6 +1777,25 @@
     </script>
 </head>
 <body>
+    <!-- v3 design — fixed-position decorative layers (purely visual, pointer-events: none) -->
+    <div id="bg-watermark" aria-hidden="true">
+        <svg viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+            <g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
+                <path d="M100 18 L160 50 L160 120 Q160 180 100 220 Q40 180 40 120 L40 50 Z"/>
+                <path d="M100 50 L100 200"/>
+                <path d="M60 100 L140 100"/>
+                <circle cx="100" cy="100" r="22"/>
+                <path d="M100 78 L100 122 M78 100 L122 100"/>
+                <path d="M70 145 Q100 165 130 145"/>
+            </g>
+        </svg>
+    </div>
+    <span class="bg-diamond" style="top:8%;left:6%">◆</span>
+    <span class="bg-diamond" style="top:14%;right:9%">◆</span>
+    <span class="bg-diamond" style="top:42%;left:4%">◆</span>
+    <span class="bg-diamond" style="bottom:24%;right:5%">◆</span>
+    <span class="bg-diamond" style="bottom:8%;left:11%">◆</span>
+    <span class="bg-diamond" style="bottom:38%;left:48%">◆</span>
     <div id="auth-section">
         <div class="auth-card">
             <svg class="logo-svg" width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -1647,14 +1876,18 @@
         </header>
 
         <!-- Diagnosis entry card — sits ABOVE Scenario A. Owned by feature/student-diagnosis. -->
-        <section id="diagnosis-entry" class="practice-hub" style="margin-bottom: 16px;">
+        <section id="diagnosis-entry" class="practice-hub card-v3" style="margin-bottom: 16px;">
+            <div class="card-v3__icon-badge" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+            </div>
             <h2>Behold Thy Progress</h2>
             <p class="practice-hub-copy">An honest examination of thy speaking patterns, drawn from every practice thou hast undertaken.</p>
-            <button id="diagnosis-entry-btn" class="practice-hub-btn">查看我的診斷報告</button>
+            <button id="diagnosis-entry-btn" class="practice-hub-btn">查看我的診斷報告 ›</button>
         </section>
 
-        <section id="practice-hub" class="practice-hub">
-            <h2>今天的口說練習</h2>
+        <section id="practice-hub" class="practice-hub card-v3">
+            <div class="practice-deco" aria-hidden="true"></div>
+            <h2><span class="card-v3__head-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>今天的口說練習</h2>
             <p class="practice-hub-copy" id="practice-hub-copy">先把一個卡點修掉，再往下一題走。</p>
             <div class="practice-hub-weakness">
                 <div class="practice-hub-label" id="practice-hub-label">今天我們先抓：</div>
@@ -1667,21 +1900,29 @@
                 <div class="daily-question__meta" id="daily-question-meta"></div>
                 <button id="daily-question-btn" class="practice-hub-btn daily-question__cta">開始練習</button>
             </section>
-            <div class="skill-entry-list" aria-label="技能入口">
+            <div class="skill-entry-list skill-entry-list-v3" aria-label="技能入口">
                 <div class="skill-entry skill-entry-open">
-                    <span>Speaking</span>
+                    <span class="skill-entry__icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></span>
+                    <span class="skill-entry__label">Speaking</span>
+                    <span class="skill-entry__indicator skill-entry__indicator--active"></span>
                     <span class="skill-entry-status">已開放</span>
                 </div>
                 <div class="skill-entry">
-                    <span>Writing</span>
+                    <span class="skill-entry__icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg></span>
+                    <span class="skill-entry__label">Writing</span>
+                    <span class="skill-entry__indicator"></span>
                     <span class="skill-entry-status">即將推出</span>
                 </div>
                 <div class="skill-entry">
-                    <span>Reading</span>
+                    <span class="skill-entry__icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
+                    <span class="skill-entry__label">Reading</span>
+                    <span class="skill-entry__indicator"></span>
                     <span class="skill-entry-status">即將推出</span>
                 </div>
                 <div class="skill-entry">
-                    <span>Listening</span>
+                    <span class="skill-entry__icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>
+                    <span class="skill-entry__label">Listening</span>
+                    <span class="skill-entry__indicator"></span>
                     <span class="skill-entry-status">即將推出</span>
                 </div>
             </div>
@@ -1780,7 +2021,7 @@
             </div>
         </section>
 
-        <footer class="footer">Blabby · AI IELTS Speaking Practice</footer>
+        <footer class="footer footer-v3">✦&nbsp;&nbsp;Speak with clarity. Think with depth. Grow with purpose.&nbsp;&nbsp;✦</footer>
 
         <section id="admin-section" class="admin-card" style="display:none">
             <div class="admin-layout">
