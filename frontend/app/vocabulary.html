@@ -185,6 +185,37 @@ header.brand .subtitle {
 }
 .loading-state { text-align: center; padding: 24px 8px; color: var(--gold); font-style: italic; font-size: 13px; }
 .error-state { color: var(--wine); padding: 12px 0; font-size: 13px; }
+.empty-onboard { font-size: 13px; color: var(--muted); font-style: italic; margin: 8px 0 0; }
+.section-subtitle { font-size: 13px; color: var(--muted); font-style: italic; margin: -8px 0 14px; }
+.vocab-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+}
+@media (max-width: 360px) { .vocab-grid { grid-template-columns: 1fr; } }
+#recommended-section { margin-bottom: 32px; }
+#vocab-summary {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+}
+.summary-title {
+    font-family: var(--serif);
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 8px;
+}
+.summary-stats { display: flex; gap: 24px; margin: 12px 0; }
+.summary-stat { text-align: center; }
+.summary-stat span { font-family: var(--serif); font-size: 28px; color: var(--green); display: block; }
+.summary-stat label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.summary-onboard { font-size: 13px; color: var(--muted); font-style: italic; margin: 0; }
+/* Vocab card extras — better_than line + usage_note_zh inline */
+.vocab-card__better,
+.vocab-card__usage {
+    font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4;
+}
+.vocab-card__usage { font-style: italic; }
 
 /* Review modal — full-screen overlay */
 #review-modal[hidden] { display: none; }
@@ -289,8 +320,31 @@ header.brand .subtitle {
             <div class="card-headline">Today's Review</div>
             <div class="due-count" id="due-count">—</div>
             <div class="due-label" id="due-label">words due for review</div>
+            <p id="empty-onboarding" class="empty-onboard" style="display:none">
+                Build your first review set by saving 3 speaking-ready words from the bank below.
+            </p>
             <button class="btn-primary" id="start-review-btn" disabled>開始今日複習</button>
         </div>
+    </section>
+
+    <!-- Section 1b: My Speaking Words summary -->
+    <section id="vocab-summary">
+        <h3 class="summary-title">My Speaking Words</h3>
+        <div class="summary-stats">
+            <div class="summary-stat"><span id="stat-saved">0</span><label>saved</label></div>
+            <div class="summary-stat"><span id="stat-learning">0</span><label>learning</label></div>
+            <div class="summary-stat"><span id="stat-mastered">0</span><label>mastered</label></div>
+        </div>
+        <p id="summary-onboarding" class="summary-onboard" style="display:none">
+            Save your first 3 words to start reviewing tomorrow.
+        </p>
+    </section>
+
+    <!-- Section 1c: Recommended for Today -->
+    <section id="recommended-section">
+        <h2 class="section-title">Recommended for Today</h2>
+        <p class="section-subtitle">Start with words you can use in real IELTS answers.</p>
+        <div id="recommended-grid" class="vocab-grid"><div class="loading-state">Loading…</div></div>
     </section>
 
     <!-- Section 2: Vocabulary Bank -->
@@ -309,7 +363,7 @@ header.brand .subtitle {
             <button data-topic="emotion">Emotion</button>
             <button data-topic="hobby">Hobby</button>
         </div>
-        <input type="text" class="vocab-search" id="vocab-search" placeholder="Search word or 中文…">
+        <input type="text" class="vocab-search" id="vocab-search" placeholder="搜尋單字、主題，或你想替換的 basic word...">
         <div id="vocab-grid"><div class="loading-state">Loading vocabulary…</div></div>
     </section>
 
@@ -417,6 +471,38 @@ header.brand .subtitle {
                 `<div class="error-state">Failed to load vocabulary bank.</div>`;
         }
     }
+    // Shared card markup. opts.compact = true drops speaking_sentence
+    // (used by Recommended for Today). opts.source = analytics source tag.
+    function renderVocabCardHtml(it, opts) {
+        const compact = !!(opts && opts.compact);
+        const inMine = mySetOfItemIds.has(it.id);
+        // IELTS band: tolerate both raw values ("6.0") and pre-prefixed
+        // ("B6.0") — strip leading letter, then prepend "IELTS ".
+        const bandRaw = (it.ielts_band_level || '').replace(/^[A-Z]/, '');
+        const bandLabel = bandRaw ? `IELTS ${bandRaw}` : '';
+        const better = Array.isArray(it.better_than) ? it.better_than.filter(Boolean) : [];
+        const dataSource = opts && opts.source ? ` data-source="${escapeHtml(opts.source)}"` : '';
+        return `
+            <div class="vocab-card" data-id="${escapeHtml(it.id)}" data-topic="${escapeHtml(it.topic || '')}">
+                <div class="vocab-card__head">
+                    <span class="vocab-card__word">${escapeHtml(it.word || '')}</span>
+                    <span class="vocab-card__pos">${escapeHtml(it.part_of_speech || '')}</span>
+                </div>
+                <div class="vocab-card__zh">${escapeHtml(it.zh_meaning || '')}</div>
+                ${it.common_chunk ? `<div class="vocab-card__chunk">${escapeHtml(it.common_chunk)}</div>` : ''}
+                ${(!compact && it.speaking_sentence) ? `<div class="vocab-card__sentence">${escapeHtml(it.speaking_sentence)}</div>` : ''}
+                ${better.length > 0 ? `<div class="vocab-card__better">Better than: ${escapeHtml(better.join(' / '))}</div>` : ''}
+                ${it.usage_note_zh ? `<div class="vocab-card__usage">${escapeHtml(it.usage_note_zh)}</div>` : ''}
+                <div class="vocab-card__meta">
+                    ${it.topic ? `<span class="vocab-card__topic">${escapeHtml(it.topic)}</span>` : ''}
+                    ${bandLabel ? `<span class="vocab-card__band">${escapeHtml(bandLabel)}</span>` : ''}
+                </div>
+                <button class="vocab-card__add" data-id="${escapeHtml(it.id)}" data-word="${escapeHtml(it.word || '')}" data-topic="${escapeHtml(it.topic || '')}"${dataSource} ${inMine ? 'disabled' : ''}>
+                    ${inMine ? '✓ 已加入' : '＋ 加入口說單字'}
+                </button>
+            </div>`;
+    }
+
     function renderBank() {
         const grid = document.getElementById('vocab-grid');
         const term = activeSearch.trim().toLowerCase();
@@ -432,27 +518,29 @@ header.brand .subtitle {
             grid.innerHTML = '<div class="empty-state">No words match these filters.</div>';
             return;
         }
-        grid.innerHTML = filtered.map(it => {
-            const inMine = mySetOfItemIds.has(it.id);
-            return `
-                <div class="vocab-card" data-id="${escapeHtml(it.id)}" data-topic="${escapeHtml(it.topic || '')}">
-                    <div class="vocab-card__head">
-                        <span class="vocab-card__word">${escapeHtml(it.word || '')}</span>
-                        <span class="vocab-card__pos">${escapeHtml(it.part_of_speech || '')}</span>
-                    </div>
-                    <div class="vocab-card__zh">${escapeHtml(it.zh_meaning || '')}</div>
-                    ${it.common_chunk ? `<div class="vocab-card__chunk">${escapeHtml(it.common_chunk)}</div>` : ''}
-                    ${it.speaking_sentence ? `<div class="vocab-card__sentence">${escapeHtml(it.speaking_sentence)}</div>` : ''}
-                    <div class="vocab-card__meta">
-                        ${it.topic ? `<span class="vocab-card__topic">${escapeHtml(it.topic)}</span>` : ''}
-                        ${it.ielts_band_level ? `<span class="vocab-card__band">B${escapeHtml(it.ielts_band_level)}</span>` : ''}
-                    </div>
-                    <button class="vocab-card__add" data-id="${escapeHtml(it.id)}" data-word="${escapeHtml(it.word || '')}" data-topic="${escapeHtml(it.topic || '')}" ${inMine ? 'disabled' : ''}>
-                        ${inMine ? '✓ 已加入' : '＋ 加入我的單字'}
-                    </button>
-                </div>`;
-        }).join('');
+        grid.innerHTML = filtered.map(it => renderVocabCardHtml(it, { source: 'bank' })).join('');
         grid.querySelectorAll('.vocab-card__add').forEach(btn => btn.addEventListener('click', onAddClick));
+    }
+
+    // Recommended for Today — small fixed list, compact card variant.
+    async function loadRecommended() {
+        const grid = document.getElementById('recommended-grid');
+        try {
+            const r = await fetch(`${API_BASE}/api/vocabulary/items?limit=6`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const body = await r.json();
+            const items = (Array.isArray(body.items) ? body.items : []).slice(0, 6);
+            if (items.length === 0) {
+                grid.innerHTML = '<div class="empty-state">No recommendations yet.</div>';
+                return;
+            }
+            grid.innerHTML = items.map(it => renderVocabCardHtml(it, { compact: true, source: 'recommended' })).join('');
+            grid.querySelectorAll('.vocab-card__add').forEach(btn => btn.addEventListener('click', onAddClick));
+            window.analytics?.track('vocabulary_recommended_viewed', { count: items.length });
+        } catch (e) {
+            console.error('loadRecommended failed', e);
+            grid.innerHTML = '<div class="error-state">Failed to load recommendations.</div>';
+        }
     }
 
     async function onAddClick(ev) {
@@ -461,21 +549,25 @@ header.brand .subtitle {
         const id = btn.dataset.id;
         const word = btn.dataset.word;
         const topic = btn.dataset.topic;
+        const source = btn.dataset.source || 'bank';   // bank | recommended
         btn.disabled = true;
         btn.textContent = 'Adding…';
         try {
             await authJson('POST', '/api/vocabulary/my', {
                 vocabulary_item_id: id,
-                source: 'manual_added',
+                source: source === 'recommended' ? 'recommended_added' : 'manual_added',
             });
             mySetOfItemIds.add(id);
             btn.textContent = '✓ 已加入';
             window.analytics?.track('vocabulary_item_added', { word, topic });
+            if (source === 'recommended') {
+                window.analytics?.track('vocabulary_recommended_added', { word, topic });
+            }
             await loadMy();         // refresh My Vocabulary list
             await loadDueCount();   // due count may shift if backend sets next_review_at = now
         } catch (e) {
             btn.disabled = false;
-            btn.textContent = '＋ 加入我的單字';
+            btn.textContent = '＋ 加入口說單字';
             alert(e.message === 'not_signed_in' ? '請先登入' : (e.message || 'Failed to add'));
         }
     }
@@ -487,12 +579,38 @@ header.brand .subtitle {
         activeTopic = btn.dataset.topic || '';
         document.querySelectorAll('#topic-filters button').forEach(b => b.classList.toggle('active', b === btn));
         renderBank();
+        window.analytics?.track('vocabulary_filter_used', { topic: activeTopic || 'all' });
     });
-    // Search
+    // Search — track on input but debounce so we don't fire per keystroke
+    let searchTrackTimer = null;
     document.getElementById('vocab-search').addEventListener('input', (ev) => {
         activeSearch = ev.target.value || '';
         renderBank();
+        if (searchTrackTimer) clearTimeout(searchTrackTimer);
+        searchTrackTimer = setTimeout(() => {
+            const q = activeSearch.trim();
+            if (q) window.analytics?.track('vocabulary_search_used', { query: q });
+        }, 600);
     });
+
+    // ── Section 1b: Speaking Words summary stats ──────────────────────
+    function renderSummaryStats() {
+        const total = myItems.length;
+        const learning = myItems.filter(r => {
+            const lvl = r.srs_level || 0;
+            return lvl > 0 && lvl < 5;
+        }).length;
+        const mastered = myItems.filter(r => (r.srs_level || 0) >= 5).length;
+        const setText = (id, n) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = String(n);
+        };
+        setText('stat-saved', total);
+        setText('stat-learning', learning);
+        setText('stat-mastered', mastered);
+        const onb = document.getElementById('summary-onboarding');
+        if (onb) onb.style.display = total === 0 ? '' : 'none';
+    }
 
     // ── Section 3: My Vocabulary ──────────────────────────────────────
     async function loadMy() {
@@ -501,6 +619,7 @@ header.brand .subtitle {
             const body = await authJson('GET', '/api/vocabulary/my');
             myItems = Array.isArray(body.items) ? body.items : [];
             mySetOfItemIds = new Set(myItems.map(r => r.vocabulary_item_id).filter(Boolean));
+            renderSummaryStats();
             if (myItems.length === 0) {
                 list.innerHTML = '<div class="empty-state">No saved words yet. Add some from the bank above.</div>';
             } else {
@@ -535,36 +654,62 @@ header.brand .subtitle {
     }
 
     // ── Section 1: Today's Review count + start ───────────────────────
+    // Two states drive the same DOM:
+    //   dueCount > 0  → "X words due today" + "Start today's review" CTA
+    //   dueCount = 0  → onboarding copy + "Browse recommended words" CTA
+    //                   (CTA scrolls to #recommended-section instead of opening modal)
+    let reviewMode = 'idle';   // 'review' | 'browse' | 'idle'
     async function loadDueCount() {
         const cnt = document.getElementById('due-count');
         const lbl = document.getElementById('due-label');
         const btn = document.getElementById('start-review-btn');
+        const onb = document.getElementById('empty-onboarding');
         try {
             const body = await authJson('GET', '/api/vocabulary/review/today');
             reviewQueue = Array.isArray(body.items) ? body.items : [];
-            cnt.textContent = String(reviewQueue.length);
-            if (reviewQueue.length === 0) {
-                lbl.textContent = 'All caught up. Come back tomorrow.';
-                btn.disabled = true;
-            } else {
-                lbl.textContent = reviewQueue.length === 1 ? 'word due for review' : 'words due for review';
+            const dueCount = reviewQueue.length;
+            if (dueCount === 0) {
+                cnt.style.display = 'none';
+                lbl.textContent = 'No words due today.';
+                if (onb) onb.style.display = '';
+                btn.textContent = 'Browse recommended words';
                 btn.disabled = false;
+                reviewMode = 'browse';
+            } else {
+                cnt.style.display = '';
+                cnt.textContent = String(dueCount);
+                lbl.textContent = `${dueCount} ${dueCount === 1 ? 'word' : 'words'} due today`;
+                if (onb) onb.style.display = 'none';
+                btn.textContent = "Start today's review";
+                btn.disabled = false;
+                reviewMode = 'review';
             }
         } catch (e) {
             console.error('loadDueCount failed', e);
             if (e.message === 'not_signed_in') {
+                cnt.style.display = '';
                 cnt.textContent = '—';
                 lbl.textContent = '請先登入';
+                if (onb) onb.style.display = 'none';
                 btn.disabled = true;
             } else {
+                cnt.style.display = '';
                 cnt.textContent = '!';
                 lbl.textContent = 'Failed to load';
+                if (onb) onb.style.display = 'none';
                 btn.disabled = true;
             }
+            reviewMode = 'idle';
         }
     }
 
     document.getElementById('start-review-btn').addEventListener('click', () => {
+        if (reviewMode === 'browse') {
+            window.analytics?.track('vocabulary_empty_review_cta_clicked');
+            const target = document.getElementById('recommended-section');
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+        }
         if (!reviewQueue.length) return;
         reviewIdx = 0;
         reviewCompleted = 0;
@@ -670,12 +815,13 @@ header.brand .subtitle {
         });
     }
 
-    // ── Boot — fire bank + my + due in parallel ───────────────────────
+    // ── Boot — fire bank + my + due + recommended in parallel ────────
     (async () => {
         await Promise.allSettled([
             loadBank(),
             loadMy(),
             loadDueCount(),
+            loadRecommended(),
         ]);
     })();
 })();
