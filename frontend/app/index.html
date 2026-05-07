@@ -1416,6 +1416,36 @@
             color: var(--gold);
             margin: 4px 0;
         }
+        #drill-next-action {
+            margin-top: 12px;
+            padding: 16px;
+            background: var(--surface);
+            border: 1px solid var(--gold);
+            border-radius: 6px;
+        }
+        .drill-next__label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--gold);
+            margin-bottom: 8px;
+        }
+        .drill-next__text {
+            font-size: 14px;
+            color: var(--ink);
+            line-height: 1.6;
+            margin-bottom: 14px;
+        }
+        .drill-next__repeat {
+            width: 100%;
+            padding: 11px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 13px;
+            color: var(--muted);
+            cursor: pointer;
+        }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -1606,6 +1636,11 @@
                   <div class="drill-ba__arrow">↓</div>
                   <div class="drill-ba__label">After (IELTS-ready)</div>
                   <div id="drill-ba-after" class="drill-ba__text drill-ba__text--after"></div>
+                </div>
+                <div id="drill-next-action" style="display:none">
+                  <div class="drill-next__label">明日任務</div>
+                  <div id="drill-next-text" class="drill-next__text"></div>
+                  <button id="drill-repeat-btn" class="drill-next__repeat">🔁 再練一次</button>
                 </div>
                 <div class="feedback-item feedback-item-primary">
                     <div class="feedback-label">這一題真正的問題</div>
@@ -2769,6 +2804,49 @@
             } catch (_) { /* never block UI on tracking */ }
         }
 
+        // Sprint 3 — next-day return hook. Always shows after a drill,
+        // gives a concrete tomorrow-task and a one-click repeat path.
+        // The repeat button reads currentDrillTag at click-time, so we
+        // wire the listener once and let it pick up the latest tag.
+        let drillRepeatWired = false;
+        const NEXT_ACTION_COPY = {
+            weak_vocab: {
+                pass: 'Tomorrow, answer the same question again. This time, replace at least 3 common words with more specific vocabulary. Record yourself and notice the difference.',
+                fail: 'Tomorrow, before you answer, write down 3 specific words related to the topic. Then speak. Use those words.',
+            },
+            lack_detail: {
+                pass: 'Tomorrow, answer the same question and include: a specific time, a specific place, and a feeling. Three anchors minimum.',
+                fail: 'Tomorrow, answer in this structure: When? Where? Who? What feeling? Force yourself to answer each one before finishing.',
+            },
+        };
+        const NEXT_ACTION_FALLBACK = 'Tomorrow, practise the same question again. Focus on being more specific in every sentence.';
+
+        function renderDrillNextAction(tag, passed) {
+            const block   = document.getElementById('drill-next-action');
+            const textEl  = document.getElementById('drill-next-text');
+            const repeatBtn = document.getElementById('drill-repeat-btn');
+            if (!block || !textEl || !repeatBtn) return;
+
+            const bank = NEXT_ACTION_COPY[tag];
+            const copy = bank ? (passed ? bank.pass : bank.fail) : NEXT_ACTION_FALLBACK;
+            textEl.textContent = copy;
+            block.style.display = '';
+
+            if (!drillRepeatWired) {
+                repeatBtn.addEventListener('click', () => {
+                    try {
+                        window.analytics.track('repeat_drill_clicked', { tag: currentDrillTag });
+                    } catch (_) { /* never block click on tracking */ }
+                    if (currentDrillTag) startDrillForTag(currentDrillTag);
+                });
+                drillRepeatWired = true;
+            }
+
+            try {
+                window.analytics.track('next_action_viewed', { tag: tag, passed: !!passed });
+            } catch (_) { /* never block UI on tracking */ }
+        }
+
         function resetForRetrySameQuestion() {
             isRetryingSameQuestion = true;
             feedbackSection.classList.remove('visible');
@@ -2791,6 +2869,14 @@
             document.getElementById('user-transcript').textContent = data.text || '';
             renderDrillEvidence(data);
             renderDrillBeforeAfter(data);
+            // Next-action card is drill-only — hide for normal submissions
+            // and reset any leftover from a prior drill render.
+            if (data && data.drill_score) {
+                renderDrillNextAction(currentDrillTag, !!data.drill_score.threshold_passed);
+            } else {
+                const nextBlock = document.getElementById('drill-next-action');
+                if (nextBlock) nextBlock.style.display = 'none';
+            }
 
             // 批改回饋
             const fullResponse = data.coach_response || '';
