@@ -384,6 +384,39 @@ header.brand .subtitle {
 @media (min-width: 1024px) {
     .vocab-grid { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* IELTS level filter row + description */
+.filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.level-chip {
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--sans);
+    transition: 0.15s;
+    white-space: nowrap;
+}
+.level-chip:hover { border-color: var(--green); color: var(--green); }
+.level-chip.active { background: var(--green); color: #fff; border-color: var(--green); }
+.level-desc {
+    font-size: 13px;
+    color: var(--ink);
+    font-style: italic;
+    background: var(--surface);
+    border-left: 3px solid var(--gold);
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    border-radius: 0 6px 6px 0;
+    line-height: 1.6;
+}
 </style>
 </head>
 <body>
@@ -454,6 +487,14 @@ header.brand .subtitle {
             <button data-topic="emotion">Emotion</button>
             <button data-topic="hobby">Hobby</button>
         </div>
+        <div id="level-filter" class="filter-row">
+            <button class="level-chip active" data-level="all">All Levels</button>
+            <button class="level-chip" data-level="5.5">IELTS 5.5</button>
+            <button class="level-chip" data-level="6.0">IELTS 6.0</button>
+            <button class="level-chip" data-level="6.5">IELTS 6.5</button>
+            <button class="level-chip" data-level="7.0">IELTS 7.0+</button>
+        </div>
+        <div id="level-description" class="level-desc" style="display:none"></div>
         <input type="text" class="vocab-search" id="vocab-search" placeholder="搜尋單字、主題，或你想替換的 basic word...">
         <div id="vocab-grid">
             <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
@@ -497,7 +538,14 @@ header.brand .subtitle {
     let myItems = [];                   // from /api/vocabulary/my (joined)
     let mySetOfItemIds = new Set();     // fast membership check
     let activeTopic = '';
+    let activeLevel = 'all';
     let activeSearch = '';
+    const LEVEL_DESCRIPTIONS = {
+        '5.5': 'Band 5.5 — 基礎進階詞彙。你認識這些字，但還沒有自然說出口的習慣。從這裡開始。',
+        '6.0': 'Band 6.0 — 核心 IELTS 詞彙。考 6 分的學生應該能自然使用這個等級的詞。',
+        '6.5': 'Band 6.5 — 中高階詞彙。用這些字能讓你的回答更精準、更有說服力。',
+        '7.0': 'Band 7.0+ — 高階詞彙。這些字能把你的回答從「正確」提升到「令人印象深刻」。',
+    };
     let reviewQueue = [];               // user_vocabulary rows due
     let reviewIdx = 0;
     let reviewCompleted = 0;
@@ -604,6 +652,7 @@ header.brand .subtitle {
         const term = activeSearch.trim().toLowerCase();
         const filtered = allItems.filter(it => {
             if (activeTopic && (it.topic || '') !== activeTopic) return false;
+            if (activeLevel !== 'all' && (it.ielts_band_level || '') !== activeLevel) return false;
             if (term) {
                 const hay = `${it.word || ''} ${it.zh_meaning || ''}`.toLowerCase();
                 if (!hay.includes(term)) return false;
@@ -676,6 +725,27 @@ header.brand .subtitle {
         document.querySelectorAll('#topic-filters button').forEach(b => b.classList.toggle('active', b === btn));
         renderBank();
         window.analytics?.track('vocabulary_filter_used', { topic: activeTopic || 'all' });
+    });
+
+    // Level filter — IELTS band chips. Selecting a non-"all" level shows
+    // a one-line description of what that band's vocab represents.
+    document.querySelectorAll('.level-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.level-chip').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activeLevel = btn.dataset.level;
+
+            const descEl = document.getElementById('level-description');
+            if (activeLevel !== 'all') {
+                descEl.textContent = LEVEL_DESCRIPTIONS[activeLevel] || '';
+                descEl.style.display = '';
+            } else {
+                descEl.style.display = 'none';
+            }
+
+            window.analytics?.track('vocabulary_filter_used', { filter_type: 'level', level: activeLevel });
+            renderBank();
+        });
     });
     // Search — track on input but debounce so we don't fire per keystroke
     let searchTrackTimer = null;
