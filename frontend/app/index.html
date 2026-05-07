@@ -1625,6 +1625,13 @@
             z-index: 0;
         }
         #practice-hub.card-v3 > * { position: relative; z-index: 1; }
+        /* .practice-deco must stay absolute — the universal-selector rule
+           above otherwise forces it relative and reserves 100px of vertical
+           space at the top of the card. Higher specificity restores absolute. */
+        #practice-hub.card-v3 > .practice-deco {
+            position: absolute;
+            z-index: 0;
+        }
 
         /* Pill-shape primary button (overrides default rectangle) */
         #diagnosis-entry .practice-hub-btn,
