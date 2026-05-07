@@ -1749,9 +1749,6 @@
         const startPracticeBtn = document.getElementById('start-practice-btn');
 
         // Diagnosis entry — owned by feature/student-diagnosis.
-        // No site-wide track() helper exists yet, so log to console
-        // (matches CLAUDE.md "關鍵用戶行為加 track()"; analytics dep
-        // can attach to window.analytics later without changing callers).
         const diagnosisEntryBtn = document.getElementById('diagnosis-entry-btn');
         if (diagnosisEntryBtn) {
             diagnosisEntryBtn.addEventListener('click', () => {
