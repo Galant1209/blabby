@@ -211,7 +211,7 @@
     <div class="user-meta" id="user-joined"></div>
     <div class="stats-grid" id="stats-grid">
       <div><div class="stat__label">總練習</div><div class="stat__value stat__value--big" id="stat-total">—</div></div>
-      <div><div class="stat__label">最常練習</div><div class="stat__value" id="stat-topic">—</div></div>
+      <div><div class="stat__label">已探索 topics</div><div class="stat__value" id="stat-topic">—</div></div>
       <div style="grid-column:1/-1"><div class="stat__label">目前最大弱點</div><div class="stat__value" id="stat-weakness">—</div></div>
     </div>
   </section>
@@ -327,23 +327,23 @@
     $('user-email').textContent = user.email || '—';
     window.analytics.track('account_viewed');
 
-    // Fire history + pro check in parallel — both feed different
-    // sections, neither blocks the other.
-    const historyPromise = fetch(`${API_BASE}/api/history`, {
+    // Fire timeline + pro check in parallel. Timeline gives DB-accurate
+    // total/first_session/topics_seen/weakness_counts in one call —
+    // /api/history was capped to 50 rows and undercounted heavy users.
+    const timelinePromise = fetch(`${API_BASE}/api/diagnosis/timeline`, {
       headers: { 'Authorization': `Bearer ${token}` },
     }).then(r => r.ok ? r.json() : null).catch(() => null);
     const proPromise = fetch(`${API_BASE}/api/drill/check_quota`, {
       headers: { 'Authorization': `Bearer ${token}` },
     }).then(r => r.ok ? r.json() : null).catch(() => null);
 
-    const [historyBody, proBody] = await Promise.all([historyPromise, proPromise]);
-    renderStats(historyBody);
+    const [timelineBody, proBody] = await Promise.all([timelinePromise, proPromise]);
+    renderStats(timelineBody);
     renderPlan(!!(proBody && proBody.is_pro));
   }
 
-  function renderStats(body) {
-    const records = (body && Array.isArray(body.records)) ? body.records : [];
-    const total = records.length;
+  function renderStats(timeline) {
+    const total = (timeline && timeline.total_sessions) || 0;
     $('stat-total').textContent = total;
 
     if (total === 0) {
@@ -353,27 +353,17 @@
       return;
     }
 
-    // joined = earliest record (records arrive newest-first per /api/history).
-    const earliest = records[records.length - 1];
-    $('user-joined').textContent = `Joined ${fmtDate(earliest.created_at)}`;
+    $('user-joined').textContent = `Joined ${fmtDate(timeline.first_session)}`;
 
-    // top topic
-    const topicCounts = {};
-    records.forEach(r => {
-      const t = (r.topic || '').trim();
-      if (t) topicCounts[t] = (topicCounts[t] || 0) + 1;
-    });
-    const topTopic = Object.entries(topicCounts)
-      .sort((a, b) => b[1] - a[1])[0];
-    $('stat-topic').textContent = topTopic ? topTopic[0] : '—';
+    // topics_seen is a deduped list (no per-topic counts) — show count,
+    // not the modal topic. If you want "most-practiced topic" back, the
+    // timeline endpoint needs to return topic_counts as well.
+    const topicsSeen = Array.isArray(timeline.topics_seen) ? timeline.topics_seen : [];
+    $('stat-topic').textContent = topicsSeen.length || '—';
 
-    // top weakness — null/empty tags excluded
-    const tagCounts = {};
-    records.forEach(r => {
-      const tag = (r.weakness_tag || '').trim();
-      if (tag) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-    });
-    const topTag = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])[0];
+    // weakness_counts is a {tag: count} dict from the timeline endpoint.
+    const weaknessCounts = timeline.weakness_counts || {};
+    const topTag = Object.entries(weaknessCounts).sort((a, b) => b[1] - a[1])[0];
     if (topTag) {
       const label = WEAKNESS_LABELS[topTag[0]] || topTag[0];
       $('stat-weakness').textContent = label;
