@@ -1212,40 +1212,39 @@ def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
         history_text += f"Blabby 教練回饋：{r.get('coach_response', '-')}\n"
         history_text += f"---\n"
 
-    system_prompt = """你是一位資深 IELTS 口說教練，專門診斷台灣學生的口說弱點。
+    system_prompt = (
+        "You are an expert IELTS Speaking coach. Analyze the student's "
+        "practice history and return a JSON object only. No markdown, "
+        "no explanation, no code fences."
+    )
 
-你的任務是讀完這位學生所有的練習記錄，用繁體中文產出一份診斷報告，
-直接寫給學生本人看。
-
-報告格式（必須嚴格遵守）：
-
-## 前三大卡點
-依嚴重度排序，每個卡點寫成一個段落。段落開頭講你最常卡在哪裡，接著
-直接引用某一筆練習裡你說過的句子當證據，最後說明這個模式出現了幾次。
-
-## 你在哪裡停住
-寫成一段散文，描述你每次講話停下來的時機與原因，舉兩到三個具體場景，
-例如「講完一個事實後就停」「想到要舉例就卡」。
-
-## 下一步建議
-一段散文，告訴你下一題該挑哪種類型的題目，並說明為什麼這樣練。
-
-## 危險訊號
-一段散文，指出有沒有重複套模板、應付式回答之類的傾向；沒有就直接寫
-「無」。
-
-規則：
-- 必須用第二人稱「你」稱呼學生，絕對不可寫「他」「她」「該學生」
-- 不使用 markdown bullet points（- 或 *）或 --- 分隔線
-- 內文必須是流暢的散文段落，標題（##）保留即可
-- 不打分數
-- 不給空泛建議（像「多練習」這種不要寫）
-- 每個卡點要有具體 transcript 段落當證據
-- 語氣直接，像對一個熟識的學生講話，不要客氣
-- 整份報告控制在 500 字內，精簡
-"""
-
-    user_prompt = f"以下是學生的練習記錄：\n{history_text}\n\n請產出診斷報告。"
+    user_prompt = (
+        "以下是學生的練習記錄：\n"
+        f"{history_text}\n\n"
+        "請輸出一個 JSON 物件，結構如下（鍵名固定，不可改）：\n\n"
+        "{\n"
+        '  "summary": "一句話總結學生現況（第二人稱，繁體中文）",\n'
+        '  "weaknesses": [\n'
+        "    {\n"
+        '      "rank": 1,\n'
+        '      "title": "卡點名稱（繁體中文，5字以內）",\n'
+        '      "tag": "從 no_attempt / lack_detail / weak_vocab / repetition / off_topic 選一個最接近的",\n'
+        '      "description": "2-3句散文描述，第二人稱，繁體中文，說明這個問題的本質",\n'
+        '      "evidence": ["具體例句或筆次，最多 3 條，格式「第N筆：原文片段」"],\n'
+        '      "drill_available": true\n'
+        "    }\n"
+        "  ],\n"
+        '  "next_step": "給學生的一段建議文字，可直接發給學生，繁體中文"\n'
+        "}\n\n"
+        "規則：\n"
+        "- 必須輸出 valid JSON，不加 markdown fences、不加任何說明文字\n"
+        "- weaknesses 固定 3 個，按嚴重程度排序（rank 1 最嚴重）\n"
+        "- 第二人稱「你」，禁用「她」「他」「該學生」\n"
+        "- evidence 引用真實筆次，格式「第N筆：原文片段」\n"
+        "- drill_available 為 true 當且僅當 tag 是 lack_detail 或 weak_vocab\n"
+        "- 不打分數\n"
+        "- 不給空泛建議（像「多練習」這種不要寫）"
+    )
 
     return system_prompt, user_prompt
 
@@ -4286,12 +4285,35 @@ def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
             detail="Diagnosis service unavailable, please try again",
         )
 
+    # Strip code fences just in case the model ignored the no-fence rule.
+    raw = diagnosis_text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+
+    fmt = "raw"
+    parsed_data = None
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed.get("weaknesses"), list):
+            raise ValueError("missing weaknesses array")
+        fmt = "structured"
+        parsed_data = parsed
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("diagnosis JSON parse failed, falling back to raw text")
+
     return {
         "user_id": user_id,
         "total_records": len(records),
         "practice_count": len(records),
         "generated_at": now_iso,
-        "diagnosis_markdown": diagnosis_text,
+        "format": fmt,
+        "data": parsed_data,
+        "raw": raw,
+        # diagnosis_markdown kept for the admin tool which still renders
+        # the raw payload through marked(); for structured output it'll
+        # show the JSON until admin.html learns the new shape.
+        "diagnosis_markdown": raw,
     }
 
 
@@ -4359,12 +4381,25 @@ async def my_diagnosis(
                 cache_rows = cache_resp.data or []
                 if cache_rows and cache_rows[0].get("practice_count") == current_count:
                     cached = cache_rows[0]
+                    cached_raw = cached.get("content") or ""
+                    cached_fmt = "raw"
+                    cached_data = None
+                    try:
+                        parsed_cached = json.loads(cached_raw)
+                        if isinstance(parsed_cached.get("weaknesses"), list):
+                            cached_fmt = "structured"
+                            cached_data = parsed_cached
+                    except (json.JSONDecodeError, ValueError):
+                        pass
                     return {
                         "user_id": user_id,
                         "total_records": current_count,
                         "practice_count": current_count,
                         "generated_at": cached.get("updated_at") or datetime.now(timezone.utc).isoformat(),
-                        "diagnosis_markdown": cached.get("content") or "",
+                        "format": cached_fmt,
+                        "data": cached_data,
+                        "raw": cached_raw,
+                        "diagnosis_markdown": cached_raw,
                         "cached": True,
                     }
             except Exception:

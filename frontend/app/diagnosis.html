@@ -314,6 +314,94 @@
   .skel-line:nth-of-type(2) { animation-delay: 0.1s; }
   .skel-line:nth-of-type(3) { animation-delay: 0.2s; }
   .skel-line:nth-of-type(4) { animation-delay: 0.3s; }
+
+  /* === Structured diagnosis === */
+  .struct-summary {
+      font-style: italic; text-align: center; color: var(--navy);
+      font-size: 17px; line-height: 1.6; padding: 18px 8px 6px;
+      font-family: 'EB Garamond', 'Noto Serif TC', Georgia, serif;
+  }
+  .weakness-cards { margin-top: 18px; display: flex; flex-direction: column; gap: 16px; }
+  .wcard {
+      background: var(--surface); border: 1.5px solid var(--border);
+      padding: 18px 20px;
+      transition: opacity 200ms ease, background 200ms ease;
+  }
+  .wcard__head {
+      display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px;
+  }
+  .wcard__rank {
+      font-family: 'Playfair Display', serif; font-size: 28px;
+      color: var(--gold); font-weight: 700; line-height: 1;
+  }
+  .wcard__title {
+      font-family: 'Playfair Display', 'EB Garamond', serif;
+      font-size: 19px; font-weight: 700; color: var(--navy);
+      letter-spacing: 0.01em;
+  }
+  .wcard__desc {
+      color: var(--ink); font-size: 15px; line-height: 1.7;
+      margin-bottom: 12px;
+  }
+  .wcard__actions {
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+      padding-top: 10px; border-top: 1px dashed var(--border);
+  }
+  .wcard__btn {
+      padding: 6px 14px; background: transparent;
+      border: 1px solid var(--border); color: var(--muted);
+      font-family: 'EB Garamond', serif; font-size: 13px; font-style: italic;
+      cursor: pointer; letter-spacing: 0.02em;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+  .wcard__btn:hover { color: var(--navy); border-color: var(--navy); }
+  .wcard__btn--drill { color: var(--navy); border-color: var(--gold); }
+  .wcard__btn--drill:hover { background: rgba(201,168,76,0.12); }
+  .wcard__btn--dismiss { margin-left: auto; }
+  .wcard__btn--dismiss.done { color: var(--green); border-color: var(--green); }
+
+  .wcard__evidence {
+      max-height: 0; overflow: hidden; opacity: 0;
+      transition: max-height 280ms ease, opacity 200ms ease, margin 200ms ease;
+      margin: 0 0 0 0;
+      font-size: 13px; color: var(--muted);
+  }
+  .wcard__evidence.open {
+      max-height: 400px; opacity: 1; margin: 0 0 12px 0;
+  }
+  .wcard__evidence ol {
+      margin: 0 0 0 22px; padding: 0;
+  }
+  .wcard__evidence li {
+      margin-bottom: 4px; line-height: 1.55;
+  }
+
+  .wcard.dismissed {
+      opacity: 0.45; background: #f3efe6;
+  }
+  .wcard.dismissed .wcard__desc,
+  .wcard.dismissed .wcard__evidence,
+  .wcard.dismissed .wcard__btn:not(.wcard__btn--dismiss) { display: none; }
+  .wcard__dismissed-note {
+      display: none; font-size: 13px; color: var(--muted); font-style: italic;
+      padding-top: 6px;
+  }
+  .wcard.dismissed .wcard__dismissed-note { display: block; }
+  .wcard.dismissed .wcard__actions { border-top: none; padding-top: 0; }
+
+  .struct-next {
+      margin-top: 28px; padding: 22px 22px 20px;
+      background: var(--surface); border-left: 3px solid var(--gold);
+  }
+  .struct-next__title {
+      font-family: 'Playfair Display', serif; font-size: 13px;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--gold); font-weight: 700; margin-bottom: 10px;
+  }
+  .struct-next__body {
+      font-size: 15px; line-height: 1.75; color: var(--ink);
+      font-family: 'EB Garamond', 'Noto Serif TC', Georgia, serif;
+  }
 </style>
 <!-- PostHog Analytics -->
 <script>
@@ -534,6 +622,117 @@
     });
   }
 
+  // === Structured diagnosis rendering ===
+  // The new JSON shape from /api/diagnosis/me. Keys mirror the prompt:
+  // { summary, weaknesses: [{rank, title, tag, description, evidence[], drill_available}], next_step }
+  // dismissed state lives in localStorage keyed by user_id + rank.
+  const DRILLABLE_TAGS_STRUCT = new Set(['weak_vocab', 'lack_detail']);
+
+  function dismissedKey(userId, rank) {
+    return `dismissed_${userId || 'anon'}_${rank}`;
+  }
+
+  function renderStructuredDiagnosis(payload) {
+    const data = payload.data || {};
+    const userId = payload.user_id || '';
+    const summary = data.summary || '';
+    const weaknesses = Array.isArray(data.weaknesses) ? data.weaknesses : [];
+    const nextStep = data.next_step || '';
+
+    const cardsHtml = weaknesses.map((w) => {
+      const rank = w.rank ?? '?';
+      const title = w.title || '—';
+      const tag = w.tag || '';
+      const desc = w.description || '';
+      const evidence = Array.isArray(w.evidence) ? w.evidence : [];
+      const drillBtn = (w.drill_available === true && DRILLABLE_TAGS_STRUCT.has(tag))
+        ? `<button class="wcard__btn wcard__btn--drill" data-drill="${escapeHtml(tag)}">針對訓練 →</button>`
+        : '';
+      const evidenceHtml = evidence.length ? `
+        <div class="wcard__evidence" data-rank="${escapeHtml(rank)}">
+          <ol>${evidence.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ol>
+        </div>` : '';
+      const isDismissed = (() => {
+        try { return localStorage.getItem(dismissedKey(userId, rank)) === '1'; }
+        catch (_) { return false; }
+      })();
+      return `
+        <div class="wcard${isDismissed ? ' dismissed' : ''}" data-rank="${escapeHtml(rank)}">
+          <div class="wcard__head">
+            <div class="wcard__rank">${escapeHtml(rank)}</div>
+            <div class="wcard__title">${escapeHtml(title)}</div>
+          </div>
+          <div class="wcard__desc">${escapeHtml(desc)}</div>
+          ${evidenceHtml}
+          <div class="wcard__actions">
+            ${evidence.length ? `<button class="wcard__btn wcard__btn--evidence" data-rank="${escapeHtml(rank)}">展開證據</button>` : ''}
+            ${drillBtn}
+            <button class="wcard__btn wcard__btn--dismiss${isDismissed ? ' done' : ''}" data-rank="${escapeHtml(rank)}">
+              ${isDismissed ? '已標記為改善' : '✓ 已改善'}
+            </button>
+          </div>
+          <div class="wcard__dismissed-note">已標記為改善，繼續觀察中</div>
+        </div>`;
+    }).join('');
+
+    return `
+      ${summary ? `<div class="struct-summary">${escapeHtml(summary)}</div>` : ''}
+      <div class="weakness-cards">${cardsHtml}</div>
+      ${nextStep ? `
+        <div class="struct-next">
+          <div class="struct-next__title">下一步</div>
+          <div class="struct-next__body">${escapeHtml(nextStep)}</div>
+        </div>` : ''}
+    `;
+  }
+
+  function wireStructuredHandlers(root, userId) {
+    // Toggle evidence reveal — flip .open on the matching .wcard__evidence,
+    // toggle button label.
+    root.querySelectorAll('.wcard__btn--evidence').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const rank = btn.dataset.rank;
+        const ev = root.querySelector(`.wcard__evidence[data-rank="${rank}"]`);
+        if (!ev) return;
+        const open = ev.classList.toggle('open');
+        btn.textContent = open ? '收起證據' : '展開證據';
+      });
+    });
+    // Drill deep-link — same mechanism as the timeline trend buttons.
+    root.querySelectorAll('.wcard__btn--drill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tag = btn.dataset.drill || '';
+        track('diagnosis_struct_drill_clicked', { tag });
+        window.location.href = `/index.html?drill=${encodeURIComponent(tag)}`;
+      });
+    });
+    // Dismiss — write localStorage flag, flip the card class. No backend
+    // round-trip; this is a personal "I'm watching this" marker.
+    root.querySelectorAll('.wcard__btn--dismiss').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const rank = btn.dataset.rank;
+        const card = root.querySelector(`.wcard[data-rank="${rank}"]`);
+        if (!card) return;
+        const wasDismissed = card.classList.contains('dismissed');
+        const key = dismissedKey(userId, rank);
+        try {
+          if (wasDismissed) {
+            localStorage.removeItem(key);
+            card.classList.remove('dismissed');
+            btn.classList.remove('done');
+            btn.textContent = '✓ 已改善';
+          } else {
+            localStorage.setItem(key, '1');
+            card.classList.add('dismissed');
+            btn.classList.add('done');
+            btn.textContent = '已標記為改善';
+            track('diagnosis_struct_dismissed', { rank });
+          }
+        } catch (_) { /* localStorage blocked — best-effort */ }
+      });
+    });
+  }
+
   // Re-observe any new .fade-in nodes added after first render — the diagnosis
   // panel gets swapped in piecemeal, so a single boot-time observer would miss
   // the late arrivals.
@@ -657,8 +856,13 @@
     const panel = document.getElementById('diagnosis-panel');
     if (panel) {
       panel.classList.add('visible'); // keep the existing fade-in state
+      const isStructured = data && data.format === 'structured' && data.data
+        && Array.isArray(data.data.weaknesses);
+      const bodyHtml = isStructured
+        ? renderStructuredDiagnosis(data)
+        : `<div class="md">${renderMarkdown(data.diagnosis_markdown || data.raw || '')}</div>`;
       panel.innerHTML = `
-        <div class="md">${renderMarkdown(data.diagnosis_markdown || '')}</div>
+        ${bodyHtml}
         <div class="meta">Compiled ${new Date(data.generated_at || Date.now()).toLocaleString()}</div>
         <div class="diagnosis-conversion fade-in">
           <div class="diagnosis-conversion__free">
@@ -675,6 +879,7 @@
           <button id="diagnosis-cta-primary" class="diagnosis-cta__primary">前往單字訓練 →</button>
           <button id="diagnosis-cta-secondary" class="diagnosis-cta__secondary"${isPro ? ' style="display:none"' : ''}>Upgrade to Pro →</button>
         </div>`;
+      if (isStructured) wireStructuredHandlers(panel, data.user_id || '');
     }
 
     document.getElementById('diagnosis-cta-primary').addEventListener('click', () => {
@@ -689,12 +894,16 @@
       });
     }
 
-    track('diagnosis_viewed', { practice_count: count, cached: !!data.cached });
+    track('diagnosis_viewed', {
+      practice_count: count,
+      cached: !!data.cached,
+      format: data.format || 'raw',
+    });
 
     // Walk the rendered .md DOM and append per-weakness metadata + drill
-    // buttons. Skips silently if no timeline data or no list items match
-    // a known tag keyword.
-    if (timeline) injectWeaknessMeta(timeline);
+    // buttons. Only meaningful in raw/markdown mode — structured cards
+    // already carry their own evidence + drill buttons.
+    if (timeline && data.format !== 'structured') injectWeaknessMeta(timeline);
 
     // Re-run the fade-in observer over the freshly-mounted children.
     const fadeEls = document.querySelectorAll('.fade-in');
