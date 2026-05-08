@@ -2960,7 +2960,7 @@ async def vocabulary_review_submit(
 
 
 @app.post("/api/vocabulary/generate")
-@limiter.limit("6/minute")
+@limiter.limit("3/minute")
 async def vocabulary_generate(
     request: Request,
     authorization: Optional[str] = Header(None),

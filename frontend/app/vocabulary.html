@@ -815,6 +815,8 @@ header.brand .subtitle {
                 if (status) {
                     status.textContent = res.status === 404
                         ? '請先完成幾次練習，系統才能根據你的弱點生成單字。'
+                        : res.status === 429
+                        ? 'The system is momentarily occupied. Pray wait one minute and try again.'
                         : '生成失敗，請稍後再試。';
                     status.style.display = '';
                 }
