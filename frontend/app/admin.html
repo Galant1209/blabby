@@ -299,7 +299,7 @@
   const SUPABASE_URL = cfg.supabaseUrl;
   const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
   const API_BASE = 'https://blabby-backend.onrender.com';
-  const ADMIN_EMAIL = 'galant.chiu@kumo-edu.com';
+  const ADMIN_EMAILS = ['galant.chiu@kumo-edu.com', 'galant19951209@gmail.com'];
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     document.body.innerHTML = '<div style="padding:40px;font-family:serif;">Configuration missing.</div>';
@@ -378,10 +378,10 @@
       window.location.replace('/index.html');
       return;
     }
-    const email = (session.user.email || '').toLowerCase();
-    if (email !== ADMIN_EMAIL.toLowerCase()) {
-      // Not the designated admin — silently bounce.
-      window.location.replace('/index.html');
+    const userEmail = (session.user.email || '').toLowerCase();
+    if (!ADMIN_EMAILS.map(e => e.toLowerCase()).includes(userEmail)) {
+      // Not a designated admin — silently bounce.
+      window.location.replace('/');
       return;
     }
     state.token = session.access_token;
