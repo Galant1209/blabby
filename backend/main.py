@@ -4020,6 +4020,66 @@ async def admin_reclassify(
     }
 
 
+@app.get("/api/admin/student_brief/{target_user_id}")
+@limiter.limit("10/minute")
+async def admin_student_brief(
+    target_user_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    One-paragraph coach brief for a student, generated from their last 30
+    valid practice records. Output is Traditional Chinese, formatted as
+    現況判斷 / 最關鍵問題 / 給學生的建議 — copy-paste ready for messaging.
+    Admin-only.
+    """
+    verify_admin(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        resp = (
+            supabase_admin.table("practice_records")
+            .select("created_at, topic, question, user_transcript, weakness_tag, quality_grade")
+            .eq("user_id", target_user_id)
+            .eq("quality_grade", "valid")
+            .order("created_at", desc=False)
+            .limit(30)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("admin_student_brief query failed", extra={"target_user_id": target_user_id})
+        raise HTTPException(status_code=503, detail="Failed to load records") from exc
+
+    rows = resp.data or []
+    if not rows:
+        return {"brief": "No valid practice records found for this student."}
+
+    records_text = "\n\n".join([
+        f"[{(r.get('created_at') or '')[:10]}] Topic: {r.get('topic','')} | Q: {r.get('question','')}\n"
+        f"Said: {(r.get('user_transcript') or '')[:300]}\n"
+        f"Weakness: {r.get('weakness_tag','')}"
+        for r in rows
+    ])
+
+    try:
+        response = anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=800,
+            system=(
+                "You are an expert IELTS Speaking coach reviewing a student's practice history. "
+                "Be direct, specific, and actionable. Write in Traditional Chinese. "
+                "Format: 1) 現況判斷（2句話） 2) 最關鍵問題（1個，具體證據） 3) 給學生的建議（可直接發給學生的文字）"
+            ),
+            messages=[{"role": "user", "content": f"Student's valid practice records:\n\n{records_text}"}],
+        )
+    except Exception as exc:
+        logger.exception("admin_student_brief Claude call failed")
+        raise HTTPException(status_code=503, detail="LLM call failed") from exc
+
+    return {"brief": response.content[0].text.strip()}
+
+
 @app.get("/admin/user/{user_id}")
 @limiter.limit("30/minute")
 async def admin_user_records(

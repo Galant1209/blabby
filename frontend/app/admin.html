@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blabby Admin</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z' fill='none' stroke='%23C9A84C' stroke-width='2' stroke-linejoin='round'/><line x1='4' y1='26' x2='28' y2='26' stroke='%23C9A84C' stroke-width='2'/><circle cx='16' cy='7' r='2' fill='%23C9A84C'/><circle cx='4' cy='13' r='2' fill='%23C9A84C'/><circle cx='28' cy='13' r='2' fill='%23C9A84C'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./config.js"></script>
+<style>
+  :root {
+    --cream:    #F5F0E8;
+    --bg:       #F5F0E8;
+    --surface:  #FDFAF4;
+    --ink:      #2C2416;
+    --navy:     #1A3550;
+    --gold:     #C9A84C;
+    --green:    #2D5016;
+    --red:      #6B1A1A;
+    --amber:    #8a6e1a;
+    --border:   #C4B89A;
+    --muted:    #7A6E5F;
+    --line:     #ececec;
+    --sans:     'Inter Tight', system-ui, sans-serif;
+    --serif:    'EB Garamond', Georgia, serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; writing-mode: horizontal-tb; }
+  html, body {
+    background: var(--cream); color: var(--ink);
+    font-family: var(--sans); font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+
+  /* === Top bar === */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .topbar__brand {
+    font-family: var(--serif); font-size: 18px; font-weight: 700;
+    color: var(--navy); letter-spacing: 0.02em;
+  }
+  .topbar__brand span { color: var(--gold); margin-left: 6px; font-style: italic; font-weight: 400; }
+  .topbar__user { font-size: 12px; color: var(--muted); }
+  .topbar__user a { color: var(--gold); margin-left: 12px; text-decoration: none; }
+  .topbar__user a:hover { text-decoration: underline; }
+
+  /* === Three-column layout === */
+  .layout {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr) 420px;
+    gap: 0;
+    height: calc(100vh - 47px);
+  }
+  .col {
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .col:last-child { border-right: none; }
+  .col__title {
+    padding: 12px 14px; font-family: var(--serif); font-size: 13px;
+    font-weight: 700; color: var(--navy); letter-spacing: 0.06em;
+    text-transform: uppercase; border-bottom: 1px solid var(--line);
+    background: var(--surface); position: sticky; top: 0; z-index: 1;
+  }
+  .col__body { padding: 6px 0; }
+  .col__empty {
+    padding: 24px 14px; color: var(--muted); font-style: italic; font-size: 13px;
+  }
+
+  /* === Left: user list === */
+  .user-row {
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    cursor: pointer; transition: background 100ms ease;
+  }
+  .user-row:hover { background: rgba(201,168,76,0.06); }
+  .user-row.active {
+    background: rgba(201,168,76,0.16);
+    border-left: 3px solid var(--gold);
+    padding-left: 11px;
+  }
+  .user-row__email {
+    font-size: 12px; color: var(--ink); font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 100%;
+  }
+  .user-row__counts {
+    display: flex; gap: 8px; font-size: 11px; margin-top: 4px;
+    font-family: monospace;
+  }
+  .user-row__counts .v { color: var(--green); }
+  .user-row__counts .p { color: var(--amber); }
+  .user-row__counts .i { color: var(--red); }
+
+  /* === Middle: triage bar + practice rows === */
+  .triage-bar {
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 12px; background: var(--surface);
+    position: sticky; top: 41px; z-index: 1;
+  }
+  .triage-bar__stats { font-family: var(--serif); color: var(--ink); font-size: 13px; }
+  .triage-bar__stats .qc { font-weight: 700; margin-right: 8px; }
+  .triage-bar__stats .qc.v { color: var(--green); }
+  .triage-bar__stats .qc.p { color: var(--amber); }
+  .triage-bar__stats .qc.i { color: var(--red); }
+  .triage-bar__total { color: var(--muted); }
+  .triage-bar__actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .toggle {
+    display: inline-flex; align-items: center; gap: 5px;
+    cursor: pointer; color: var(--muted); font-size: 12px;
+  }
+  .toggle input { cursor: pointer; }
+  .btn {
+    padding: 5px 12px; border: 1px solid var(--gold); background: var(--surface);
+    color: var(--green); font-family: var(--sans); font-size: 12px;
+    cursor: pointer; letter-spacing: 0.02em; transition: background 100ms ease;
+  }
+  .btn:hover:not(:disabled) { background: rgba(201,168,76,0.10); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn--primary {
+    background: var(--green); color: var(--gold); border-color: var(--green);
+  }
+  .btn--primary:hover:not(:disabled) { background: #244112; }
+  .status {
+    font-size: 11px; color: var(--muted); font-style: italic;
+  }
+
+  /* Practice row */
+  .prow {
+    display: grid;
+    grid-template-columns: 80px 1fr 80px;
+    gap: 10px; padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px; cursor: pointer; align-items: start;
+    transition: background 100ms ease;
+  }
+  .prow:hover { background: rgba(201,168,76,0.05); }
+  .prow.active { background: rgba(201,168,76,0.14); }
+  .prow.hidden { display: none; }
+  .prow__time { color: var(--muted); font-family: monospace; font-size: 11px; }
+  .prow__main { min-width: 0; }
+  .prow__q {
+    font-style: italic; color: var(--ink); font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .prow__t {
+    color: var(--muted); font-size: 11px; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .prow__grade { text-align: right; }
+
+  /* === Quality badges === */
+  .badge {
+    display: inline-block; padding: 2px 7px; border-radius: 2px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; font-family: var(--sans);
+  }
+  .badge.valid    { background: rgba(45,80,22,0.12);  color: var(--green); }
+  .badge.partial  { background: rgba(201,168,76,0.18); color: var(--amber); }
+  .badge.invalid  { background: rgba(107,26,26,0.12); color: var(--red); }
+  .badge.unknown  { background: rgba(122,110,95,0.12); color: var(--muted); }
+  .badge.none     { background: #f3efe6; color: #999; }
+  .badge.tag {
+    background: rgba(26,53,80,0.10); color: var(--navy); text-transform: none;
+    font-style: italic; font-weight: 500;
+  }
+
+  /* === Right: student detail === */
+  .right-header {
+    padding: 14px; border-bottom: 1px solid var(--line);
+  }
+  .right-header__email {
+    font-family: var(--serif); font-size: 16px; font-weight: 500;
+    color: var(--navy); margin-bottom: 6px; word-break: break-all;
+  }
+  .right-header__meta { font-size: 11px; color: var(--muted); }
+  .right-actions {
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .right-section { padding: 14px; border-bottom: 1px solid var(--line); }
+  .right-section h3 {
+    font-family: var(--serif); font-size: 13px; color: var(--navy);
+    font-weight: 700; margin-bottom: 8px; letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .brief-block, .diag-block {
+    background: var(--cream); padding: 12px; border-left: 2px solid var(--gold);
+    font-size: 13px; line-height: 1.7; color: var(--ink);
+    white-space: pre-wrap; word-break: break-word;
+    font-family: var(--serif);
+  }
+  .brief-block.loading, .diag-block.loading {
+    color: var(--muted); font-style: italic;
+  }
+  .copy-btn {
+    margin-top: 8px; font-size: 11px; padding: 3px 10px;
+    background: transparent; border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer;
+  }
+  .copy-btn:hover { color: var(--green); border-color: var(--green); }
+
+  /* Markdown rendering for AI diagnosis */
+  .md h1, .md h2 {
+    font-family: var(--serif); font-size: 14px; color: var(--navy);
+    margin: 12px 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line);
+  }
+  .md h1:first-child, .md h2:first-child { margin-top: 0; }
+  .md h3 { font-size: 13px; font-weight: 700; margin: 10px 0 4px; color: var(--ink); }
+  .md p  { margin: 0 0 8px; }
+  .md ul, .md ol { margin: 0 0 8px 18px; }
+  .md li { margin-bottom: 3px; }
+  .md strong { color: var(--ink); font-weight: 700; }
+  .md em { color: var(--navy); font-style: italic; }
+
+  /* Record detail panel (clicked from middle column) */
+  .detail-field { margin-bottom: 10px; }
+  .detail-field__label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); margin-bottom: 3px;
+  }
+  .detail-field__value {
+    font-size: 13px; color: var(--ink); line-height: 1.6;
+    word-break: break-word;
+  }
+  .detail-field__value.italic { font-style: italic; }
+  .detail-field__value.empty { color: var(--muted); font-style: italic; }
+  .detail-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+
+  /* === Mobile (single column with dropdown) === */
+  .mobile-user-select { display: none; }
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto;
+      height: auto;
+    }
+    .col {
+      border-right: none; border-bottom: 1px solid var(--border);
+      max-height: 70vh;
+    }
+    .col--users { display: none; }
+    .mobile-user-select {
+      display: block; padding: 10px 14px; background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .mobile-user-select select {
+      width: 100%; padding: 8px; font-family: var(--sans); font-size: 13px;
+      border: 1px solid var(--border); background: white;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar__brand">Blabby <span>admin</span></div>
+  <div class="topbar__user" id="topbar-user">
+    <span id="admin-email">—</span>
+    <a href="/index.html">← back to app</a>
+  </div>
+</div>
+
+<div class="mobile-user-select" id="mobile-user-select">
+  <select id="mobile-user-dropdown"><option>Loading users…</option></select>
+</div>
+
+<div class="layout">
+  <aside class="col col--users" id="col-users">
+    <div class="col__title">使用者</div>
+    <div class="col__body" id="users-list">
+      <div class="col__empty">Loading…</div>
+    </div>
+  </aside>
+
+  <main class="col col--records" id="col-records">
+    <div id="middle-content">
+      <div class="col__empty">Select a user to view practice records.</div>
+    </div>
+  </main>
+
+  <aside class="col col--detail" id="col-detail">
+    <div id="right-content">
+      <div class="col__empty">Select a user.</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+(() => {
+  const cfg = window.BLABBY_CONFIG || {};
+  const SUPABASE_URL = cfg.supabaseUrl;
+  const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
+  const API_BASE = 'https://blabby-backend.onrender.com';
+  const ADMIN_EMAIL = 'galant.chiu@kumo-edu.com';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.body.innerHTML = '<div style="padding:40px;font-family:serif;">Configuration missing.</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Page state — single source of truth, mutated by select* helpers below.
+  const state = {
+    users: [],            // [{user_id, email, record_count, quality_counts, last_seen, ...}]
+    selectedUserId: null,
+    detail: null,         // {user_id, email, total_records, records: [...]}
+    selectedRecordId: null,
+    showAll: false,
+    token: null,
+  };
+
+  // === Helpers ===
+  const $ = (id) => document.getElementById(id);
+  const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const truncate = (s, n) => {
+    const t = String(s || '').trim();
+    return t.length > n ? t.slice(0, n) + '…' : t;
+  };
+  const fmtTime = (iso) => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mn = String(d.getMinutes()).padStart(2, '0');
+      return `${mm}/${dd} ${hh}:${mn}`;
+    } catch (_) { return '—'; }
+  };
+  const fmtDateTime = (iso) => {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleString(); } catch (_) { return iso; }
+  };
+
+  // Minimal markdown — same shape as diagnosis.html. Reads OK for AI output.
+  function renderMarkdown(src) {
+    const lines = String(src || '').replace(/\r\n/g, '\n').split('\n');
+    const out = []; let inList = false;
+    const flush = () => { if (inList) { out.push('</ul>'); inList = false; } };
+    const inline = (s) => escapeHtml(s)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|\W)\*(?!\s)([^*]+?)\*(?!\w)/g, '$1<em>$2</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+    for (const raw of lines) {
+      const line = raw.trimEnd();
+      if (!line.trim()) { flush(); continue; }
+      const h = line.match(/^(#{1,3})\s+(.+)$/);
+      if (h) { flush(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
+      const li = line.match(/^[-*]\s+(.+)$/);
+      if (li) { if (!inList) { out.push('<ul>'); inList = true; } out.push(`<li>${inline(li[1])}</li>`); continue; }
+      flush();
+      out.push(`<p>${inline(line)}</p>`);
+    }
+    flush();
+    return out.join('\n');
+  }
+
+  // === Boot: auth gate ===
+  async function boot() {
+    let session = null;
+    try {
+      const { data } = await sb.auth.getSession();
+      session = data && data.session;
+    } catch (e) {
+      console.error('getSession failed', e);
+    }
+    if (!session || !session.user) {
+      window.location.replace('/index.html');
+      return;
+    }
+    const email = (session.user.email || '').toLowerCase();
+    if (email !== ADMIN_EMAIL.toLowerCase()) {
+      // Not the designated admin — silently bounce.
+      window.location.replace('/index.html');
+      return;
+    }
+    state.token = session.access_token;
+    $('admin-email').textContent = session.user.email;
+    await loadUsers();
+  }
+
+  // === Left column: users ===
+  async function loadUsers() {
+    const list = $('users-list');
+    list.innerHTML = '<div class="col__empty">Loading…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/admin/users`, {
+        headers: { 'Authorization': `Bearer ${state.token}` },
+      });
+      if (!res.ok) {
+        list.innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`;
+        return;
+      }
+      const body = await res.json();
+      const users = (body.users || []).slice().sort((a, b) =>
+        String(b.last_seen || '').localeCompare(String(a.last_seen || ''))
+      );
+      state.users = users;
+      renderUsers();
+      // Populate mobile dropdown.
+      const dd = $('mobile-user-dropdown');
+      dd.innerHTML = users.map(u => {
+        const label = (u.email || (u.user_id || '').slice(0, 8));
+        const q = u.quality_counts || {};
+        return `<option value="${escapeHtml(u.user_id)}">${escapeHtml(label)} · ${q.valid||0}v / ${q.invalid||0}i</option>`;
+      }).join('');
+      dd.addEventListener('change', () => selectUser(dd.value));
+
+      if (users.length > 0) await selectUser(users[0].user_id);
+    } catch (err) {
+      console.error('loadUsers error', err);
+      list.innerHTML = '<div class="col__empty">Network error</div>';
+    }
+  }
+
+  function renderUsers() {
+    const list = $('users-list');
+    if (!state.users.length) {
+      list.innerHTML = '<div class="col__empty">No users yet.</div>';
+      return;
+    }
+    list.innerHTML = state.users.map(u => {
+      const q = u.quality_counts || {};
+      const label = u.email
+        ? truncate(u.email, 20)
+        : (u.user_id || '').slice(0, 8);
+      const cls = u.user_id === state.selectedUserId ? 'user-row active' : 'user-row';
+      return `
+        <div class="${cls}" data-user-id="${escapeHtml(u.user_id)}" title="${escapeHtml(u.email || u.user_id)}">
+          <div class="user-row__email">${escapeHtml(label)}</div>
+          <div class="user-row__counts">
+            <span class="v">${q.valid || 0}v</span>
+            <span class="p">${q.partial || 0}p</span>
+            <span class="i">${q.invalid || 0}i</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+    list.querySelectorAll('.user-row').forEach(el => {
+      el.addEventListener('click', () => selectUser(el.dataset.userId));
+    });
+  }
+
+  // === Middle column: practice records ===
+  async function selectUser(userId) {
+    state.selectedUserId = userId;
+    state.selectedRecordId = null;
+    renderUsers(); // refresh active highlight
+    $('middle-content').innerHTML = '<div class="col__empty">Loading records…</div>';
+    $('right-content').innerHTML = '<div class="col__empty">Loading…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}`, {
+        headers: { 'Authorization': `Bearer ${state.token}` },
+      });
+      if (!res.ok) {
+        $('middle-content').innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`;
+        return;
+      }
+      state.detail = await res.json();
+      renderMiddle();
+      renderRightHeader();
+    } catch (err) {
+      console.error('selectUser error', err);
+      $('middle-content').innerHTML = '<div class="col__empty">Network error</div>';
+    }
+  }
+
+  function renderMiddle() {
+    const d = state.detail;
+    if (!d) return;
+    const records = (d.records || []).slice().sort((a, b) =>
+      String(b.created_at || '').localeCompare(String(a.created_at || ''))
+    );
+    const counts = { valid: 0, partial: 0, invalid: 0, unknown: 0, none: 0 };
+    records.forEach(r => {
+      const g = r.quality_grade || 'none';
+      if (counts[g] !== undefined) counts[g] += 1;
+      else counts.unknown += 1;
+    });
+    const total = d.total_records || records.length;
+
+    const bar = `
+      <div class="triage-bar">
+        <div class="triage-bar__stats">
+          <span class="qc v">${counts.valid} valid</span>
+          <span class="qc p">${counts.partial} partial</span>
+          <span class="qc i">${counts.invalid} invalid</span>
+          ${counts.unknown ? `<span class="qc">${counts.unknown} unknown</span>` : ''}
+          ${counts.none ? `<span class="qc">${counts.none} unrated</span>` : ''}
+          <span class="triage-bar__total">/ ${total} total</span>
+        </div>
+        <div class="triage-bar__actions">
+          <label class="toggle">
+            <input type="checkbox" id="show-all" ${state.showAll ? 'checked' : ''}>
+            Show all
+          </label>
+          <button class="btn" id="reclassify-btn" type="button">Run Reclassify</button>
+          <span class="status" id="reclassify-status"></span>
+        </div>
+      </div>
+    `;
+
+    const rows = records.map(r => {
+      const grade = r.quality_grade || 'none';
+      const badgeLabel = grade === 'none' ? 'unrated' : grade;
+      const cls = [
+        'prow',
+        r.id === state.selectedRecordId ? 'active' : '',
+        (state.showAll || grade === 'valid') ? '' : 'hidden',
+      ].filter(Boolean).join(' ');
+      return `
+        <div class="${cls}" data-record-id="${escapeHtml(r.id || '')}">
+          <div class="prow__time">${escapeHtml(fmtTime(r.created_at))}</div>
+          <div class="prow__main">
+            <div class="prow__q">${escapeHtml(truncate(r.question || '—', 40))}</div>
+            <div class="prow__t">${escapeHtml(truncate(r.user_transcript || '(no transcript)', 60))}</div>
+          </div>
+          <div class="prow__grade">
+            <span class="badge ${escapeHtml(grade)}">${escapeHtml(badgeLabel)}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    $('middle-content').innerHTML = bar + (rows || '<div class="col__empty">No records.</div>');
+
+    $('show-all').addEventListener('change', (e) => {
+      state.showAll = e.target.checked;
+      renderMiddle();
+    });
+    $('reclassify-btn').addEventListener('click', runReclassify);
+
+    document.querySelectorAll('#middle-content .prow').forEach(el => {
+      el.addEventListener('click', () => selectRecord(el.dataset.recordId));
+    });
+  }
+
+  async function runReclassify() {
+    const btn = $('reclassify-btn');
+    const status = $('reclassify-status');
+    btn.disabled = true;
+    status.textContent = 'Running…';
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/reclassify`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${state.token}` },
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        status.textContent = body.detail || 'Failed';
+        btn.disabled = false;
+        return;
+      }
+      status.textContent = `Updated ${body.updated}/${body.batch_size}, ${body.failed || 0} failed`;
+      // Reload current user so new grades show.
+      if (state.selectedUserId) await selectUser(state.selectedUserId);
+      // Also refresh user list so left-column counts update.
+      await loadUsers();
+    } catch (err) {
+      console.error('reclassify failed', err);
+      status.textContent = 'Network error';
+      btn.disabled = false;
+    }
+  }
+
+  // === Right column ===
+  function renderRightHeader() {
+    const d = state.detail;
+    if (!d) return;
+    const user = state.users.find(u => u.user_id === state.selectedUserId);
+    const lastSeen = user ? fmtDateTime(user.last_seen) : '—';
+    $('right-content').innerHTML = `
+      <div class="right-header">
+        <div class="right-header__email">${escapeHtml(d.email || d.user_id || '—')}</div>
+        <div class="right-header__meta">
+          ${d.total_records || 0} practices · last ${escapeHtml(lastSeen)}
+        </div>
+      </div>
+      <div class="right-actions">
+        <button class="btn btn--primary" id="brief-btn" type="button">📋 生成學生簡報</button>
+        <button class="btn" id="diag-btn" type="button">🧠 AI 診斷報告</button>
+      </div>
+      <div class="right-section" id="brief-section" style="display:none">
+        <h3>學生簡報</h3>
+        <div class="brief-block" id="brief-content"></div>
+        <button class="copy-btn" id="brief-copy" type="button">複製</button>
+      </div>
+      <div class="right-section" id="diag-section" style="display:none">
+        <h3>AI 診斷報告</h3>
+        <div class="diag-block" id="diag-content"></div>
+      </div>
+      <div class="right-section" id="record-detail-section" style="display:none">
+        <h3>選中紀錄</h3>
+        <div id="record-detail-content"></div>
+      </div>
+    `;
+    $('brief-btn').addEventListener('click', loadBrief);
+    $('diag-btn').addEventListener('click', loadDiagnosis);
+  }
+
+  async function loadBrief() {
+    const sec = $('brief-section');
+    const block = $('brief-content');
+    const btn = $('brief-btn');
+    sec.style.display = '';
+    block.classList.add('loading');
+    block.textContent = 'Generating brief… (this may take 10–20 seconds)';
+    btn.disabled = true;
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/admin/student_brief/${encodeURIComponent(state.selectedUserId)}`,
+        { headers: { 'Authorization': `Bearer ${state.token}` } }
+      );
+      const body = await res.json();
+      if (!res.ok) {
+        block.textContent = body.detail || 'Failed';
+        block.classList.remove('loading');
+        return;
+      }
+      block.classList.remove('loading');
+      block.textContent = body.brief || '(empty)';
+    } catch (err) {
+      console.error('loadBrief failed', err);
+      block.textContent = 'Network error';
+      block.classList.remove('loading');
+    } finally {
+      btn.disabled = false;
+    }
+    $('brief-copy').addEventListener('click', () => {
+      navigator.clipboard.writeText(block.textContent || '');
+      $('brief-copy').textContent = '已複製';
+      setTimeout(() => { $('brief-copy').textContent = '複製'; }, 1200);
+    });
+  }
+
+  async function loadDiagnosis() {
+    const sec = $('diag-section');
+    const block = $('diag-content');
+    const btn = $('diag-btn');
+    sec.style.display = '';
+    block.classList.add('loading');
+    block.classList.remove('md');
+    block.textContent = 'Generating diagnosis… (this may take 10–30 seconds)';
+    btn.disabled = true;
+    try {
+      const res = await fetch(
+        `${API_BASE}/admin/user/${encodeURIComponent(state.selectedUserId)}/diagnosis`,
+        { method: 'POST', headers: { 'Authorization': `Bearer ${state.token}` } }
+      );
+      const body = await res.json();
+      if (!res.ok) {
+        block.textContent = body.detail || 'Failed';
+        block.classList.remove('loading');
+        return;
+      }
+      block.classList.remove('loading');
+      block.classList.add('md');
+      block.innerHTML = renderMarkdown(body.diagnosis_markdown || '(empty)');
+    } catch (err) {
+      console.error('loadDiagnosis failed', err);
+      block.textContent = 'Network error';
+      block.classList.remove('loading');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function selectRecord(recordId) {
+    state.selectedRecordId = recordId;
+    renderMiddle();
+    const r = (state.detail.records || []).find(x => String(x.id) === String(recordId));
+    if (!r) return;
+    const sec = $('record-detail-section');
+    const c = $('record-detail-content');
+    sec.style.display = '';
+    const grade = r.quality_grade || 'none';
+    const tag = r.weakness_tag || '';
+    const transcript = (r.user_transcript || '').trim();
+    const coach = (r.coach_response || '').trim();
+    const better = (r.better_expression || '').trim();
+    const betterZh = (r.better_expression_zh || '').trim();
+    const reason = (r.quality_reason || '').trim();
+    c.innerHTML = `
+      <div class="detail-badges">
+        <span class="badge ${escapeHtml(grade)}">${escapeHtml(grade === 'none' ? 'unrated' : grade)}</span>
+        ${tag ? `<span class="badge tag">${escapeHtml(tag)}</span>` : ''}
+      </div>
+      ${reason ? `
+        <div class="detail-field">
+          <div class="detail-field__label">Quality reason</div>
+          <div class="detail-field__value italic">${escapeHtml(reason)}</div>
+        </div>` : ''}
+      <div class="detail-field">
+        <div class="detail-field__label">Question</div>
+        <div class="detail-field__value italic">${escapeHtml(r.question || '—')}</div>
+      </div>
+      <div class="detail-field">
+        <div class="detail-field__label">Transcript</div>
+        <div class="detail-field__value ${transcript ? '' : 'empty'}">${escapeHtml(transcript || '(empty)')}</div>
+      </div>
+      <div class="detail-field">
+        <div class="detail-field__label">Coach response</div>
+        <div class="detail-field__value ${coach ? '' : 'empty'}">${escapeHtml(coach || '(empty)')}</div>
+      </div>
+      ${better ? `
+        <div class="detail-field">
+          <div class="detail-field__label">Better expression</div>
+          <div class="detail-field__value italic">"${escapeHtml(better)}"</div>
+          ${betterZh ? `<div class="detail-field__value" style="font-size:11px;color:var(--muted);margin-top:3px;">→ ${escapeHtml(betterZh)}</div>` : ''}
+        </div>` : ''}
+      <div class="detail-field">
+        <div class="detail-field__label">Time</div>
+        <div class="detail-field__value">${escapeHtml(fmtDateTime(r.created_at))}</div>
+      </div>
+    `;
+    // Scroll the record detail into view on the right column.
+    sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
