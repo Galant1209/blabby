@@ -4271,7 +4271,7 @@ def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
             user_messages = [m for m in messages if m["role"] != "system"]
             response = anthropic_client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=800,
+                max_tokens=2048,
                 system=system_content,
                 messages=user_messages,
             )
