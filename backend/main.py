@@ -1198,10 +1198,16 @@ async def classify_quality_background(
         )
 
 
-def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
+def build_diagnosis_prompt(
+    records: list[dict],
+    example_sentence: Optional[str] = None,
+) -> tuple[str, str]:
     """
     Build system + user prompt for AI diagnosis.
     records: list of practice_records dicts, sorted by created_at ASC
+    example_sentence: optional verbatim transcript snippet to anchor the
+        diagnosis. Inserted with the history block so the model treats it
+        as input data, not as a schema field.
     Returns (system_prompt, user_prompt)
     """
     history_text = ""
@@ -1212,6 +1218,12 @@ def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
         history_text += f"Blabby 教練回饋：{r.get('coach_response', '-')}\n"
         history_text += f"---\n"
 
+    history_section = history_text
+    if example_sentence:
+        history_section += (
+            f'\n\n特別注意這個例子（來自該學生的真實練習）："{example_sentence}"'
+        )
+
     system_prompt = (
         "You are an expert IELTS Speaking coach. Analyze the student's "
         "practice history and return a JSON object only. No markdown, "
@@ -1220,7 +1232,7 @@ def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
 
     user_prompt = (
         "以下是學生的練習記錄：\n"
-        f"{history_text}\n\n"
+        f"{history_section}\n\n"
         "請輸出一個 JSON 物件，結構如下（鍵名固定，不可改）：\n\n"
         "{\n"
         '  "summary": "一句話總結學生現況（第二人稱，繁體中文）",\n'
@@ -4238,9 +4250,9 @@ def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
             example_sentence = transcript[:150]
             break
 
-    system_prompt, user_prompt = build_diagnosis_prompt(records)
-    if example_sentence:
-        user_prompt += f"\n\nReal example from this user's practice: \"{example_sentence}\""
+    system_prompt, user_prompt = build_diagnosis_prompt(
+        records, example_sentence=example_sentence
+    )
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
