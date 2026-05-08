@@ -35,6 +35,8 @@ ADMIN_EMAILS         = {
 }
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+import anthropic
+anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
 app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
@@ -895,6 +897,46 @@ def run_groq(messages):
     ) from last_error
 
 
+def run_claude(messages: list[dict]) -> dict:
+    """
+    Claude Sonnet 4.6 for feedback + drill scoring.
+    Retry logic mirrors run_groq(): 3 attempts, exponential backoff 1s→2s.
+    Returns parsed dict. Raises on final failure.
+    """
+    max_attempts = 3
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            # Claude API: system message is separate from messages array
+            system_content = next(
+                (m["content"] for m in messages if m["role"] == "system"), ""
+            )
+            user_messages = [m for m in messages if m["role"] != "system"]
+            response = anthropic_client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=2048,
+                system=system_content,
+                messages=user_messages,
+            )
+            content = (response.content[0].text or "").strip()
+            # Strip ```json fences if present
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*", "", content)
+                content = re.sub(r"\s*```$", "", content)
+            parsed = json.loads(content)
+            if not isinstance(parsed, dict):
+                raise ValueError("Claude returned non-object JSON")
+            return parsed
+        except (json.JSONDecodeError, ValueError, AttributeError, IndexError, TypeError) as exc:
+            last_error = exc
+            if attempt < max_attempts - 1:
+                time.sleep(2 ** attempt)
+            continue
+        except Exception:
+            raise
+    raise last_error
+
+
 def validate_correction_response(
     data: dict,
     expected_drill_axis: Optional[str] = None,
@@ -1624,7 +1666,7 @@ async def process(
         is_valid = False
         last_validation_reason = ""
         for validation_attempt in range(max_validation_attempts):
-            parsed = run_groq(messages)
+            parsed = run_claude(messages)
             if not isinstance(parsed, dict):
                 parsed = {}
             is_valid, last_validation_reason = validate_correction_response(
@@ -3850,13 +3892,17 @@ def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
     diagnosis_text: Optional[str] = None
     for attempt in range(max_attempts):
         try:
-            completion = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                temperature=0.3,
-                max_tokens=800,
+            system_content = next(
+                (m["content"] for m in messages if m["role"] == "system"), ""
             )
-            diagnosis_text = (completion.choices[0].message.content or "").strip()
+            user_messages = [m for m in messages if m["role"] != "system"]
+            response = anthropic_client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=800,
+                system=system_content,
+                messages=user_messages,
+            )
+            diagnosis_text = (response.content[0].text or "").strip()
             if diagnosis_text:
                 break
             last_error = ValueError("empty diagnosis from Groq")
