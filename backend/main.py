@@ -10,6 +10,7 @@ from typing import Optional
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+import asyncio
 import logging
 import os
 import json
@@ -1164,6 +1165,39 @@ def classify_quality(transcript: str, coach_response: str, weakness_tag: str) ->
         return {"grade": "unknown", "reason": "classification failed"}
 
 
+async def classify_quality_background(
+    record_id: str,
+    transcript: str,
+    coach_response: str,
+    weakness_tag: str,
+) -> None:
+    """
+    Run classify_quality and patch the row, off the /process critical path.
+    Scheduled via asyncio.create_task so the user response goes back first.
+    Failures are swallowed — the row just keeps quality_grade NULL until the
+    admin Reclassify batch picks it up.
+    """
+    try:
+        # to_thread keeps the (sync, network-bound) Anthropic call from
+        # blocking the event loop while it waits on the LLM.
+        quality = await asyncio.to_thread(
+            classify_quality, transcript, coach_response, weakness_tag
+        )
+        if supabase_admin is None:
+            return
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("practice_records").update({
+                "quality_grade":  quality["grade"],
+                "quality_reason": quality["reason"],
+            }).eq("id", record_id).execute()
+        )
+    except Exception:
+        logger.exception(
+            "background classify_quality failed",
+            extra={"record_id": record_id},
+        )
+
+
 def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
     """
     Build system + user prompt for AI diagnosis.
@@ -1889,10 +1923,6 @@ async def process(
                     "evidence":             evidence_obj,
                 }
 
-                quality = classify_quality(user_text or "", coach_response or "", drill_tag or "")
-                payload["quality_grade"] = quality["grade"]
-                payload["quality_reason"] = quality["reason"]
-
                 try:
                     insert_resp = supabase_admin.table("practice_records").insert(payload).execute()
                     persisted = True
@@ -1904,6 +1934,14 @@ async def process(
                         "drill practice_record insert failed",
                         extra={"user_id": user_id, "drill_tag": drill_tag, "error": str(e)},
                     )
+
+                if new_record_id:
+                    asyncio.create_task(classify_quality_background(
+                        new_record_id,
+                        user_text or "",
+                        coach_response or "",
+                        drill_tag or "",
+                    ))
             else:
                 normal_payload = {
                     "user_id":              user_id,
@@ -1917,9 +1955,6 @@ async def process(
                     "weakness_tag":         weakness_tag,
                     "memory_snapshot":      memory_snapshot,
                 }
-                quality = classify_quality(user_text or "", coach_response or "", weakness_tag or "")
-                normal_payload["quality_grade"] = quality["grade"]
-                normal_payload["quality_reason"] = quality["reason"]
                 try:
                     insert_resp = supabase_admin.table("practice_records").insert(normal_payload).execute()
                     persisted = True
@@ -1933,6 +1968,14 @@ async def process(
                         "failed to insert practice_record",
                         extra={"user_id": user_id},
                     )
+
+                if new_record_id:
+                    asyncio.create_task(classify_quality_background(
+                        new_record_id,
+                        user_text or "",
+                        coach_response or "",
+                        weakness_tag or "",
+                    ))
 
         # Auto-resolve the prior unresolved record for the SAME question if the
         # new submission landed a DIFFERENT valid weakness_tag. Semantics match
