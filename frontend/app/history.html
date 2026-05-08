@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>History — Blabby</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z' fill='none' stroke='%23C9A84C' stroke-width='2' stroke-linejoin='round'/><line x1='4' y1='26' x2='28' y2='26' stroke='%23C9A84C' stroke-width='2'/><circle cx='16' cy='7' r='2' fill='%23C9A84C'/><circle cx='4' cy='13' r='2' fill='%23C9A84C'/><circle cx='28' cy='13' r='2' fill='%23C9A84C'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="./config.js"></script>
+<!-- PostHog Analytics -->
+<script>
+    !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    posthog.init('phc_yx3H55CAUHfsKFabX4ZQ5JHxTijKzHdyCiKzxvddaLTt', {
+        api_host: 'https://us.i.posthog.com',
+        person_profiles: 'identified_only',
+    });
+    window.analytics = {
+        track: function(event, props) { try { posthog.capture(event, props || {}); } catch(_) {} },
+        identify: function(userId, traits) { try { posthog.identify(userId, traits || {}); } catch(_) {} }
+    };
+</script>
+<style>
+:root {
+    --bg: #F5F0E8;
+    --surface: #FDFAF4;
+    --paper: #F1E9D6;
+    --ink: #2C2416;
+    --ink-soft: #3a3022;
+    --green: #2D5016;
+    --green-dark: #1f3810;
+    --gold: #C9A84C;
+    --gold-warm: #E8C866;
+    --wine: #6B1A1A;
+    --border: #C4B89A;
+    --muted: #8A7E6E;
+    --serif: 'EB Garamond', 'Cormorant Garamond', Georgia, serif;
+    --sans: 'Inter Tight', 'Inter', -apple-system, sans-serif;
+    --serif-tc: 'Noto Serif TC', 'EB Garamond', serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 16px; line-height: 1.7;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+}
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.45;
+    z-index: 0;
+    background-image:
+        radial-gradient(circle at 22% 18%, rgba(196, 184, 154, 0.18) 0%, transparent 38%),
+        radial-gradient(circle at 78% 72%, rgba(201, 168, 76, 0.07) 0%, transparent 36%);
+}
+#bg-watermark {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none; z-index: 0;
+    opacity: 0.06; color: var(--green);
+}
+#bg-watermark svg { width: min(80vw, 420px); height: auto; }
+.bg-diamond {
+    position: fixed; font-size: 8px;
+    color: var(--gold); opacity: 0.3;
+    pointer-events: none; z-index: 0;
+    font-family: var(--serif);
+}
+.page {
+    max-width: 680px; margin-left: auto; margin-right: auto; width: 100%;
+    padding: 24px 18px 88px;
+    position: relative; z-index: 1;
+}
+
+/* Header */
+header.brand {
+    text-align: center; padding: 8px 0 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+}
+header.brand h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 32px;
+    color: var(--green); letter-spacing: 0.01em;
+    padding-bottom: 6px; display: inline-block;
+    border-bottom: 2px solid var(--gold); margin: 0;
+}
+header.brand .subtitle {
+    font-family: var(--serif); font-style: italic; font-size: 14px;
+    color: var(--ink-soft); margin-top: 12px;
+}
+
+/* States */
+.loading-state, .error-state, .empty-state {
+    text-align: center; padding: 24px 12px;
+    font-family: var(--serif); font-style: italic;
+}
+.loading-state { color: var(--gold); }
+.error-state { color: var(--wine); }
+.empty-state {
+    color: var(--muted); font-size: 14px; line-height: 1.6;
+    padding: 40px 16px;
+}
+.empty-state .lede { color: var(--ink); margin-bottom: 18px; font-style: normal; font-size: 15px; }
+
+/* Skeleton placeholders */
+.skeleton-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px; margin-bottom: 12px;
+}
+.skeleton-line {
+    height: 12px;
+    background: linear-gradient(90deg, #ede8df 25%, #f5f0e8 50%, #ede8df 75%);
+    background-size: 200% 100%;
+    border-radius: 4px; margin-bottom: 10px;
+    animation: shimmer 1.4s infinite;
+}
+.skeleton-line.wide { width: 70%; }
+.skeleton-line.medium { width: 50%; }
+.skeleton-line.narrow { width: 30%; }
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Primary action button — same shape as other pages */
+.btn-primary {
+    display: inline-block; padding: 13px 28px;
+    background: var(--green); color: var(--gold);
+    border: none; border-radius: 6px;
+    font-family: var(--serif); font-size: 15px;
+    letter-spacing: 0.04em; cursor: pointer;
+    text-decoration: none;
+    transition: opacity 0.15s, transform 0.1s;
+}
+.btn-primary:hover { background: var(--green-dark); }
+.btn-primary:active { transform: scale(0.97); opacity: 0.88; }
+
+/* History list */
+#history-list {
+    display: flex; flex-direction: column; gap: 12px;
+    position: relative;
+}
+.history-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: box-shadow 0.15s, border-color 0.15s;
+    overflow: hidden;
+}
+.history-card:hover { box-shadow: 0 4px 16px rgba(44,36,22,0.06); }
+.history-card[data-locked="true"] {
+    opacity: 0.6;
+    pointer-events: none;
+    position: relative;
+}
+.history-card[data-locked="true"] .history-card__lock-overlay {
+    display: flex;
+}
+.history-card__head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+}
+.history-card__date {
+    font-family: var(--serif); font-size: 12px;
+    color: var(--muted); letter-spacing: 0.04em;
+    white-space: nowrap; flex-shrink: 0;
+}
+.history-card__question {
+    flex: 1; font-size: 14px; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.history-card__tag {
+    flex-shrink: 0;
+    font-size: 11px; font-style: italic;
+    color: var(--gold);
+    border: 1px solid var(--gold);
+    padding: 2px 8px; border-radius: 3px;
+    white-space: nowrap;
+}
+.history-card__body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.35s ease;
+}
+.history-card.expanded .history-card__body { max-height: 1000px; }
+.history-card__body-inner {
+    padding: 0 16px 18px;
+    border-top: 1px dashed var(--border);
+    margin-top: 0;
+    padding-top: 14px;
+}
+.history-card__field {
+    margin-bottom: 14px;
+}
+.history-card__field:last-child { margin-bottom: 0; }
+.history-card__label {
+    font-family: var(--serif); font-style: italic;
+    font-size: 11px; letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+.history-card__label--gold { color: var(--gold); }
+.history-card__transcript {
+    font-size: 14px; color: var(--ink); opacity: 0.85;
+    line-height: 1.6;
+}
+.history-card__better {
+    font-family: var(--serif); font-size: 16px;
+    color: var(--ink); line-height: 1.5;
+}
+.history-card__better-zh {
+    font-family: var(--serif-tc); font-size: 13px;
+    color: var(--muted); margin-top: 2px;
+}
+.history-card__drill-badge {
+    display: inline-block;
+    padding: 4px 10px; border-radius: 3px;
+    background: var(--green); color: var(--gold);
+    font-family: var(--serif); font-size: 13px;
+    letter-spacing: 0.04em;
+}
+
+/* Pro lock overlay — HTML-only stub per spec, not wired yet */
+.history-card__lock-overlay {
+    display: none;
+    position: absolute; inset: 0;
+    background: rgba(245, 240, 232, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    align-items: center; justify-content: center;
+    pointer-events: none;
+}
+.history-card__lock-cta {
+    font-family: var(--serif); font-style: italic;
+    color: var(--green);
+    background: var(--surface);
+    border: 1px solid var(--gold);
+    padding: 8px 16px; border-radius: 4px;
+    font-size: 13px;
+}
+
+/* Bottom nav — 5 tabs across all pages */
+#bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 60px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: stretch;
+    z-index: 50;
+    padding-bottom: env(safe-area-inset-bottom);
+}
+.nav-tab {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 3px;
+    text-decoration: none; color: var(--muted);
+    font-size: 10px; letter-spacing: 0.04em;
+    font-family: var(--sans);
+    transition: color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+}
+.nav-tab:hover, .nav-tab.active { color: var(--green); }
+.nav-tab.active svg { stroke: var(--green); }
+.nav-tab svg { transition: stroke 0.15s; }
+@media (min-width: 681px) {
+    #bottom-nav { max-width: 680px; left: 50%; transform: translateX(-50%); }
+}
+</style>
+</head>
+<body>
+    <div id="bg-watermark" aria-hidden="true">
+        <svg viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+            <g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
+                <path d="M100 18 L160 50 L160 120 Q160 180 100 220 Q40 180 40 120 L40 50 Z"/>
+                <path d="M100 50 L100 200"/>
+                <path d="M60 100 L140 100"/>
+                <circle cx="100" cy="100" r="22"/>
+                <path d="M100 78 L100 122 M78 100 L122 100"/>
+                <path d="M70 145 Q100 165 130 145"/>
+            </g>
+        </svg>
+    </div>
+    <span class="bg-diamond" style="top:8%;left:6%">◆</span>
+    <span class="bg-diamond" style="top:14%;right:9%">◆</span>
+    <span class="bg-diamond" style="top:42%;left:4%">◆</span>
+    <span class="bg-diamond" style="bottom:24%;right:5%">◆</span>
+    <span class="bg-diamond" style="bottom:8%;left:11%">◆</span>
+    <span class="bg-diamond" style="bottom:38%;left:48%">◆</span>
+
+<main class="page">
+    <header class="brand">
+        <h1>Your Practice History</h1>
+        <div class="subtitle">Every session leaves its mark.</div>
+    </header>
+
+    <div id="history-list">
+        <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+        <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+        <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+    </div>
+</main>
+
+<nav id="bottom-nav" aria-label="Main navigation">
+    <a href="/" class="nav-tab" data-page="home">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/>
+            <path d="M9 21V12h6v9"/>
+        </svg>
+        <span>練習</span>
+    </a>
+    <a href="/vocabulary.html" class="nav-tab" data-page="vocabulary">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        <span>單字</span>
+    </a>
+    <a href="/diagnosis.html" class="nav-tab" data-page="diagnosis">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 8v4l3 3"/>
+        </svg>
+        <span>診斷</span>
+    </a>
+    <a href="/history.html" class="nav-tab active" data-page="history">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h12a4 4 0 0 1 4 4v12a4 4 0 0 1-4 0H4z"/>
+            <path d="M4 4v12a4 4 0 0 0 4 4h0a4 4 0 0 1-4-4z"/>
+            <line x1="8" y1="9" x2="16" y2="9"/>
+            <line x1="8" y1="13" x2="14" y2="13"/>
+        </svg>
+        <span>紀錄</span>
+    </a>
+    <a href="/" class="nav-tab" data-page="account">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span>帳號</span>
+    </a>
+</nav>
+
+<script>
+(() => {
+    const cfg = window.BLABBY_CONFIG || {};
+    const SUPABASE_URL = cfg.supabaseUrl;
+    const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
+    const API_BASE = window.BLABBY_API_BASE || 'https://blabby-backend.onrender.com';
+    const FREE_LIMIT = 20;   // first 20 cards visible; rest get pro-lock overlay
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !window.supabase) {
+        document.body.innerHTML = '<main class="page"><p class="error-state">Missing Supabase config or SDK.</p></main>';
+        return;
+    }
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Identify on auth ready (one-shot)
+    (async () => {
+        try {
+            const { data: { session } } = await sb.auth.getSession();
+            if (session && session.user) window.analytics.identify(session.user.id);
+        } catch (_) {}
+    })();
+
+    function escapeHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function fmtDate(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d)) return '';
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${dd} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+    function truncate(s, n) {
+        s = String(s ?? '');
+        return s.length > n ? s.slice(0, n).trim() + '…' : s;
+    }
+    async function getToken() {
+        try {
+            const { data: { session } } = await sb.auth.getSession();
+            return (session && session.access_token) || null;
+        } catch (_) { return null; }
+    }
+
+    function renderEmpty() {
+        document.getElementById('history-list').innerHTML = `
+            <div class="empty-state">
+                <div class="lede">No sessions recorded yet.</div>
+                <div style="margin-bottom:18px;">Your history begins with your first practice.</div>
+                <a href="/" class="btn-primary">Go Practice</a>
+            </div>`;
+    }
+
+    function renderError(msg) {
+        document.getElementById('history-list').innerHTML =
+            `<div class="error-state">${escapeHtml(msg || 'Failed to load history.')}</div>`;
+    }
+
+    // Build one card. Locked cards get blur overlay HTML structure
+    // (display gated by data-locked + CSS) but no click handler so
+    // expand stays disabled until pro-gate ships.
+    function renderCard(rec, locked) {
+        const id = escapeHtml(rec.id || '');
+        const date = fmtDate(rec.created_at);
+        const question = truncate(rec.question || rec.topic || '—', 60);
+        const tag = rec.weakness_tag ? `<span class="history-card__tag">${escapeHtml(rec.weakness_tag)}</span>` : '';
+
+        const transcript = rec.user_transcript || '';
+        const better = rec.better_expression || '';
+        const betterZh = rec.better_expression_zh || '';
+        const drillScore = rec.drill_score;
+        const isDrill = rec.mode === 'drill' && drillScore && typeof drillScore === 'object';
+
+        return `
+            <div class="history-card" data-id="${id}"${locked ? ' data-locked="true"' : ''}>
+                <div class="history-card__head">
+                    <span class="history-card__date">${escapeHtml(date)}</span>
+                    <span class="history-card__question">${escapeHtml(question)}</span>
+                    ${tag}
+                </div>
+                <div class="history-card__body">
+                    <div class="history-card__body-inner">
+                        ${transcript ? `
+                        <div class="history-card__field">
+                            <div class="history-card__label">You said</div>
+                            <div class="history-card__transcript">${escapeHtml(transcript)}</div>
+                        </div>` : ''}
+                        ${better ? `
+                        <div class="history-card__field">
+                            <div class="history-card__label history-card__label--gold">A more accomplished expression</div>
+                            <div class="history-card__better">${escapeHtml(better)}</div>
+                            ${betterZh ? `<div class="history-card__better-zh">${escapeHtml(betterZh)}</div>` : ''}
+                        </div>` : ''}
+                        ${isDrill ? `
+                        <div class="history-card__field">
+                            <div class="history-card__label">Drill score</div>
+                            <span class="history-card__drill-badge">${escapeHtml(drillScore.score ?? '—')} / 100</span>
+                        </div>` : ''}
+                    </div>
+                </div>
+                <div class="history-card__lock-overlay" aria-hidden="true">
+                    <div class="history-card__lock-cta">Unlock full history with Pro</div>
+                </div>
+            </div>`;
+    }
+
+    function wireCards(container) {
+        container.querySelectorAll('.history-card:not([data-locked="true"]) .history-card__head')
+            .forEach(head => head.addEventListener('click', () => {
+                const card = head.closest('.history-card');
+                if (!card) return;
+                card.classList.toggle('expanded');
+                if (card.classList.contains('expanded')) {
+                    window.analytics?.track('history_card_expanded', { record_id: card.dataset.id });
+                }
+            }));
+    }
+
+    async function loadHistory() {
+        const token = await getToken();
+        if (!token) {
+            renderError('請先登入後查看你的練習紀錄。');
+            return;
+        }
+        let body;
+        try {
+            const r = await fetch(`${API_BASE}/api/history`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (r.status === 401 || r.status === 403) {
+                renderError('登入已過期，請重新登入。');
+                return;
+            }
+            if (!r.ok) {
+                renderError('Failed to load history.');
+                return;
+            }
+            body = await r.json();
+        } catch (e) {
+            console.error('loadHistory failed', e);
+            renderError('Network error. Please try again.');
+            return;
+        }
+
+        const records = Array.isArray(body && body.records) ? body.records : [];
+        if (records.length === 0) {
+            renderEmpty();
+            return;
+        }
+
+        const list = document.getElementById('history-list');
+        list.innerHTML = records
+            .map((r, idx) => renderCard(r, idx >= FREE_LIMIT))
+            .join('');
+        wireCards(list);
+
+        window.analytics?.track('history_viewed', {
+            total_records: records.length,
+            locked_count: Math.max(0, records.length - FREE_LIMIT),
+        });
+    }
+
+    loadHistory();
+})();
+</script>
+</body>
+</html>

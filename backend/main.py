@@ -2241,6 +2241,40 @@ def _build_weakness_summary(rows: list[dict], is_pro: bool = False) -> dict:
     }
 
 
+@app.get("/api/history")
+@limiter.limit("30/minute")
+async def get_history(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Return up to 50 most-recent practice_records for the caller, newest
+    first. Used by /history.html to render the "Your Practice History"
+    page. Pro-gate (free → 20 items) is applied client-side via
+    data-locked attribute; backend always returns the full 50.
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        resp = (
+            supabase_admin.table("practice_records")
+            .select(
+                "id, created_at, topic, question, user_transcript, "
+                "coach_response, better_expression, better_expression_zh, "
+                "weakness_tag, drill_score, mode"
+            )
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+    except Exception:
+        logger.exception("get_history query failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load history")
+    return {"records": resp.data or []}
+
+
 @app.get("/api/practice-records/weakness-summary")
 @limiter.limit("10/minute")
 async def practice_records_weakness_summary(

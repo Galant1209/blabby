@@ -493,6 +493,15 @@
     </svg>
     <span>診斷</span>
   </a>
+  <a href="/history.html" class="nav-tab" data-page="history">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4h12a4 4 0 0 1 4 4v12a4 4 0 0 1-4 0H4z"/>
+      <path d="M4 4v12a4 4 0 0 0 4 4h0a4 4 0 0 1-4-4z"/>
+      <line x1="8" y1="9" x2="16" y2="9"/>
+      <line x1="8" y1="13" x2="14" y2="13"/>
+    </svg>
+    <span>紀錄</span>
+  </a>
   <a href="/" class="nav-tab" data-page="account" id="nav-account">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
@@ -509,6 +518,7 @@
         '/index.html': 'home',
         '/vocabulary.html': 'vocabulary',
         '/diagnosis.html': 'diagnosis',
+        '/history.html': 'history',
     };
     const current = map[path] || 'home';
     const tab = document.querySelector(`.nav-tab[data-page="${current}"]`);
