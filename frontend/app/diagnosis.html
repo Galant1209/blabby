@@ -856,6 +856,7 @@
     const panel = document.getElementById('diagnosis-panel');
     if (panel) {
       panel.classList.add('visible'); // keep the existing fade-in state
+      console.log('diagnosis response:', JSON.stringify(data).slice(0, 200));
       const isStructured = data && data.format === 'structured' && data.data
         && Array.isArray(data.data.weaknesses);
       const bodyHtml = isStructured
