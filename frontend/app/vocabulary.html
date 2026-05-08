@@ -406,6 +406,40 @@ header.brand .subtitle {
     .vocab-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
+/* Add-success toast — bottom-center, fixed, fade in/out, ≤4s lifetime */
+#vocab-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 88px;
+    transform: translateX(-50%) translateY(8px);
+    background: var(--ink);
+    color: var(--surface);
+    font-family: var(--serif, 'EB Garamond', Georgia, serif);
+    font-size: 14px;
+    padding: 12px 18px;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(44, 36, 22, 0.18);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 80;
+    max-width: 90vw;
+    white-space: nowrap;
+}
+#vocab-toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+}
+#vocab-toast a {
+    color: var(--gold);
+    margin-left: 10px;
+    text-decoration: none;
+    font-style: italic;
+    cursor: pointer;
+}
+#vocab-toast a:hover { text-decoration: underline; }
+
 /* IELTS level filter row + description */
 .filter-row {
     display: flex;
@@ -826,6 +860,32 @@ header.brand .subtitle {
     }
     document.getElementById('generate-vocab-btn')?.addEventListener('click', generateVocab);
 
+    // Add-success toast — auto-hides after 4s; "Begin review →" link
+    // scrolls to #today-review and triggers the existing start-review
+    // CTA when the queue is non-empty. Tracks a single timer so rapid
+    // adds reset cleanly.
+    let toastTimer = null;
+    function showAddedToast() {
+        const toast = document.getElementById('vocab-toast');
+        if (!toast) return;
+        toast.innerHTML = 'Added to your Vocabulary.<a href="#today-review" data-toast-cta>Begin review →</a>';
+        toast.classList.add('visible');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('visible'), 4000);
+        const cta = toast.querySelector('[data-toast-cta]');
+        if (cta) {
+            cta.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+                toast.classList.remove('visible');
+                const target = document.getElementById('today-review');
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                const startBtn = document.getElementById('start-review-btn');
+                if (startBtn && !startBtn.disabled) startBtn.click();
+            }, { once: true });
+        }
+    }
+
     async function onAddClick(ev) {
         const btn = ev.currentTarget;
         if (btn.disabled) return;
@@ -846,6 +906,7 @@ header.brand .subtitle {
             if (source === 'recommended') {
                 window.analytics?.track('vocabulary_recommended_added', { word, topic });
             }
+            showAddedToast();
             await loadMy();         // refresh My Vocabulary list
             await loadDueCount();   // due count may shift if backend sets next_review_at = now
         } catch (e) {
@@ -925,7 +986,12 @@ header.brand .subtitle {
             mySetOfItemIds = new Set(myItems.map(r => r.vocabulary_item_id).filter(Boolean));
             renderSummaryStats();
             if (myItems.length === 0) {
-                list.innerHTML = '<div class="empty-state">No saved words yet. Add some from the bank above.</div>';
+                list.innerHTML = `
+                    <div class="empty-state" style="text-align:center; padding:24px 12px;">
+                        <div style="margin-bottom:6px;">Your vocabulary grows with every practice session.</div>
+                        <div style="margin-bottom:18px;">Complete a session to receive your first words.</div>
+                        <button type="button" class="btn-primary" onclick="window.location.href='/'">Go Practice</button>
+                    </div>`;
             } else {
                 list.innerHTML = myItems.map(r => {
                     const item = r.vocabulary_items || {};
@@ -1141,6 +1207,8 @@ header.brand .subtitle {
     })();
 })();
 </script>
+
+<div id="vocab-toast" role="status" aria-live="polite"></div>
 
 <nav id="bottom-nav" aria-label="Main navigation">
     <a href="/" class="nav-tab" data-page="home">
