@@ -111,6 +111,45 @@
   .subs-actions-btn.cancel { color: var(--red); border-color: rgba(107,26,26,0.3); }
   .subs-actions-btn.cancel:hover:not(:disabled) { background: rgba(107,26,26,0.06); }
 
+  /* === Changelog panel === */
+  .changelog {
+    padding: 28px 36px 60px; max-width: 720px; margin: 0 auto;
+    overflow-y: auto; height: 100%;
+    font-family: var(--serif);
+    background: var(--cream);
+  }
+  .changelog__version {
+    padding: 26px 0 30px;
+    border-bottom: 1px solid rgba(196,184,154,0.45);
+  }
+  .changelog__version:first-child { padding-top: 12px; }
+  .changelog__version:last-child  { border-bottom: none; }
+  .changelog__head {
+    margin-bottom: 18px;
+    font-family: 'EB Garamond', Georgia, serif;
+    line-height: 1.4;
+  }
+  .changelog__ver {
+    font-size: 26px; color: var(--gold); font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .changelog__date {
+    font-size: 13px; color: var(--muted); font-style: italic;
+    margin-left: 12px;
+  }
+  .changelog__feature { margin-bottom: 18px; }
+  .changelog__feature:last-child { margin-bottom: 0; }
+  .changelog__title {
+    color: var(--green); font-weight: 700; font-size: 15px;
+    margin-bottom: 5px;
+    font-family: 'Inter Tight', system-ui, sans-serif;
+    letter-spacing: 0.01em;
+  }
+  .changelog__desc {
+    color: var(--ink); font-size: 14px; line-height: 1.75;
+    white-space: pre-wrap;
+  }
+
   /* === Three-column layout === */
   .layout {
     display: grid;
@@ -331,8 +370,9 @@
 </div>
 
 <div class="tabs" role="tablist">
-  <button class="tab active" data-tab="users" type="button">用戶管理</button>
-  <button class="tab"        data-tab="subs"  type="button">訂閱管理</button>
+  <button class="tab active" data-tab="users"     type="button">用戶管理</button>
+  <button class="tab"        data-tab="subs"      type="button">訂閱管理</button>
+  <button class="tab"        data-tab="changelog" type="button">更新日誌</button>
 </div>
 
 <div class="mobile-user-select" id="mobile-user-select">
@@ -365,6 +405,10 @@
     <h2>訂閱管理</h2>
     <div id="subs-content"><div class="col__empty">點擊「訂閱管理」載入</div></div>
   </div>
+</div>
+
+<div class="tab-panel" id="changelog-tab">
+  <div class="changelog" id="changelog-content"></div>
 </div>
 
 <script>
@@ -801,10 +845,12 @@
     sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  // === Tabs (用戶管理 / 訂閱管理) ===
-  // Subscriptions are lazy-loaded on first tab click — no point eating
-  // the round-trip if the admin only ever uses the user-triage view.
+  // === Tabs (用戶管理 / 訂閱管理 / 更新日誌) ===
+  // Subs/changelog are lazy on first click. Subs round-trips an API; changelog
+  // is static but rendering 5 versions of HTML is still wasted work if no one
+  // opens the tab.
   let subsLoaded = false;
+  let changelogLoaded = false;
   function activateTab(name) {
     document.querySelectorAll('.tab').forEach(t => {
       t.classList.toggle('active', t.dataset.tab === name);
@@ -816,10 +862,163 @@
       subsLoaded = true;
       loadSubscriptions();
     }
+    if (name === 'changelog' && !changelogLoaded) {
+      changelogLoaded = true;
+      renderChangelog();
+    }
   }
   document.querySelectorAll('.tab').forEach(t => {
     t.addEventListener('click', () => activateTab(t.dataset.tab));
   });
+
+  // === Changelog (static, no API) ===
+  // Each version is a block separated by "---". Within a block: first line is
+  // the version header (e.g. "v0.5 — 2026-05-08"), then features paired as
+  // [title line, description paragraph] separated by blank lines.
+  const CHANGELOG = `v0.5 — 2026-05-08
+Claude Sonnet 4.6 取代 LLaMA 批改
+把批改和診斷換成 Claude Sonnet 4.6。LLaMA 速度快但判斷力有限，換掉之後 feedback 品質有感提升。Vocabulary 生成繼續用 Groq（速度優先）。
+
+單字卡 SRS flip flow
+原本單字卡直接顯示答案，四個評分按鈕讓人不知道在幹嘛。改成先只顯示單字，點 Reveal 才看答案再評分。這才是 SRS 的正確邏輯——先嘗試回想，再對答案，再判斷掌握程度。
+
+單字頁 onboarding fix
+用戶反映加入單字後不知道下一步。加入後 toast 直接給「Begin review →」連結，空狀態給「Go Practice」引導。
+
+診斷頁互動化
+原本的診斷是靜態報告，看完就走。改成三張互動卡片，每張有展開證據、針對訓練、已改善三個動作。診斷從「看完就忘」變成「每次來都有事情做」。
+
+Diagnosis cache
+診斷生成要 3-5 秒，每次進頁面都等很久。加 cache，practice_count 沒變就直接回傳上次結果，第二次進去瞬間載入。
+
+Admin 後台重做
+原本後台塞在 index.html 裡，排版無法閱讀。獨立成 admin.html，三欄 layout，加入 quality triage（valid/partial/invalid 分類）和 AI 學生簡報（可直接發給學生的回饋文字）。這是服務真實用戶的工具，不是可以等的東西。
+
+Quality classification
+每筆練習自動被 Claude 分類：valid（有實質內容）、partial（有嘗試但不足）、invalid（錄音失敗或答非所問）。背景執行，不阻塞用戶的 /process response。
+
+帳號頁
+用戶有個地方可以確認自己是誰、做了什麼、方案狀態。加入產品理念："Blabby does not merely correct thy speech — it watches, records, and reveals the patterns thou canst not see thyself." 從你想開口的那一刻，我們就在你身旁。
+
+全站 favicon 統一
+六個頁面的瀏覽器 tab 都有金色王冠。細節，但細節就是品牌。
+
+品牌錨點「考官室」確立
+Blabby 不是吉祥物，不是語言學校，是一個你走進去會緊張、走出來會更強的空間。等第一個付費用戶後展開成完整品牌語言。
+---
+v0.4 — 2026-05-07
+Vocabulary Output System
+發現用戶練習後拿到 feedback 就結束了，那些「可以說得更好」的詞彙沒有地方去。Vocabulary 系統讓每次練習產出的詞彙被記錄下來，變成可以複習的資產。三張表（vocabulary_items / user_vocabulary / vocabulary_review），30 個 seed words。Data flywheel：用戶生成的單字存進共用庫，越多用戶庫越豐富，LLM call 越少。
+
+History 頁面
+用戶問「我練了什麼」，但沒有地方可以看。History 讓每一筆練習都有跡可循，讓人看到自己走過的路。
+
+視覺設計 v2
+EB Garamond、處方箋區塊、paper grain、SVG icon 全站統一。Blabby 不應該看起來像一個 app，應該看起來像一個有份量的地方。
+
+Bottom tab bar
+三頁導航（練習 / 單字 / 診斷），讓用戶知道 Blabby 有三個入口，不是只有一個功能。
+
+Paywall + upgrade.html
+第一個付費入口。根據來源動態顯示不同 copy，讓升級有上下文，不是突然跳出來的廣告。
+
+6 個 bug 修復
+double-click race condition、empty Whisper transcript、401 error、CTA 失效、drill silent fail。這些是真實用戶踩到的坑。
+---
+v0.3 — Sprint 3 前段
+Hub Today's Weakness Block（Rx 處方箋）
+用戶練完不知道自己差在哪，也不知道明天要練什麼。處方箋告訴他：你今天的問題是這個，明天繼續攻這裡。設計靈感來自診間處方箋，Rx 符號是刻意的。
+
+Diagnosis 轉換升級（Free → Pro 對比框）
+診斷報告是 Blabby 最有說服力的東西。讓 Free 用戶看到診斷結果的輪廓，但模糊掉細節，讓他們知道 Pro 能給他們看清楚。
+
+Next-Day Return Hook
+用戶練完當天不會付費，但明天可能會。在練習結束時植入「明日任務」，讓他有理由回來。
+---
+v0.2 — Sprint 2
+Drill 模式
+發現用戶練完就走，沒有針對弱點的重複練習。Drill 是為了讓人留下來，對著同一個問題反覆開口，直到說對為止。
+
+Drill prompt v1-v6
+光有 Drill 不夠，AI 的批改準確率只有 30%。花了六個版本把它推到 80%。每一個版本都是真實 transcript 測試出來的，不是猜的。
+
+Backend schema validation + retry layer
+只靠 prompt 要求 AI 輸出正確格式是不夠的。加了 backend 驗證層，錯了就重試，重試失敗就 503。規則：schema 保護必須是結構性的，不能只靠 prompt。
+---
+v0.1 — 2026-04-24 · 第一天，什麼都沒有
+第一聲
+這一天的目標只有一個：讓一個真實的人能開口說話，然後收到回饋。
+
+JWT 驗證 + 歷史記錄抽取
+確保只有登入的人才能練習。AI 看最近 10 次紀錄，不是每次都從零開始的陌生人。
+
+動態弱詞偵測 + weakness_tag 分類
+用頻率分析找出反覆用的空洞詞彙。第一個診斷系統：weak_vocab / lack_detail / safe_answer / grammar_minor。粗糙，但是起點。
+
+架構決定（永久有效）
+weakness_tag 只給 UI 顯示，不注入 prompt。AI 從 transcript 自己診斷，不被標籤引導。Whisper 和 Groq 不接觸用戶身份。Memory 是 backend 的職責。這三條原則到今天還在。
+
+Admin 觀測儀表板
+第一個後台。能看到最近 50 筆練習。醜，但它讓你能看到真實發生了什麼。
+
+第一筆用戶回饋（來自你自己）
+流程沒壞。想要語氣更溫柔細膩。「想再錄一次」✅。那個階段最重要的一筆資料。
+
+北極星：0 個真實用戶。Day 14 目標 1-3 人。`;
+
+  function renderChangelog() {
+    const root = $('changelog-content');
+    if (!root) return;
+
+    const versions = CHANGELOG.split(/\n---\n/).map(s => s.trim()).filter(Boolean);
+    const html = versions.map(block => {
+      const lines = block.split('\n');
+      const headerLine = (lines[0] || '').trim();
+      // Header parts: split first " — " to get version + (date · subtitle).
+      const dashIdx = headerLine.indexOf(' — ');
+      let ver = headerLine, rest = '';
+      if (dashIdx !== -1) {
+        ver = headerLine.slice(0, dashIdx);
+        rest = headerLine.slice(dashIdx + 3);
+      }
+
+      // Walk remaining lines, group into [title, description] pairs.
+      // A blank line terminates the current feature; the next non-blank
+      // becomes the next title.
+      const features = [];
+      let cur = null; // {title, descLines: []}
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim()) {
+          if (cur) { features.push(cur); cur = null; }
+          continue;
+        }
+        if (!cur) { cur = { title: line.trim(), descLines: [] }; }
+        else { cur.descLines.push(line); }
+      }
+      if (cur) features.push(cur);
+
+      const featuresHtml = features.map(f => `
+        <div class="changelog__feature">
+          <div class="changelog__title">${escapeHtml(f.title)}</div>
+          ${f.descLines.length
+            ? `<div class="changelog__desc">${escapeHtml(f.descLines.join('\n'))}</div>`
+            : ''}
+        </div>
+      `).join('');
+
+      return `
+        <section class="changelog__version">
+          <div class="changelog__head">
+            <span class="changelog__ver">${escapeHtml(ver)}</span>
+            ${rest ? `<span class="changelog__date">${escapeHtml(rest)}</span>` : ''}
+          </div>
+          ${featuresHtml}
+        </section>
+      `;
+    }).join('');
+    root.innerHTML = html;
+  }
 
   // === Subscriptions ===
   function fmtDay(iso) {
