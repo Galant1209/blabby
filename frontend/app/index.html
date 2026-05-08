@@ -2165,6 +2165,12 @@
             </div>
         </section>
 
+        <section id="quick-start" class="practice-hub card-v3" style="margin-bottom: 16px;">
+            <button class="practice-hub-btn" id="quick-start-btn">
+                開始今日練習
+            </button>
+        </section>
+
         <section id="diagnosis-entry" class="practice-hub card-v3 fade-in" style="margin-bottom: 16px;">
             <div class="card-v3__icon-badge" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
@@ -3702,6 +3708,17 @@
             }
             showSpeakingPractice();
         });
+
+        // Quick-start CTA at top of Hub — delegates to the existing
+        // start-practice-btn handler so resume / daily-question state
+        // logic stays single-sourced. .click() works regardless of
+        // whether start-practice-btn is currently visible.
+        const quickStartBtn = document.getElementById('quick-start-btn');
+        if (quickStartBtn) {
+            quickStartBtn.addEventListener('click', () => {
+                startPracticeBtn.click();
+            });
+        }
 
         if (dailyQuestionBtn) {
             dailyQuestionBtn.addEventListener('click', () => {
