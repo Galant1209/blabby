@@ -2922,6 +2922,19 @@
             await originalShowMain(...args);
             if (adminParams.get('admin') === '1') {
                 handleAdminRoute();
+                return;
+            }
+            // Deep-link from /diagnosis.html → auto-start a drill on the
+            // requested weakness_tag. Gated by the same DRILLABLE_TAGS set
+            // used by renderWeaknessSummary so a non-drillable tag silently
+            // falls through to the normal hub view.
+            const drillTag = adminParams.get('drill');
+            if (drillTag) {
+                const allowed = new Set(['weak_vocab', 'lack_detail']);
+                if (allowed.has(drillTag)) {
+                    window.analytics.track('drill_deeplink_started', { tag: drillTag });
+                    startDrillForTag(drillTag);
+                }
             }
         };
 

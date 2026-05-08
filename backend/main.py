@@ -2313,6 +2313,105 @@ async def get_history(
     return {"records": resp.data or []}
 
 
+@app.get("/api/diagnosis/timeline")
+@limiter.limit("20/minute")
+async def diagnosis_timeline(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Returns:
+    - first_session: earliest created_at
+    - total_sessions: count of all practice_records
+    - topics_seen: distinct topics
+    - weakness_timeline: per weakness_tag, list of {week, count}
+    - weakness_first_seen: per tag, first created_at
+    - weakness_last_seen: per tag, last created_at
+    - weakness_counts: per tag, total count
+    - recent_trend: last 14 days vs prior 14 days per tag (delta)
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        resp = (
+            supabase_admin.table("practice_records")
+            .select("created_at, weakness_tag, topic")
+            .eq("user_id", user_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+    except Exception:
+        logger.exception("diagnosis_timeline query failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load timeline")
+
+    rows = resp.data or []
+    if not rows:
+        return {
+            "first_session": None,
+            "total_sessions": 0,
+            "topics_seen": [],
+            "weakness_timeline": {},
+            "weakness_first_seen": {},
+            "weakness_last_seen": {},
+            "weakness_counts": {},
+            "recent_trend": {},
+        }
+
+    from collections import defaultdict
+
+    first_session = rows[0]["created_at"]
+    total_sessions = len(rows)
+    topics_seen = list({r["topic"] for r in rows if r.get("topic")})
+
+    tag_rows: dict[str, list[str]] = defaultdict(list)
+    for r in rows:
+        tag = (r.get("weakness_tag") or "").strip()
+        if tag:
+            tag_rows[tag].append(r["created_at"])
+
+    weakness_first_seen = {tag: dates[0] for tag, dates in tag_rows.items()}
+    weakness_last_seen = {tag: dates[-1] for tag, dates in tag_rows.items()}
+    weakness_counts = {tag: len(dates) for tag, dates in tag_rows.items()}
+
+    weakness_timeline = {}
+    for tag, dates in tag_rows.items():
+        buckets: dict[str, int] = defaultdict(int)
+        for d in dates:
+            dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+            week = dt.strftime("%Y-W%W")
+            buckets[week] += 1
+        weakness_timeline[tag] = [
+            {"week": w, "count": c} for w, c in sorted(buckets.items())
+        ]
+
+    now = datetime.now(timezone.utc)
+    cutoff_recent = now - timedelta(days=14)
+    cutoff_prior = now - timedelta(days=28)
+    recent_trend = {}
+    for tag, dates in tag_rows.items():
+        recent = sum(
+            1 for d in dates
+            if datetime.fromisoformat(d.replace("Z", "+00:00")) >= cutoff_recent
+        )
+        prior = sum(
+            1 for d in dates
+            if cutoff_prior <= datetime.fromisoformat(d.replace("Z", "+00:00")) < cutoff_recent
+        )
+        recent_trend[tag] = {"recent": recent, "prior": prior, "delta": recent - prior}
+
+    return {
+        "first_session": first_session,
+        "total_sessions": total_sessions,
+        "topics_seen": topics_seen,
+        "weakness_timeline": weakness_timeline,
+        "weakness_first_seen": weakness_first_seen,
+        "weakness_last_seen": weakness_last_seen,
+        "weakness_counts": weakness_counts,
+        "recent_trend": recent_trend,
+    }
+
+
 @app.get("/api/practice-records/weakness-summary")
 @limiter.limit("10/minute")
 async def practice_records_weakness_summary(

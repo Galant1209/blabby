@@ -234,6 +234,60 @@
   @media (min-width: 1024px) {
       .vocab-grid { grid-template-columns: repeat(3, 1fr); }
   }
+
+  /* === Observation header === */
+  #observation-header { padding: 28px 28px 24px; }
+  .observation-intro {
+      font-family: 'EB Garamond', 'Noto Serif TC', Georgia, serif;
+      font-size: 17px; line-height: 1.6; color: var(--ink);
+      font-style: italic; margin-bottom: 18px;
+  }
+  .observation-intro strong { font-style: normal; color: var(--navy); }
+  .observation-stats {
+      display: flex; gap: 18px; padding-top: 14px;
+      border-top: 1px dashed var(--border);
+      font-size: 13px; color: var(--muted);
+      letter-spacing: 0.03em; flex-wrap: wrap;
+  }
+  .observation-stats > div { flex: 1; min-width: 110px; }
+  .observation-stats strong {
+      display: block; font-size: 22px; color: var(--navy);
+      font-family: 'Playfair Display', serif; font-weight: 700;
+      margin-bottom: 2px;
+  }
+
+  /* === Weakness meta — injected into each item of the 前三大卡點 list === */
+  .weakness-meta {
+      margin: 10px 0 16px; padding: 12px 14px;
+      background: rgba(201,168,76,0.06);
+      border-left: 2px solid var(--gold);
+      font-size: 13px; color: var(--muted);
+      display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center;
+  }
+  .weakness-meta__row { display: inline-flex; align-items: baseline; gap: 6px; }
+  .weakness-meta__label {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted);
+  }
+  .weakness-meta__value { color: var(--ink); font-style: italic; }
+  .trend-badge {
+      display: inline-block; padding: 2px 9px;
+      font-size: 12px; font-weight: 500; letter-spacing: 0.04em;
+      border-radius: 2px;
+  }
+  .trend-badge.improving { color: #2D5016; background: rgba(45,80,22,0.10); }
+  .trend-badge.worsening { color: var(--red); background: rgba(107,26,26,0.10); }
+  .trend-badge.stable    { color: var(--muted); background: rgba(122,110,95,0.10); }
+  .drill-link-btn {
+      margin-left: auto; padding: 6px 14px;
+      background: var(--surface); color: var(--navy);
+      border: 1px solid var(--gold);
+      font-family: 'EB Garamond', serif; font-size: 13px; font-style: italic;
+      cursor: pointer; letter-spacing: 0.02em;
+      transition: background 120ms ease;
+  }
+  .drill-link-btn:hover { background: rgba(201,168,76,0.10); }
+  .drill-link-btn:active { transform: scale(0.97); }
 </style>
 <!-- PostHog Analytics -->
 <script>
@@ -348,6 +402,112 @@
     document.getElementById('retry').addEventListener('click', loadDiagnosis);
   }
 
+  // === Timeline helpers ===
+  // Keyword-based tag detection for "前三大卡點" items. The LLM picks free
+  // names (e.g. 「詞彙貧乏」 instead of the canonical label), so exact label
+  // matching fails — match on common keyword substrings instead. Returns
+  // null if no keyword hits (caller skips meta injection for that item).
+  const TAG_KEYWORDS = {
+    weak_vocab:    ['詞彙', '用字', '單字', 'vocab', 'vocabulary'],
+    safe_answer:   ['保險', '安全', '簡單', 'safe answer'],
+    lack_detail:   ['細節', '具體', '舉例', '詳細', 'detail'],
+    grammar_minor: ['文法', 'grammar', '時態'],
+    off_topic:     ['答非', '離題', '偏題', 'off topic', 'off-topic'],
+  };
+  // Mirror of index.html DRILLABLE_TAGS — only these tags hit a real drill;
+  // others 404 in the drill engine, so the button must be hidden for them.
+  const DRILLABLE_TAGS = new Set(['weak_vocab', 'lack_detail']);
+
+  function detectTag(text) {
+    const lower = String(text || '').toLowerCase();
+    for (const [tag, kws] of Object.entries(TAG_KEYWORDS)) {
+      if (kws.some(k => lower.includes(k.toLowerCase()))) return tag;
+    }
+    return null;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch (_) { return '—'; }
+  }
+
+  function trendClass(delta) {
+    if (delta < -2) return { cls: 'improving', label: '↓ improving' };
+    if (delta > 2)  return { cls: 'worsening', label: '↑ worsening' };
+    return            { cls: 'stable',    label: '→ stable'    };
+  }
+
+  function buildObservationHeader(timeline) {
+    const first = timeline.first_session;
+    const total = timeline.total_sessions || 0;
+    const topics = (timeline.topics_seen || []).length;
+    if (!first || total === 0) return ''; // no sessions → skip header entirely
+    const year = (() => { try { return new Date(first).getFullYear(); } catch (_) { return ''; } })();
+    return `
+      <div id="observation-header" class="panel fade-in">
+        <div class="observation-intro">
+          Thy first words were recorded on <strong>${escapeHtml(fmtDate(first))}</strong>.<br>
+          We have been watching since.
+        </div>
+        <div class="observation-stats">
+          <div><strong>${total}</strong>sessions observed</div>
+          <div><strong>${topics}</strong>topics explored</div>
+          <div><strong>Since ${escapeHtml(String(year || '—'))}</strong></div>
+        </div>
+      </div>`;
+  }
+
+  // Walk rendered .md DOM, find ordered lists (LLM uses these for 前三大卡點),
+  // detect each item's tag by keyword, append a meta footer with first/last
+  // seen dates + trend badge + drill button.
+  function injectWeaknessMeta(timeline) {
+    const md = document.querySelector('.panel .md');
+    if (!md) return;
+    const lists = md.querySelectorAll('ol');
+    lists.forEach(ol => {
+      ol.querySelectorAll(':scope > li').forEach(li => {
+        const tag = detectTag(li.textContent);
+        if (!tag) return;
+        const first = (timeline.weakness_first_seen || {})[tag];
+        const last  = (timeline.weakness_last_seen  || {})[tag];
+        const trend = (timeline.recent_trend       || {})[tag];
+        if (!first && !last && !trend) return;
+        const t = trend ? trendClass(trend.delta || 0) : null;
+        const drillBtn = DRILLABLE_TAGS.has(tag)
+          ? `<button class="drill-link-btn" data-drill-tag="${escapeHtml(tag)}">針對訓練 →</button>`
+          : '';
+        const meta = document.createElement('div');
+        meta.className = 'weakness-meta';
+        meta.innerHTML = `
+          <div class="weakness-meta__row">
+            <span class="weakness-meta__label">First observed</span>
+            <span class="weakness-meta__value">${escapeHtml(fmtDate(first))}</span>
+          </div>
+          <div class="weakness-meta__row">
+            <span class="weakness-meta__label">Last observed</span>
+            <span class="weakness-meta__value">${escapeHtml(fmtDate(last))}</span>
+          </div>
+          ${t ? `<div class="weakness-meta__row">
+            <span class="weakness-meta__label">Trend</span>
+            <span class="trend-badge ${t.cls}">${t.label}</span>
+          </div>` : ''}
+          ${drillBtn}`;
+        li.appendChild(meta);
+      });
+    });
+    // Wire drill buttons — navigate with ?drill= so index.html picks it up.
+    md.querySelectorAll('.drill-link-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tag = btn.dataset.drillTag || '';
+        track('diagnosis_drill_link_clicked', { tag });
+        window.location.href = `/index.html?drill=${encodeURIComponent(tag)}`;
+      });
+    });
+  }
+
   async function loadDiagnosis() {
     document.getElementById('container').innerHTML =
       '<div class="panel center"><div class="state-loading">Examining thy practice history…</div></div>';
@@ -367,12 +527,23 @@
       return;
     }
 
-    let res, data;
+    let res, data, timeline = null;
     try {
-      res = await fetch(`${API_BASE}/api/diagnosis/me`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      // Fire diagnosis + timeline in parallel — timeline failure is non-fatal
+      // (header just won't render, the diagnosis still loads).
+      const [diagRes, tlRes] = await Promise.all([
+        fetch(`${API_BASE}/api/diagnosis/me`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`${API_BASE}/api/diagnosis/timeline`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => null),
+      ]);
+      res = diagRes;
+      if (tlRes && tlRes.ok) {
+        try { timeline = await tlRes.json(); } catch (_) { timeline = null; }
+      }
     } catch (e) {
       console.error('fetch failed', e);
       showError('The examination could not be completed. Pray, try once more.');
@@ -416,6 +587,7 @@
     } catch (_) { /* keep isPro = false */ }
 
     document.getElementById('container').innerHTML = `
+      ${timeline ? buildObservationHeader(timeline) : ''}
       <div class="panel fade-in">
         <div class="md">${renderMarkdown(data.diagnosis_markdown || '')}</div>
         <div class="meta">Compiled ${new Date(data.generated_at || Date.now()).toLocaleString()}</div>
@@ -449,6 +621,11 @@
     }
 
     track('diagnosis_viewed', { practice_count: count });
+
+    // Walk the rendered .md DOM and append per-weakness metadata + drill
+    // buttons. Skips silently if no timeline data or no list items match
+    // a known tag keyword.
+    if (timeline) injectWeaknessMeta(timeline);
 
     // Scroll-entrance fade-in. Run AFTER innerHTML so the panel,
     // conversion box, and CTA cluster (all rendered above) get observed.
