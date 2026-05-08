@@ -1115,15 +1115,11 @@ def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
         history_text += f"Blabby 教練回饋：{r.get('coach_response', '-')}\n"
         history_text += f"---\n"
 
-    system_prompt = """你是一位資深 IELTS 口說教練，專門診斷 Band 4-6 台灣學生的口說弱點。
+    system_prompt = """你是一位資深 IELTS 口說教練，專門診斷台灣學生的口說弱點。
 
 你的任務是讀完這位學生所有的練習記錄，用繁體中文產出一份診斷報告。
 
 報告格式（必須嚴格遵守）：
-
-## 程度判斷
-- 預估 Band（4-7）
-- 主要依據（2-3 句）
 
 ## 前三大卡點（按嚴重度排序）
 1. [卡點名稱，例如「詞彙貧乏」]
@@ -1145,7 +1141,7 @@ def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
 - 沒有則寫「無」
 
 規則：
-- 不打分數（Band 只是教練參考，不是成績）
+- 不打分數
 - 不給空泛建議（像「多練習」這種不要寫）
 - 每個卡點要有具體 transcript 段落當證據
 - 語氣直接，像對一個同事講話，不要客氣
