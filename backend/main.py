@@ -4303,16 +4303,24 @@ def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
 
+    # Extract JSON object if prose wraps it
+    brace_start = raw.find("{")
+    brace_end = raw.rfind("}")
+    if brace_start > 0 or (brace_start == 0 and brace_end < len(raw) - 1):
+        raw = raw[brace_start:brace_end + 1]
+
     fmt = "raw"
     parsed_data = None
     try:
         parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("LLM returned non-dict JSON")
         if not isinstance(parsed.get("weaknesses"), list):
             raise ValueError("missing weaknesses array")
         fmt = "structured"
         parsed_data = parsed
-    except (json.JSONDecodeError, ValueError):
-        logger.warning("diagnosis JSON parse failed, falling back to raw text")
+    except (json.JSONDecodeError, ValueError, AttributeError) as exc:
+        logger.exception("diagnosis JSON parse failed, raw[:200]=%s", raw[:200])
 
     return {
         "user_id": user_id,
