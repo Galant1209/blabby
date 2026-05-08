@@ -1101,6 +1101,69 @@ def validate_correction_response(
     return True, ""
 
 
+def classify_quality(transcript: str, coach_response: str, weakness_tag: str) -> dict:
+    """
+    Classify a single practice record's quality for admin triage.
+    Returns {"grade": "valid"|"partial"|"invalid"|"unknown", "reason": str}.
+
+    Two-stage:
+    1) Cheap pre-filters (length + non-answer pattern match) — short-circuit
+       before spending an LLM call on obvious junk.
+    2) Claude classification for everything else.
+
+    Fail-open: any LLM error → grade="unknown" so the insert never blocks
+    on this side-channel.
+    """
+    if not transcript or len(transcript.strip()) < 10:
+        return {"grade": "invalid", "reason": "empty or near-empty transcript"}
+
+    INVALID_PATTERNS = [
+        "oh shit", "oh, shit", "hello", "you", "i'm not ready",
+        "thanks for watching", "i don't know", "sorry",
+    ]
+    t_lower = transcript.strip().lower()
+    if len(t_lower.split()) <= 4:
+        for p in INVALID_PATTERNS:
+            if p in t_lower:
+                return {
+                    "grade": "invalid",
+                    "reason": f"non-answer detected: '{transcript.strip()}'",
+                }
+
+    try:
+        response = anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=200,
+            system=(
+                "You are a strict IELTS Speaking examiner reviewing student practice records. "
+                "Classify the quality of the student's response. "
+                'Return JSON only: {"grade": "valid"|"partial"|"invalid", "reason": "one sentence"}'
+            ),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Transcript: {transcript[:500]}\n"
+                    f"Weakness tag: {weakness_tag}\n\n"
+                    "valid = substantive answer with at least 2 sentences of real content\n"
+                    "partial = attempted but too short, off-topic, or incomplete\n"
+                    "invalid = non-answer, recording failure, single word, profanity only, or completely unrelated"
+                ),
+            }],
+        )
+        content = response.content[0].text.strip()
+        if content.startswith("```"):
+            content = re.sub(r"^```(?:json)?\s*", "", content)
+            content = re.sub(r"\s*```$", "", content)
+        parsed = json.loads(content)
+        grade = parsed.get("grade", "unknown")
+        if grade not in ("valid", "partial", "invalid"):
+            grade = "unknown"
+        return {"grade": grade, "reason": (parsed.get("reason") or "")[:280]}
+    except Exception:
+        logger.exception("classify_quality failed")
+        return {"grade": "unknown", "reason": "classification failed"}
+
+
 def build_diagnosis_prompt(records: list[dict]) -> tuple[str, str]:
     """
     Build system + user prompt for AI diagnosis.
@@ -1826,6 +1889,10 @@ async def process(
                     "evidence":             evidence_obj,
                 }
 
+                quality = classify_quality(user_text or "", coach_response or "", drill_tag or "")
+                payload["quality_grade"] = quality["grade"]
+                payload["quality_reason"] = quality["reason"]
+
                 try:
                     insert_resp = supabase_admin.table("practice_records").insert(payload).execute()
                     persisted = True
@@ -1838,19 +1905,23 @@ async def process(
                         extra={"user_id": user_id, "drill_tag": drill_tag, "error": str(e)},
                     )
             else:
+                normal_payload = {
+                    "user_id":              user_id,
+                    "topic":                topic or "",
+                    "question":             question or "",
+                    "user_transcript":      user_text or "",
+                    "coach_response":       coach_response,
+                    "better_expression":    better_expression,
+                    "better_expression_zh": better_expression_zh,
+                    "next_question":        next_question,
+                    "weakness_tag":         weakness_tag,
+                    "memory_snapshot":      memory_snapshot,
+                }
+                quality = classify_quality(user_text or "", coach_response or "", weakness_tag or "")
+                normal_payload["quality_grade"] = quality["grade"]
+                normal_payload["quality_reason"] = quality["reason"]
                 try:
-                    insert_resp = supabase_admin.table("practice_records").insert({
-                        "user_id":              user_id,
-                        "topic":                topic or "",
-                        "question":             question or "",
-                        "user_transcript":      user_text or "",
-                        "coach_response":       coach_response,
-                        "better_expression":    better_expression,
-                        "better_expression_zh": better_expression_zh,
-                        "next_question":        next_question,
-                        "weakness_tag":         weakness_tag,
-                        "memory_snapshot":      memory_snapshot,
-                    }).execute()
+                    insert_resp = supabase_admin.table("practice_records").insert(normal_payload).execute()
                     persisted = True
                     # Capture the fresh row's id so the resolution lookup below
                     # can cleanly exclude it (avoids relying on ordering races).
@@ -3849,12 +3920,104 @@ async def admin_users(
         verify_admin(authorization)
         result = supabase_admin.rpc("get_admin_users_full").execute()
         rows = result.data or []
+
+        # Merge per-user quality_grade counts. We do this in Python rather
+        # than touching the RPC so the migration stays one ALTER TABLE.
+        # Single fetch; bucketed by (user_id, grade). Failure here is
+        # non-fatal — the admin list still loads without the counts.
+        quality_by_user: dict[str, dict[str, int]] = {}
+        try:
+            qresp = (
+                supabase_admin.table("practice_records")
+                .select("user_id, quality_grade")
+                .execute()
+            )
+            for r in qresp.data or []:
+                uid = r.get("user_id")
+                grade = (r.get("quality_grade") or "unknown") or "unknown"
+                if not uid:
+                    continue
+                bucket = quality_by_user.setdefault(uid, {})
+                bucket[grade] = bucket.get(grade, 0) + 1
+        except Exception:
+            logger.exception("admin_users quality aggregation failed")
+
+        for row in rows:
+            uid = row.get("user_id")
+            counts = quality_by_user.get(uid, {})
+            row["quality_counts"] = {
+                "valid":   counts.get("valid", 0),
+                "partial": counts.get("partial", 0),
+                "invalid": counts.get("invalid", 0),
+                "unknown": counts.get("unknown", 0),
+            }
+
         return {"users": rows, "total": len(rows)}
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("admin users endpoint failed")
         raise HTTPException(status_code=500, detail="Failed to load admin users") from exc
+
+
+@app.post("/api/admin/reclassify")
+@limiter.limit("3/minute")
+async def admin_reclassify(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    One-shot batch: classify up to 200 practice_records where
+    quality_grade IS NULL, then return how many got updated and how many
+    still need work. Admin-only (gated by ADMIN_EMAILS via verify_admin).
+
+    Repeat until {remaining: 0}. Capped at 200 per call so we don't
+    blow the request budget on a single hit.
+    """
+    verify_admin(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        resp = (
+            supabase_admin.table("practice_records")
+            .select("id, user_transcript, coach_response, weakness_tag")
+            .is_("quality_grade", "null")
+            .limit(200)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("admin_reclassify select failed")
+        raise HTTPException(status_code=503, detail="Failed to load rows") from exc
+
+    rows = resp.data or []
+    updated = 0
+    failed = 0
+    for row in rows:
+        try:
+            quality = classify_quality(
+                row.get("user_transcript") or "",
+                row.get("coach_response") or "",
+                row.get("weakness_tag") or "",
+            )
+            supabase_admin.table("practice_records").update({
+                "quality_grade":  quality["grade"],
+                "quality_reason": quality["reason"],
+            }).eq("id", row["id"]).execute()
+            updated += 1
+        except Exception:
+            logger.exception("reclassify row failed", extra={"record_id": row.get("id")})
+            failed += 1
+
+    # remaining: caller should re-poll until this is 0. We don't do a
+    # second count() because it'd race with the next batch insert anyway.
+    remaining_estimate = max(0, len(rows) - updated)
+    return {
+        "updated": updated,
+        "failed": failed,
+        "batch_size": len(rows),
+        "remaining": remaining_estimate,
+    }
 
 
 @app.get("/admin/user/{user_id}")
@@ -3882,9 +4045,10 @@ async def admin_user_records(
         response = (
             supabase_admin.table("practice_records")
             .select(
-                "topic, question, user_transcript, coach_response, "
+                "id, topic, question, user_transcript, coach_response, "
                 "better_expression, better_expression_zh, next_question, "
-                "weakness_tag, memory_snapshot, created_at"
+                "weakness_tag, memory_snapshot, created_at, "
+                "quality_grade, quality_reason"
             )
             .eq("user_id", user_id)
             .order("created_at", desc=False)

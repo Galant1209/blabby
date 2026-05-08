@@ -1039,6 +1039,67 @@
         .admin-records-list {
             margin-top: 24px;
         }
+
+        /* === Admin quality triage === */
+        .quality-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 2px;
+            font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .quality-badge.valid    { background: rgba(45,80,22,0.12);  color: #2D5016; }
+        .quality-badge.partial  { background: rgba(201,168,76,0.18); color: #8a6e1a; }
+        .quality-badge.invalid  { background: rgba(107,26,26,0.12); color: #6B1A1A; }
+        .quality-badge.unknown  { background: rgba(122,110,95,0.10); color: #7A6E5F; }
+        .quality-badge.none     { background: #f3efe6; color: #999; }
+
+        .users-table .quality-cell { font-size: 12px; white-space: nowrap; }
+        .users-table .quality-cell .qc { display: inline-block; margin-right: 6px; }
+        .users-table .quality-cell .qc.valid   { color: #2D5016; }
+        .users-table .quality-cell .qc.invalid { color: #6B1A1A; }
+        .users-table .quality-cell .qc.partial { color: #8a6e1a; }
+        .users-table td.user-email { font-size: 12px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Triage stats bar + toggle + Reclassify */
+        .triage-bar {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            padding: 12px 0; border-bottom: 1px solid #e5e5e5; margin-bottom: 12px;
+            font-size: 13px;
+        }
+        .triage-bar__stats { font-family: 'Libre Baskerville', serif; color: #2c2416; }
+        .triage-bar__stats .qc { margin-right: 10px; font-weight: 700; }
+        .triage-bar__toggle {
+            margin-left: auto; display: inline-flex; gap: 6px; align-items: center;
+            font-size: 12px; color: #555; cursor: pointer;
+        }
+        .triage-bar__toggle input { cursor: pointer; }
+        .reclassify-btn {
+            padding: 6px 14px; border: 1px solid var(--gold, #C9A84C);
+            background: #fff; color: #2D5016; cursor: pointer;
+            font-family: 'Libre Baskerville', serif; font-size: 12px;
+            letter-spacing: 0.04em;
+        }
+        .reclassify-btn:hover:not(:disabled) { background: rgba(201,168,76,0.10); }
+        .reclassify-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .reclassify-status {
+            font-size: 12px; color: #7A6E5F; font-style: italic; margin-left: 8px;
+        }
+
+        /* Compact quality rows (replaces verbose record-cards in triage view) */
+        .qrow {
+            display: grid;
+            grid-template-columns: 130px 1fr 90px;
+            gap: 10px 16px; padding: 10px 12px;
+            border-bottom: 1px solid #ececec;
+            font-size: 13px; align-items: start;
+        }
+        .qrow:hover { background: #faf8f3; }
+        .qrow.hidden { display: none; }
+        .qrow__time { color: #7A6E5F; font-size: 11px; font-family: monospace; }
+        .qrow__main { min-width: 0; }
+        .qrow__question { font-style: italic; color: #2c2416; margin-bottom: 4px; }
+        .qrow__transcript { color: #555; font-size: 12px; line-height: 1.5; }
+        .qrow__reason { color: #888; font-size: 11px; margin-top: 4px; font-style: italic; }
+        .qrow__grade { text-align: right; }
         .record-card {
             border: 1px solid #e5e5e5;
             border-radius: 4px;
@@ -3985,14 +4046,21 @@
             const rows = users.map((user) => {
                 const uid = String(user.user_id || '');
                 const short = uid.slice(0, 8) || '-';
+                const email = user.email || '';
                 const href = `?admin=1&user_id=${encodeURIComponent(uid)}`;
+                const q = user.quality_counts || {};
+                const v = q.valid || 0, p = q.partial || 0, i = q.invalid || 0;
                 return `
                     <tr>
-                        <td><code class="user-id-short" title="${escapeHtml(uid)}">${escapeHtml(short)}</code></td>
+                        <td class="user-email" title="${escapeHtml(email || uid)}">${escapeHtml(email || short)}</td>
                         <td class="users-count">${escapeHtml(user.record_count ?? 0)}</td>
-                        <td>${escapeHtml(formatAdminTableTimestamp(user.first_seen))}</td>
+                        <td class="quality-cell">
+                            <span class="qc valid">${v}v</span>
+                            <span class="qc partial">${p}p</span>
+                            <span class="qc invalid">${i}i</span>
+                        </td>
                         <td>${escapeHtml(formatAdminTableTimestamp(user.last_seen))}</td>
-                        <td><a class="btn-view-detail" href="${href}">查看詳情</a></td>
+                        <td><a class="btn-view-detail" href="${href}">查看</a></td>
                     </tr>
                 `;
             }).join('');
@@ -4002,9 +4070,9 @@
                     <table class="users-table">
                         <thead>
                             <tr>
-                                <th>User ID</th>
-                                <th class="users-count">記錄數</th>
-                                <th>首次使用</th>
+                                <th>Email / ID</th>
+                                <th class="users-count">總</th>
+                                <th>品質</th>
                                 <th>最近使用</th>
                                 <th>操作</th>
                             </tr>
@@ -4121,136 +4189,40 @@
                 return;
             }
 
-            const renderComparisonCard = (record, label) => {
-                if (!record) return '';
-                return `
-                    <div class="admin-comparison-card">
-                        <div class="admin-comparison-card-title">${escapeHtml(label)} (Seq ${escapeHtml(record.sequence)}, ${escapeHtml(formatAdminTimestamp(record.created_at))})</div>
-                        <span class="admin-comparison-label">Transcript:</span>
-                        <p class="admin-comparison-text">${escapeHtml(record.user_transcript || '-')}</p>
-                        <span class="admin-comparison-label">Coach Response:</span>
-                        <p class="admin-comparison-text">${escapeHtml(record.coach_response || '-')}</p>
-                        <span class="admin-comparison-label">Weakness Tag:</span>
-                        <p class="admin-comparison-text">${escapeHtml(record.weakness_tag || '-')}</p>
-                    </div>
-                `;
-            };
+            // === Quality-focused triage view ===
+            // Replaces the old verbose record-cards / weak-words / comparison
+            // blocks. Goal: scan many records fast, spot bad ones, fix labels.
+            const counts = { valid: 0, partial: 0, invalid: 0, unknown: 0, none: 0 };
+            records.forEach((r) => {
+                const g = r.quality_grade || 'none';
+                if (counts[g] !== undefined) counts[g] += 1;
+                else counts.unknown += 1;
+            });
 
-            let previousPatternKey = null;
-            let repeatCount = 0;
-            let groupIndex = -1;
-            const weakWordsRows = records.map((record) => {
-                const rawPatterns = Array.isArray(record.memory_snapshot?.weak_patterns)
-                    ? record.memory_snapshot.weak_patterns.filter(Boolean).map((word) => String(word).trim()).filter(Boolean)
-                    : [];
-                const hasSnapshot = rawPatterns.length > 0;
+            const newest = records.slice().sort((a, b) =>
+                String(b.created_at || '').localeCompare(String(a.created_at || ''))
+            );
 
-                if (!hasSnapshot) {
-                    previousPatternKey = null;
-                    repeatCount = 0;
-                    return `
-                        <tr class="weak-words-no-snapshot">
-                            <td>${escapeHtml(`Seq ${record.sequence}`)}</td>
-                            <td>${escapeHtml(formatAdminTableTimestamp(record.created_at))}</td>
-                            <td>—</td>
-                            <td>—</td>
-                        </tr>
-                    `;
-                }
-
-                const patternKey = rawPatterns
-                    .map((word) => word.toLowerCase())
-                    .sort()
-                    .join('|');
-                if (patternKey === previousPatternKey) {
-                    repeatCount += 1;
-                } else {
-                    repeatCount = 1;
-                    groupIndex += 1;
-                }
-                previousPatternKey = patternKey;
-
-                const groupClass = groupIndex % 2 === 0 ? 'weak-words-group-a' : 'weak-words-group-b';
-                const repeatBadge = repeatCount >= 2
-                    ? `<span class="weak-words-badge weak-words-badge-repeat">repeat ×${escapeHtml(repeatCount)}</span>`
-                    : '<span class="weak-words-badge weak-words-badge-new">new</span>';
-
-                return `
-                    <tr class="${groupClass}">
-                        <td>${escapeHtml(`Seq ${record.sequence}`)}</td>
-                        <td>${escapeHtml(formatAdminTableTimestamp(record.created_at))}</td>
-                        <td>${escapeHtml(`[${rawPatterns.join(', ')}]`)}</td>
-                        <td>${repeatBadge}</td>
-                    </tr>
-                `;
-            }).join('');
-
-            const firstRecord = records[0];
-            const latestRecord = records[records.length - 1];
-            let comparisonBlock = '';
-            if (records.length < 2) {
-                comparisonBlock = `
-                    <div class="admin-error-text">需要至少 2 筆記錄才能比較</div>
-                    ${renderComparisonCard(firstRecord, '第 1 次')}
-                `;
-            } else {
-                comparisonBlock = `
-                    <div class="admin-comparison-grid">
-                        ${renderComparisonCard(firstRecord, '第 1 次')}
-                        ${renderComparisonCard(latestRecord, '最新')}
-                    </div>
-                `;
-            }
-
-            const expressionLines = records.map((record) => {
-                const hasExpression = record.better_expression && record.better_expression.trim();
-                if (!hasExpression) {
-                    return `
-                        <div class="admin-expression-item">
-                            <div class="admin-expression-line">Seq ${escapeHtml(record.sequence)} (${escapeHtml(formatAdminTimestamp(record.created_at))}): (無金句)</div>
-                        </div>
-                    `;
-                }
-                return `
-                    <div class="admin-expression-item">
-                        <div class="admin-expression-line">Seq ${escapeHtml(record.sequence)} (${escapeHtml(formatAdminTimestamp(record.created_at))}): "${escapeHtml(record.better_expression)}"</div>
-                        <div class="admin-expression-line">→ ${escapeHtml(record.better_expression_zh || '-')}</div>
-                    </div>
-                `;
-            }).join('');
-
-            const recordCards = records.map((record) => {
+            const qrowHtml = newest.map((record) => {
+                const grade = record.quality_grade || 'none';
                 const transcriptRaw = (record.user_transcript || '').trim();
-                const transcriptHtml = transcriptRaw
-                    ? escapeHtml(record.user_transcript)
-                    : '(無 transcript)';
-                const transcriptEmptyClass = transcriptRaw ? '' : ' is-empty';
-
-                const coachRaw = (record.coach_response || '').trim();
-                const coachHtml = coachRaw
-                    ? escapeHtml(record.coach_response)
-                    : '(無 coach response)';
-                const coachEmptyClass = coachRaw ? '' : ' is-empty';
-
+                const transcriptShort = transcriptRaw.length > 80
+                    ? transcriptRaw.slice(0, 80) + '…'
+                    : (transcriptRaw || '(no transcript)');
+                const reason = (record.quality_reason || '').trim();
+                const badgeLabel = grade === 'none' ? 'unrated' : grade;
                 return `
-                    <article class="record-card">
-                        <div class="record-card-header">
-                            <span class="record-seq">Seq ${escapeHtml(record.sequence)}</span>
-                            <span class="record-time">${escapeHtml(formatAdminTableTimestamp(record.created_at))}</span>
-                            <span class="record-topic">${escapeHtml(record.topic || '—')}</span>
-                            <span class="record-tag">${escapeHtml(record.weakness_tag || '—')}</span>
+                    <div class="qrow" data-grade="${escapeHtml(grade)}">
+                        <div class="qrow__time">${escapeHtml(formatAdminTableTimestamp(record.created_at))}</div>
+                        <div class="qrow__main">
+                            <div class="qrow__question">${escapeHtml(record.question || '—')}</div>
+                            <div class="qrow__transcript">${escapeHtml(transcriptShort)}</div>
+                            ${reason ? `<div class="qrow__reason">${escapeHtml(reason)}</div>` : ''}
                         </div>
-                        <div class="record-card-body">
-                            <div class="record-field">
-                                <div class="record-label">Transcript</div>
-                                <div class="record-value record-transcript${transcriptEmptyClass}">${transcriptHtml}</div>
-                            </div>
-                            <div class="record-field">
-                                <div class="record-label">Coach Response</div>
-                                <div class="record-value record-coach${coachEmptyClass}">${coachHtml}</div>
-                            </div>
+                        <div class="qrow__grade">
+                            <span class="quality-badge ${escapeHtml(grade)}">${escapeHtml(badgeLabel)}</span>
                         </div>
-                    </article>
+                    </div>
                 `;
             }).join('');
 
@@ -4259,41 +4231,74 @@
                     <a class="admin-back-link" href="?admin=1">← 返回 admin dashboard</a>
                     <div class="admin-detail-header">User: ${escapeHtml(emailOrUser)} | Total: ${total} records</div>
                     ${diagnosisSection}
-                    <div class="admin-deep-observation">
-                        <section class="admin-observation-block admin-weak-words">
-                            <h3 class="admin-observation-title">Weak Words 累積變化</h3>
-                            <table class="weak-words-table">
-                                <thead>
-                                    <tr>
-                                        <th>Seq</th>
-                                        <th>時間</th>
-                                        <th>Weak Patterns</th>
-                                        <th>Repeat</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${weakWordsRows}
-                                </tbody>
-                            </table>
-                        </section>
-                        <hr>
-                        <div class="admin-observation-block">
-                            <h3 class="admin-observation-title">第 1 次 vs 最新 Coach 語氣並排</h3>
-                            ${comparisonBlock}
-                        </div>
-                        <hr>
-                        <div class="admin-observation-block">
-                            <h3 class="admin-observation-title">📌 AI 教過的金句</h3>
-                            ${expressionLines}
-                        </div>
-                    </div>
                     <section class="admin-records-list">
-                        <h3 class="admin-observation-title">所有練習記錄</h3>
-                        ${recordCards}
+                        <div class="triage-bar">
+                            <div class="triage-bar__stats">
+                                <span class="qc">${counts.valid} valid</span>
+                                <span class="qc">${counts.partial} partial</span>
+                                <span class="qc">${counts.invalid} invalid</span>
+                                ${counts.unknown ? `<span class="qc">${counts.unknown} unknown</span>` : ''}
+                                ${counts.none ? `<span class="qc">${counts.none} unrated</span>` : ''}
+                                <span style="color:#7A6E5F">out of ${total} total</span>
+                            </div>
+                            <button class="reclassify-btn" id="reclassify-btn" type="button">Run Reclassify</button>
+                            <span class="reclassify-status" id="reclassify-status"></span>
+                            <label class="triage-bar__toggle">
+                                <input type="checkbox" id="show-all-toggle">
+                                Show all (default: valid only)
+                            </label>
+                        </div>
+                        <div id="qrow-list">${qrowHtml}</div>
                     </section>
                 </div>
             `;
             attachDiagnosisHandler();
+
+            // Default = valid only. Toggle flips to all.
+            const applyFilter = (showAll) => {
+                document.querySelectorAll('#qrow-list .qrow').forEach((el) => {
+                    if (showAll || el.dataset.grade === 'valid') {
+                        el.classList.remove('hidden');
+                    } else {
+                        el.classList.add('hidden');
+                    }
+                });
+            };
+            applyFilter(false);
+            const toggle = document.getElementById('show-all-toggle');
+            if (toggle) toggle.addEventListener('change', (e) => applyFilter(e.target.checked));
+
+            const btn = document.getElementById('reclassify-btn');
+            const status = document.getElementById('reclassify-status');
+            if (btn) {
+                btn.addEventListener('click', async () => {
+                    if (!sb) { status.textContent = '未登入'; return; }
+                    btn.disabled = true;
+                    status.textContent = 'Running…';
+                    try {
+                        const { data: { session } } = await sb.auth.getSession();
+                        const token = session && session.access_token;
+                        if (!token) { status.textContent = '登入已過期'; btn.disabled = false; return; }
+                        const res = await fetch(`${API_BASE}/api/admin/reclassify`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` },
+                        });
+                        const body = await res.json();
+                        if (!res.ok) {
+                            status.textContent = body.detail || '失敗';
+                            btn.disabled = false;
+                            return;
+                        }
+                        status.textContent = `Updated ${body.updated}/${body.batch_size}, ${body.failed || 0} failed. Reloading…`;
+                        // Re-fetch this user's detail so the new grades show.
+                        setTimeout(() => loadAdminUserDetail(payload.user_id), 600);
+                    } catch (err) {
+                        console.error('reclassify failed', err);
+                        status.textContent = '失敗：網路錯誤';
+                        btn.disabled = false;
+                    }
+                });
+            }
         }
 
         async function loadAdminUserDetail(userId) {
