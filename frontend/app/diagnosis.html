@@ -857,8 +857,24 @@
     if (panel) {
       panel.classList.add('visible'); // keep the existing fade-in state
       console.log('diagnosis response:', JSON.stringify(data).slice(0, 200));
-      const isStructured = data && data.format === 'structured' && data.data
+      let isStructured = data && data.format === 'structured' && data.data
         && Array.isArray(data.data.weaknesses);
+
+      // Client-side fallback: backend may have marked it raw, but if the
+      // payload looks like a JSON object, try parsing here. Catches cases
+      // where the server-side substring extraction missed (e.g. cached raw
+      // entries from before the parse hardening shipped).
+      if (!isStructured && data && data.raw && data.raw.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(data.raw);
+          if (parsed && Array.isArray(parsed.weaknesses)) {
+            data.data = parsed;
+            data.format = 'structured';
+            isStructured = true;
+          }
+        } catch (_) {}
+      }
+
       const bodyHtml = isStructured
         ? renderStructuredDiagnosis(data)
         : `<div class="md">${renderMarkdown(data.diagnosis_markdown || data.raw || '')}</div>`;
