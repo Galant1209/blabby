@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>帳號 · Blabby</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z' fill='none' stroke='%23C9A84C' stroke-width='2' stroke-linejoin='round'/><line x1='4' y1='26' x2='28' y2='26' stroke='%23C9A84C' stroke-width='2'/><circle cx='16' cy='7' r='2' fill='%23C9A84C'/><circle cx='4' cy='13' r='2' fill='%23C9A84C'/><circle cx='28' cy='13' r='2' fill='%23C9A84C'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./config.js"></script>
+<style>
+  :root {
+    --cream:    #F5F0E8;
+    --bg:       #F5F0E8;
+    --surface:  #FDFAF4;
+    --ink:      #2C2416;
+    --navy:     #1A3550;
+    --gold:     #C9A84C;
+    --green:    #2D5016;
+    --red:      #6B1A1A;
+    --border:   #C4B89A;
+    --muted:    #7A6E5F;
+    --line:     #ececec;
+    --sans:     'Inter Tight', system-ui, sans-serif;
+    --serif:    'EB Garamond', 'Noto Serif TC', Georgia, serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--cream); color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+    position: relative;
+  }
+  /* Paper grain — same recipe as index.html so cross-page texture matches. */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none;
+    opacity: 0.45; z-index: 0;
+    background-image:
+      radial-gradient(circle at 22% 18%, rgba(196,184,154,0.18) 0%, transparent 38%),
+      radial-gradient(circle at 78% 72%, rgba(201,168,76,0.07) 0%, transparent 36%);
+  }
+
+  .page {
+    position: relative; z-index: 1;
+    max-width: 560px; margin: 0 auto;
+    padding: 36px 22px 100px;
+  }
+
+  .section {
+    padding: 24px 0;
+    border-bottom: 1px solid rgba(196,184,154,0.4);
+  }
+  .section:last-of-type { border-bottom: none; }
+
+  /* === User info === */
+  .user-email {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px; color: var(--navy); font-weight: 700;
+    margin-bottom: 4px; word-break: break-all;
+  }
+  .user-meta {
+    font-size: 13px; color: var(--muted); font-style: italic;
+    margin-bottom: 16px;
+  }
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 14px 18px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border);
+  }
+  .stat__label {
+    font-family: var(--sans); font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;
+  }
+  .stat__value {
+    font-family: 'Playfair Display', serif; font-size: 18px;
+    color: var(--ink); font-weight: 500;
+    word-break: break-word; line-height: 1.3;
+  }
+  .stat__value--big {
+    font-size: 28px; color: var(--navy); font-weight: 700;
+  }
+  .stat__value.empty { color: var(--muted); font-style: italic; font-size: 14px; }
+
+  /* === Brand statement === */
+  .credo {
+    text-align: center; padding: 32px 12px;
+  }
+  .credo__en {
+    font-family: 'EB Garamond', serif; font-style: italic;
+    font-size: 17px; line-height: 1.7; color: var(--navy);
+    margin-bottom: 14px;
+  }
+  .credo__zh {
+    font-family: 'Noto Serif TC', 'EB Garamond', serif;
+    font-size: 15px; color: var(--ink);
+    letter-spacing: 0.04em;
+  }
+
+  /* === Plan status === */
+  .plan { text-align: center; padding: 8px 0; }
+  .plan__free .plan__badge {
+    display: inline-block; padding: 3px 12px;
+    border: 1px solid var(--border); color: var(--muted);
+    font-family: var(--sans); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .plan__pro .plan__badge {
+    display: inline-block; padding: 3px 14px;
+    background: var(--green); color: var(--gold);
+    font-family: var(--sans); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .plan__pro .plan__badge::after {
+    content: ' ✦'; color: var(--gold);
+  }
+  .plan__line {
+    font-family: var(--serif); font-style: italic; font-size: 16px;
+    color: var(--ink); line-height: 1.6; margin-bottom: 18px;
+  }
+  .plan__line .pro {
+    font-style: normal; font-weight: 700; color: var(--green);
+    letter-spacing: 0.06em;
+  }
+  .plan__cta {
+    display: inline-block; padding: 12px 28px;
+    background: var(--green); color: var(--gold);
+    font-family: var(--sans); font-size: 14px; font-weight: 600;
+    letter-spacing: 0.04em;
+    border: none; cursor: pointer;
+    transition: background 120ms ease, transform 100ms ease;
+    text-decoration: none;
+  }
+  .plan__cta:hover { background: #244112; }
+  .plan__cta:active { transform: scale(0.97); }
+
+  /* === Sign out === */
+  .signout {
+    text-align: center; padding-top: 28px;
+  }
+  .signout__btn {
+    background: transparent; border: none;
+    color: var(--muted); font-family: var(--serif); font-style: italic;
+    font-size: 14px; cursor: pointer; padding: 8px 16px;
+    letter-spacing: 0.04em;
+    transition: color 120ms ease;
+  }
+  .signout__btn:hover { color: var(--red); }
+
+  .skel-line {
+    height: 14px; background: var(--border); opacity: 0.4;
+    border-radius: 2px;
+    animation: skel-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes skel-pulse {
+    0%, 100% { opacity: 0.35; }
+    50%      { opacity: 0.65; }
+  }
+
+  /* === Bottom nav === */
+  #bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 60px; background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: stretch;
+    z-index: 50;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .nav-tab {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 3px;
+    text-decoration: none; color: var(--muted);
+    font-size: 10px; letter-spacing: 0.04em;
+    font-family: var(--sans);
+    transition: color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .nav-tab:hover, .nav-tab.active { color: var(--green); }
+  .nav-tab.active svg { stroke: var(--green); }
+  .nav-tab svg { transition: stroke 0.15s; }
+
+  @media (min-width: 681px) {
+    #bottom-nav { max-width: 680px; left: 50%; transform: translateX(-50%); }
+  }
+</style>
+<!-- PostHog -->
+<script>
+  !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+  posthog.init('phc_yx3H55CAUHfsKFabX4ZQ5JHxTijKzHdyCiKzxvddaLTt', {
+    api_host: 'https://us.i.posthog.com',
+    person_profiles: 'identified_only',
+  });
+  window.analytics = {
+    track:    (e, p) => { try { posthog.capture(e, p || {}); } catch(_) {} },
+    identify: (id, t) => { try { posthog.identify(id, t || {}); } catch(_) {} },
+  };
+</script>
+</head>
+<body>
+
+<div class="page">
+
+  <section class="section" id="user-info">
+    <div class="user-email" id="user-email"><div class="skel-line" style="width:60%"></div></div>
+    <div class="user-meta" id="user-joined"></div>
+    <div class="stats-grid" id="stats-grid">
+      <div><div class="stat__label">總練習</div><div class="stat__value stat__value--big" id="stat-total">—</div></div>
+      <div><div class="stat__label">最常練習</div><div class="stat__value" id="stat-topic">—</div></div>
+      <div style="grid-column:1/-1"><div class="stat__label">目前最大弱點</div><div class="stat__value" id="stat-weakness">—</div></div>
+    </div>
+  </section>
+
+  <section class="section credo">
+    <div class="credo__en">
+      "Blabby does not merely correct thy speech — it watches, records, and<br>
+      reveals the patterns thou canst not see thyself."
+    </div>
+    <div class="credo__zh">從你想開口的那一刻，我們就在你身旁。</div>
+  </section>
+
+  <section class="section plan" id="plan-section">
+    <div class="stat__value empty">Loading…</div>
+  </section>
+
+  <div class="signout">
+    <button class="signout__btn" id="signout-btn" type="button">Sign out</button>
+  </div>
+
+</div>
+
+<nav id="bottom-nav" aria-label="Main navigation">
+  <a href="/" class="nav-tab" data-page="home">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/>
+      <path d="M9 21V12h6v9"/>
+    </svg>
+    <span>練習</span>
+  </a>
+  <a href="/vocabulary.html" class="nav-tab" data-page="vocabulary">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+    </svg>
+    <span>單字</span>
+  </a>
+  <a href="/diagnosis.html" class="nav-tab" data-page="diagnosis">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M12 8v4l3 3"/>
+    </svg>
+    <span>診斷</span>
+  </a>
+  <a href="/history.html" class="nav-tab" data-page="history">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4h12a4 4 0 0 1 4 4v12a4 4 0 0 1-4 0H4z"/>
+      <path d="M4 4v12a4 4 0 0 0 4 4h0a4 4 0 0 1-4-4z"/>
+      <line x1="8" y1="9" x2="16" y2="9"/>
+      <line x1="8" y1="13" x2="14" y2="13"/>
+    </svg>
+    <span>紀錄</span>
+  </a>
+  <a href="/account.html" class="nav-tab active" data-page="account">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+      <circle cx="12" cy="7" r="4"/>
+    </svg>
+    <span>帳號</span>
+  </a>
+</nav>
+
+<script>
+(() => {
+  const cfg = window.BLABBY_CONFIG || {};
+  const SUPABASE_URL = cfg.supabaseUrl;
+  const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
+  const API_BASE = 'https://blabby-backend.onrender.com';
+
+  // Mirror of backend WEAKNESS_LABELS — keep in sync if added.
+  const WEAKNESS_LABELS = {
+    weak_vocab:    '用字太安全',
+    safe_answer:   '答得太保險',
+    lack_detail:   '缺少具體細節',
+    grammar_minor: '小文法',
+    off_topic:     '答非所問',
+  };
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.body.innerHTML = '<div style="padding:40px;font-family:serif">Configuration missing.</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const $ = (id) => document.getElementById(id);
+  const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleDateString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric',
+      });
+    } catch (_) { return '—'; }
+  }
+
+  // === Boot ===
+  async function boot() {
+    let session = null;
+    try {
+      const { data } = await sb.auth.getSession();
+      session = data && data.session;
+    } catch (_) {}
+    if (!session || !session.user) {
+      // No auth → bounce to landing. Fresh session lives there.
+      window.location.replace('/index.html');
+      return;
+    }
+    const user = session.user;
+    const token = session.access_token;
+    window.analytics.identify(user.id, { email: user.email });
+    $('user-email').textContent = user.email || '—';
+    window.analytics.track('account_viewed');
+
+    // Fire history + pro check in parallel — both feed different
+    // sections, neither blocks the other.
+    const historyPromise = fetch(`${API_BASE}/api/history`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    }).then(r => r.ok ? r.json() : null).catch(() => null);
+    const proPromise = fetch(`${API_BASE}/api/drill/check_quota`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+    const [historyBody, proBody] = await Promise.all([historyPromise, proPromise]);
+    renderStats(historyBody);
+    renderPlan(!!(proBody && proBody.is_pro));
+  }
+
+  function renderStats(body) {
+    const records = (body && Array.isArray(body.records)) ? body.records : [];
+    const total = records.length;
+    $('stat-total').textContent = total;
+
+    if (total === 0) {
+      $('user-joined').textContent = 'Yet to begin.';
+      $('stat-topic').innerHTML    = '<span class="empty">尚無</span>';
+      $('stat-weakness').innerHTML = '<span class="empty">尚無</span>';
+      return;
+    }
+
+    // joined = earliest record (records arrive newest-first per /api/history).
+    const earliest = records[records.length - 1];
+    $('user-joined').textContent = `Joined ${fmtDate(earliest.created_at)}`;
+
+    // top topic
+    const topicCounts = {};
+    records.forEach(r => {
+      const t = (r.topic || '').trim();
+      if (t) topicCounts[t] = (topicCounts[t] || 0) + 1;
+    });
+    const topTopic = Object.entries(topicCounts)
+      .sort((a, b) => b[1] - a[1])[0];
+    $('stat-topic').textContent = topTopic ? topTopic[0] : '—';
+
+    // top weakness — null/empty tags excluded
+    const tagCounts = {};
+    records.forEach(r => {
+      const tag = (r.weakness_tag || '').trim();
+      if (tag) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+    });
+    const topTag = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])[0];
+    if (topTag) {
+      const label = WEAKNESS_LABELS[topTag[0]] || topTag[0];
+      $('stat-weakness').textContent = label;
+    } else {
+      $('stat-weakness').innerHTML = '<span class="empty">無明顯模式</span>';
+    }
+  }
+
+  function renderPlan(isPro) {
+    const sec = $('plan-section');
+    if (isPro) {
+      sec.classList.add('plan__pro');
+      sec.innerHTML = `
+        <div class="plan__badge">Pro</div>
+        <div class="plan__line">Thy full practice is observed and corrected.</div>
+      `;
+    } else {
+      sec.classList.add('plan__free');
+      sec.innerHTML = `
+        <div class="plan__badge">Free</div>
+        <div class="plan__line">
+          Finds your weakness <span style="color:var(--gold)">→</span>
+          <span class="pro">Pro</span> Fixes it
+        </div>
+        <a href="/upgrade.html?source=account" class="plan__cta" id="upgrade-cta">Upgrade to Pro →</a>
+      `;
+      const cta = $('upgrade-cta');
+      if (cta) {
+        cta.addEventListener('click', () => {
+          window.analytics.track('upgrade_clicked', { source: 'account' });
+        });
+      }
+    }
+  }
+
+  $('signout-btn').addEventListener('click', async () => {
+    window.analytics.track('signed_out');
+    try { await sb.auth.signOut(); } catch (_) {}
+    window.location.replace('/index.html');
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>
