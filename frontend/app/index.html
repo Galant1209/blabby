@@ -2902,12 +2902,16 @@
                 loadVocabDueCount(),
             ]);
             if (practiceHub) practiceHub.style.display = '';
+            const quickStart = document.getElementById('quick-start');
+            if (quickStart) quickStart.style.display = '';
             updatePracticeHubState();
             renderWeaknessSummary();
         }
 
         function showSpeakingPractice() {
             if (practiceHub) practiceHub.style.display = 'none';
+            const quickStart = document.getElementById('quick-start');
+            if (quickStart) quickStart.style.display = 'none';
             if (speakingPractice) speakingPractice.classList.add('visible');
             lastQuestion = currentQuestion || lastQuestion;
             updatePracticeHubState();
