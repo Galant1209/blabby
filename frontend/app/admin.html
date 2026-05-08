@@ -49,6 +49,68 @@
   .topbar__user a { color: var(--gold); margin-left: 12px; text-decoration: none; }
   .topbar__user a:hover { text-decoration: underline; }
 
+  /* === Tabs === */
+  .tabs {
+    display: flex; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    padding: 10px 18px; font-family: var(--sans); font-size: 13px;
+    color: var(--muted); cursor: pointer; background: transparent;
+    border: none; border-bottom: 2px solid transparent;
+    letter-spacing: 0.04em; transition: color 100ms ease, border-color 100ms ease;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active {
+    color: var(--navy); border-bottom-color: var(--gold);
+    font-weight: 600;
+  }
+  .tab-panel { display: none; height: calc(100vh - 47px - 41px); overflow: hidden; }
+  .tab-panel.active { display: block; }
+  .tab-panel.active.layout { display: grid; }
+
+  /* === Subscriptions panel === */
+  .subs-wrap { padding: 16px 20px; overflow-y: auto; height: 100%; }
+  .subs-wrap h2 {
+    font-family: var(--serif); font-size: 16px; color: var(--navy);
+    margin-bottom: 12px; letter-spacing: 0.04em;
+  }
+  .subs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .subs-table th {
+    text-align: left; padding: 8px 10px; font-family: var(--sans);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+    background: var(--surface); position: sticky; top: 0;
+  }
+  .subs-table td {
+    padding: 10px; border-bottom: 1px solid var(--line);
+    font-size: 12px; color: var(--ink); vertical-align: middle;
+  }
+  .subs-table tr:hover td { background: rgba(201,168,76,0.04); }
+  .subs-table .email { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .subs-table .actions { white-space: nowrap; }
+  .subs-table .expiring-soon { color: var(--red); font-weight: 600; }
+
+  .sub-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 2px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; font-family: var(--sans);
+  }
+  .sub-badge.active    { background: rgba(45,80,22,0.12);  color: var(--green); }
+  .sub-badge.pending   { background: rgba(201,168,76,0.18); color: #8a6e1a; }
+  .sub-badge.expired   { background: #f3efe6;              color: var(--muted); }
+  .sub-badge.cancelled { background: rgba(107,26,26,0.12); color: var(--red); }
+
+  .subs-actions-btn {
+    padding: 4px 10px; font-size: 11px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--navy);
+    cursor: pointer; font-family: var(--sans); margin-right: 6px;
+  }
+  .subs-actions-btn:hover:not(:disabled) { background: rgba(201,168,76,0.10); }
+  .subs-actions-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .subs-actions-btn.cancel { color: var(--red); border-color: rgba(107,26,26,0.3); }
+  .subs-actions-btn.cancel:hover:not(:disabled) { background: rgba(107,26,26,0.06); }
+
   /* === Three-column layout === */
   .layout {
     display: grid;
@@ -268,11 +330,16 @@
   </div>
 </div>
 
+<div class="tabs" role="tablist">
+  <button class="tab active" data-tab="users" type="button">用戶管理</button>
+  <button class="tab"        data-tab="subs"  type="button">訂閱管理</button>
+</div>
+
 <div class="mobile-user-select" id="mobile-user-select">
   <select id="mobile-user-dropdown"><option>Loading users…</option></select>
 </div>
 
-<div class="layout">
+<div class="tab-panel layout active" id="users-tab">
   <aside class="col col--users" id="col-users">
     <div class="col__title">使用者</div>
     <div class="col__body" id="users-list">
@@ -291,6 +358,13 @@
       <div class="col__empty">Select a user.</div>
     </div>
   </aside>
+</div>
+
+<div class="tab-panel" id="subs-tab">
+  <div class="subs-wrap">
+    <h2>訂閱管理</h2>
+    <div id="subs-content"><div class="col__empty">點擊「訂閱管理」載入</div></div>
+  </div>
 </div>
 
 <script>
@@ -725,6 +799,162 @@
     `;
     // Scroll the record detail into view on the right column.
     sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // === Tabs (用戶管理 / 訂閱管理) ===
+  // Subscriptions are lazy-loaded on first tab click — no point eating
+  // the round-trip if the admin only ever uses the user-triage view.
+  let subsLoaded = false;
+  function activateTab(name) {
+    document.querySelectorAll('.tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === name);
+    });
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.toggle('active', p.id === `${name}-tab`);
+    });
+    if (name === 'subs' && !subsLoaded) {
+      subsLoaded = true;
+      loadSubscriptions();
+    }
+  }
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => activateTab(t.dataset.tab));
+  });
+
+  // === Subscriptions ===
+  function fmtDay(iso) {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleDateString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric',
+      });
+    } catch (_) { return iso; }
+  }
+  function daysUntil(iso) {
+    if (!iso) return null;
+    try {
+      const ms = new Date(iso).getTime() - Date.now();
+      return Math.ceil(ms / 86400000);
+    } catch (_) { return null; }
+  }
+
+  async function loadSubscriptions() {
+    const root = $('subs-content');
+    root.innerHTML = '<div class="col__empty">Loading…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/subscriptions`, {
+        headers: { 'Authorization': `Bearer ${state.token}` },
+      });
+      if (!res.ok) {
+        root.innerHTML = `<div class="col__empty">Failed (${res.status})</div>`;
+        return;
+      }
+      const body = await res.json();
+      renderSubscriptions(body.subscriptions || []);
+    } catch (err) {
+      console.error('loadSubscriptions error', err);
+      root.innerHTML = '<div class="col__empty">Network error</div>';
+    }
+  }
+
+  function renderSubscriptions(rows) {
+    const root = $('subs-content');
+    if (!rows.length) {
+      root.innerHTML = '<div class="col__empty">No subscriptions yet.</div>';
+      return;
+    }
+    const trs = rows.map(s => {
+      const status = s.status || 'pending';
+      const days = daysUntil(s.expires_at);
+      const expiringSoon = (status === 'active' && days !== null && days <= 7);
+      return `
+        <tr data-sub-id="${escapeHtml(s.id)}">
+          <td class="email" title="${escapeHtml(s.email || '')}">${escapeHtml(s.email || s.user_id || '—')}</td>
+          <td>${escapeHtml(s.plan || '—')}</td>
+          <td><span class="sub-badge ${escapeHtml(status)}">${escapeHtml(status)}</span></td>
+          <td>${s.amount != null ? escapeHtml('NT$' + s.amount) : '—'}</td>
+          <td>${escapeHtml(fmtDay(s.started_at))}</td>
+          <td class="${expiringSoon ? 'expiring-soon' : ''}">${escapeHtml(fmtDay(s.expires_at))}${expiringSoon ? ` (${days}d)` : ''}</td>
+          <td class="actions">
+            <button class="subs-actions-btn" data-act="extend" data-sub-id="${escapeHtml(s.id)}">延長 30 天</button>
+            <button class="subs-actions-btn cancel" data-act="cancel" data-sub-id="${escapeHtml(s.id)}">取消</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+    root.innerHTML = `
+      <table class="subs-table">
+        <thead>
+          <tr>
+            <th>Email</th><th>方案</th><th>狀態</th><th>金額</th>
+            <th>開始日</th><th>到期日</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>${trs}</tbody>
+      </table>
+    `;
+    root.querySelectorAll('.subs-actions-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const subId = btn.dataset.subId;
+        const act = btn.dataset.act;
+        if (act === 'extend') extendSub(subId, btn);
+        else if (act === 'cancel') cancelSub(subId, btn);
+      });
+    });
+  }
+
+  async function extendSub(subId, btn) {
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = '處理中…';
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/subscription/extend`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${state.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ subscription_id: subId, days: 30 }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(j.detail || '延長失敗');
+        btn.disabled = false; btn.textContent = original;
+        return;
+      }
+      // Reload list so the row reflects the new expires_at.
+      loadSubscriptions();
+    } catch (_) {
+      alert('Network error');
+      btn.disabled = false; btn.textContent = original;
+    }
+  }
+
+  async function cancelSub(subId, btn) {
+    if (!confirm('確定取消這筆訂閱？用戶會繼續享有 Pro 直到 expires_at。')) return;
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = '處理中…';
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/subscription/cancel`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${state.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ subscription_id: subId }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(j.detail || '取消失敗');
+        btn.disabled = false; btn.textContent = original;
+        return;
+      }
+      loadSubscriptions();
+    } catch (_) {
+      alert('Network error');
+      btn.disabled = false; btn.textContent = original;
+    }
   }
 
   boot();

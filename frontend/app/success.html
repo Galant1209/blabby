@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>付款成功 · Blabby</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z' fill='none' stroke='%23C9A84C' stroke-width='2' stroke-linejoin='round'/><line x1='4' y1='26' x2='28' y2='26' stroke='%23C9A84C' stroke-width='2'/><circle cx='16' cy='7' r='2' fill='%23C9A84C'/><circle cx='4' cy='13' r='2' fill='%23C9A84C'/><circle cx='28' cy='13' r='2' fill='%23C9A84C'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #F5F0E8;
+    --surface: #FDFAF4;
+    --ink: #2C2416;
+    --navy: #1A3550;
+    --gold: #C9A84C;
+    --green: #2D5016;
+    --border: #C4B89A;
+    --muted: #7A6E5F;
+    --sans: 'Inter Tight', system-ui, sans-serif;
+    --serif: 'EB Garamond', 'Noto Serif TC', Georgia, serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--cream); color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh; position: relative;
+  }
+  /* Same paper grain as index.html / account.html. */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none;
+    opacity: 0.45; z-index: 0;
+    background-image:
+      radial-gradient(circle at 22% 18%, rgba(196,184,154,0.18) 0%, transparent 38%),
+      radial-gradient(circle at 78% 72%, rgba(201,168,76,0.07) 0%, transparent 36%);
+  }
+
+  .page {
+    position: relative; z-index: 1;
+    max-width: 520px; margin: 0 auto;
+    padding: 80px 24px 60px;
+    text-align: center;
+  }
+
+  .crest {
+    width: 48px; height: 48px; margin: 0 auto 24px;
+    color: var(--gold);
+  }
+
+  .title {
+    font-family: 'Playfair Display', serif;
+    font-size: 30px; font-weight: 700;
+    color: var(--navy); letter-spacing: 0.01em;
+    line-height: 1.3; margin-bottom: 16px;
+  }
+  .rule {
+    display: flex; align-items: center; justify-content: center;
+    gap: 14px; margin: 18px 0 22px; color: var(--gold);
+    font-size: 12px;
+  }
+  .rule span { width: 60px; height: 1px; background: var(--gold); display: inline-block; }
+
+  .subtitle {
+    font-family: 'Noto Serif TC', 'EB Garamond', serif;
+    font-size: 17px; line-height: 1.7; color: var(--ink);
+    letter-spacing: 0.04em; margin-bottom: 14px;
+  }
+  .order {
+    font-family: 'Inter Tight', monospace, sans-serif;
+    font-size: 12px; color: var(--muted); letter-spacing: 0.06em;
+    margin-bottom: 36px;
+  }
+
+  .cta {
+    display: inline-block;
+    padding: 14px 32px;
+    background: var(--green); color: var(--gold);
+    font-family: var(--sans); font-size: 15px; font-weight: 600;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    transition: background 120ms ease, transform 100ms ease;
+  }
+  .cta:hover { background: #244112; }
+  .cta:active { transform: scale(0.97); }
+
+  .footnote {
+    margin-top: 40px; padding-top: 22px;
+    border-top: 1px solid rgba(196,184,154,0.4);
+    font-size: 13px; font-style: italic; color: var(--muted);
+    line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <svg class="crest" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+    <path d="M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z"/>
+    <line x1="4" y1="26" x2="28" y2="26" stroke-width="2"/>
+    <circle cx="16" cy="7" r="2" fill="currentColor"/>
+    <circle cx="4"  cy="13" r="2" fill="currentColor"/>
+    <circle cx="28" cy="13" r="2" fill="currentColor"/>
+  </svg>
+
+  <div class="title">Thy payment has been received.</div>
+  <div class="rule"><span></span>◆<span></span></div>
+  <div class="subtitle">你現在是 Pro 用戶，考官室的大門已為你開啟。</div>
+  <div class="order" id="order-id"></div>
+
+  <a class="cta" href="/index.html">開始練習 →</a>
+
+  <div class="footnote">
+    若有任何付款相關問題，請寄信至 <span style="color:var(--navy)">support@blabby.app</span>
+  </div>
+</div>
+
+<script>
+  // Surface the order id when the redirect carries one — gives the user a
+  // reference they can quote in support emails. Hidden if absent.
+  (() => {
+    const params = new URLSearchParams(window.location.search);
+    const order = params.get('order');
+    const el = document.getElementById('order-id');
+    if (order) el.textContent = `Order ${order}`;
+    else el.style.display = 'none';
+  })();
+</script>
+</body>
+</html>

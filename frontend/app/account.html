@@ -336,10 +336,18 @@
     const proPromise = fetch(`${API_BASE}/api/drill/check_quota`, {
       headers: { 'Authorization': `Bearer ${token}` },
     }).then(r => r.ok ? r.json() : null).catch(() => null);
+    const subPromise = fetch(`${API_BASE}/api/user/subscription`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    }).then(r => r.ok ? r.json() : null).catch(() => null);
 
-    const [timelineBody, proBody] = await Promise.all([timelinePromise, proPromise]);
+    const [timelineBody, proBody, subBody] = await Promise.all([
+      timelinePromise, proPromise, subPromise,
+    ]);
     renderStats(timelineBody);
-    renderPlan(!!(proBody && proBody.is_pro));
+    renderPlan(
+      !!(proBody && proBody.is_pro),
+      subBody && subBody.subscription
+    );
   }
 
   function renderStats(timeline) {
@@ -372,13 +380,21 @@
     }
   }
 
-  function renderPlan(isPro) {
+  function renderPlan(isPro, subscription) {
     const sec = $('plan-section');
     if (isPro) {
+      // Show expiry only when the subscription row carries one — admin
+      // grants (profiles.is_pro_grant) won't have a subscription record,
+      // so we keep the existing copy and skip the date line for them.
+      const expires = subscription && subscription.expires_at;
+      const expiryLine = expires
+        ? `<div class="plan__line" style="font-size:13px;color:var(--muted);margin-top:-8px">Active until ${escapeHtml(fmtDate(expires))}</div>`
+        : '';
       sec.classList.add('plan__pro');
       sec.innerHTML = `
         <div class="plan__badge">Pro</div>
         <div class="plan__line">Thy full practice is observed and corrected.</div>
+        ${expiryLine}
       `;
     } else {
       sec.classList.add('plan__free');

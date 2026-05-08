@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Request, Form, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, RedirectResponse
 from openai import OpenAI
 from groq import Groq
 from dotenv import load_dotenv
@@ -2330,6 +2330,256 @@ async def lemonsqueezy_webhook(request: Request):
         email, is_pro, event, status,
     )
     return {"status": "ok", "is_pro": is_pro}
+
+
+# ─── Payment (ECPay/綠界 skeleton) ────────────────────────────────────────────
+# Skeleton only — replace payment_url and add CheckMacValue verification once
+# the merchant credentials are issued. Pro entitlement uses the existing
+# profiles.is_pro mechanism; subscriptions table is the audit/billing log.
+
+@app.post("/api/payment/create-order")
+@limiter.limit("5/minute")
+async def payment_create_order(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """建立訂單骨架，等綠界 API key 到再填入真實付款 URL。"""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    order_id = f"BLABBY-{uuid.uuid4().hex[:12].upper()}"
+
+    try:
+        supabase_admin.table("subscriptions").insert({
+            "user_id": user_id,
+            "order_id": order_id,
+            "plan":     "monthly",
+            "status":   "pending",
+            "amount":   299,
+        }).execute()
+    except Exception:
+        logger.exception("create_order insert failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to create order")
+
+    # TODO: replace with real ECPay payment page URL once credentials land.
+    return {
+        "order_id":    order_id,
+        "payment_url": f"/upgrade.html?pending={order_id}",
+        "amount":      299,
+    }
+
+
+@app.post("/api/payment/callback")
+async def payment_callback(request: Request):
+    """
+    綠界付款完成 webhook。Form-encoded body.
+    TODO: verify CheckMacValue before trusting MerchantTradeNo / RtnCode.
+    成功 (RtnCode=1) → subscriptions.status=active + profiles.is_pro=true。
+    Always 200 — webhook providers retry on non-2xx.
+    """
+    try:
+        form = await request.form()
+        order_id       = form.get("MerchantTradeNo") or ""
+        payment_status = form.get("RtnCode") or ""
+        logger.info("payment_callback order_id=%s status=%s", order_id, payment_status)
+
+        if payment_status == "1" and supabase_admin is not None:
+            now = datetime.now(timezone.utc)
+            now_iso = now.isoformat()
+            expires_iso = (now + timedelta(days=30)).isoformat()
+
+            supabase_admin.table("subscriptions").update({
+                "status":     "active",
+                "started_at": now_iso,
+                "expires_at": expires_iso,
+                "updated_at": now_iso,
+            }).eq("order_id", order_id).execute()
+
+            sub_resp = (
+                supabase_admin.table("subscriptions")
+                .select("user_id")
+                .eq("order_id", order_id)
+                .limit(1)
+                .execute()
+            )
+            if sub_resp.data:
+                uid = sub_resp.data[0]["user_id"]
+                # Mirror the LemonSqueezy webhook path: paid status lives
+                # on profiles.is_pro (PK = id, not user_id). Admin grants
+                # are kept separate on profiles.is_pro_grant.
+                supabase_admin.table("profiles").update({
+                    "is_pro":     True,
+                    "updated_at": now_iso,
+                }).eq("id", uid).execute()
+
+        return {"status": "ok"}
+    except Exception:
+        logger.exception("payment_callback failed")
+        return {"status": "error"}
+
+
+@app.get("/api/payment/return")
+async def payment_return(request: Request):
+    """用戶付款後跳回。TODO: 改成完整 frontend URL 後再給綠界 OrderResultURL。"""
+    order_id = request.query_params.get("MerchantTradeNo", "")
+    return RedirectResponse(url=f"/success.html?order={order_id}")
+
+
+@app.get("/api/user/subscription")
+@limiter.limit("20/minute")
+async def get_user_subscription(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """回傳用戶目前的有效訂閱（status=active, 取最新一筆）。"""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        resp = (
+            supabase_admin.table("subscriptions")
+            .select("id, plan, status, amount, started_at, expires_at, created_at")
+            .eq("user_id", user_id)
+            .eq("status", "active")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        logger.exception("get_user_subscription failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load subscription")
+    return {"subscription": resp.data[0] if resp.data else None}
+
+
+# ─── Admin: subscription management ──────────────────────────────────────────
+
+@app.get("/api/admin/subscriptions")
+@limiter.limit("30/minute")
+async def admin_list_subscriptions(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """List recent 100 subscriptions with email resolved.
+    PostgREST nested-select on auth.users isn't allowed (different schema),
+    so we resolve emails per row via the admin auth API. Slow on big lists
+    but admin-only and capped at 100.
+    """
+    verify_admin(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        resp = (
+            supabase_admin.table("subscriptions")
+            .select("id, user_id, order_id, plan, status, amount, started_at, expires_at, created_at, updated_at")
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+    except Exception:
+        logger.exception("admin_list_subscriptions select failed")
+        raise HTTPException(status_code=503, detail="Failed to load subscriptions")
+
+    rows = resp.data or []
+    # Cache email lookups so 5 subs from the same user → 1 API call.
+    email_cache: dict[str, str] = {}
+    for row in rows:
+        uid = row.get("user_id")
+        if not uid:
+            row["email"] = None
+            continue
+        if uid not in email_cache:
+            try:
+                u = supabase_admin.auth.admin.get_user_by_id(uid)
+                email_cache[uid] = (getattr(getattr(u, "user", None), "email", None) or "")
+            except Exception:
+                email_cache[uid] = ""
+        row["email"] = email_cache[uid] or None
+    return {"subscriptions": rows}
+
+
+@app.post("/api/admin/subscription/extend")
+@limiter.limit("20/minute")
+async def admin_extend_subscription(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Push expires_at forward by `days` (default 30) and force status=active."""
+    verify_admin(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    body = await request.json()
+    sub_id = body.get("subscription_id")
+    days = int(body.get("days") or 30)
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="subscription_id required")
+    try:
+        sub = (
+            supabase_admin.table("subscriptions")
+            .select("expires_at, user_id")
+            .eq("id", sub_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        logger.exception("admin_extend_subscription select failed")
+        raise HTTPException(status_code=503, detail="Subscription lookup failed")
+    if not sub.data:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    current = sub.data[0].get("expires_at")
+    base = (
+        datetime.fromisoformat(current.replace("Z", "+00:00"))
+        if current else datetime.now(timezone.utc)
+    )
+    # Don't extend from a past date — anchor on max(now, current_expiry).
+    base = max(base, datetime.now(timezone.utc))
+    new_expires = base + timedelta(days=days)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase_admin.table("subscriptions").update({
+            "expires_at": new_expires.isoformat(),
+            "status":     "active",
+            "updated_at": now_iso,
+        }).eq("id", sub_id).execute()
+        # Re-promote the user to Pro in case status had lapsed.
+        uid = sub.data[0].get("user_id")
+        if uid:
+            supabase_admin.table("profiles").update({
+                "is_pro":     True,
+                "updated_at": now_iso,
+            }).eq("id", uid).execute()
+    except Exception:
+        logger.exception("admin_extend_subscription update failed")
+        raise HTTPException(status_code=503, detail="Update failed")
+    return {"extended_to": new_expires.isoformat()}
+
+
+@app.post("/api/admin/subscription/cancel")
+@limiter.limit("20/minute")
+async def admin_cancel_subscription(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Mark subscription cancelled. Does NOT immediately revoke profiles.is_pro
+    — that's a separate call. The expires_at remains, so the user keeps Pro
+    features until their paid window ends (industry-standard behaviour)."""
+    verify_admin(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    body = await request.json()
+    sub_id = body.get("subscription_id")
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="subscription_id required")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase_admin.table("subscriptions").update({
+            "status":     "cancelled",
+            "updated_at": now_iso,
+        }).eq("id", sub_id).execute()
+    except Exception:
+        logger.exception("admin_cancel_subscription update failed")
+        raise HTTPException(status_code=503, detail="Cancel failed")
+    return {"status": "cancelled"}
 
 
 # ─── Resume flow (Practice Hub) ───────────────────────────────────────────────
