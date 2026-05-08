@@ -243,9 +243,30 @@ header.brand .subtitle {
     color: var(--ink); line-height: 1.1;
 }
 .review-card__pos { font-size: 14px; color: var(--muted); font-style: italic; }
-.review-card__hint {
-    font-size: 11px; color: var(--muted); letter-spacing: 0.08em;
-    text-transform: uppercase; margin-top: 18px;
+/* SRS reveal flow — explicit Reveal button + fade-in for back/actions */
+.review-reveal-row {
+    display: flex; justify-content: center; margin-top: 18px;
+}
+.review-reveal {
+    padding: 12px 36px;
+    font-family: var(--serif, 'EB Garamond', Georgia, serif);
+    font-size: 16px;
+    background: var(--green);
+    color: var(--gold);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: opacity 0.15s, transform 0.1s;
+}
+.review-reveal:hover { opacity: 0.9; }
+.review-reveal:active { transform: scale(0.97); }
+.review-fade-in {
+    animation: review-fade-in 0.35s ease both;
+}
+@keyframes review-fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 .review-card__back {
     text-align: left; width: 100%;
@@ -1012,6 +1033,11 @@ header.brand .subtitle {
         document.getElementById('review-counter').textContent = `${reviewCompleted} / ${reviewQueue.length}`;
     }
 
+    // Render front of card — word + POS only. Translation, example,
+    // and usage notes stay hidden until the user explicitly clicks
+    // Reveal. SRS buttons (Again/Hard/Good/Easy) are NOT shown until
+    // after Reveal — they only have meaning once the user has decided
+    // whether they actually knew the word.
     function renderReviewCard() {
         updateProgress();
         const stage = document.getElementById('review-stage');
@@ -1022,20 +1048,26 @@ header.brand .subtitle {
         const row = reviewQueue[reviewIdx];
         const item = row.vocabulary_items || {};
         stage.innerHTML = `
-            <div class="review-card" id="review-card-flip">
+            <div class="review-card">
                 <div class="review-card__front">
                     <div class="review-card__word">${escapeHtml(item.word || '—')}</div>
                     <div class="review-card__pos">${escapeHtml(item.part_of_speech || '')}</div>
-                    <div class="review-card__hint">tap to reveal</div>
                 </div>
+            </div>
+            <div class="review-reveal-row">
+                <button class="review-reveal" id="review-reveal-btn" type="button">Reveal</button>
             </div>`;
-        document.getElementById('review-card-flip').addEventListener('click', () => flipCard(row, item), { once: true });
+        document.getElementById('review-reveal-btn')
+            .addEventListener('click', () => revealCard(row, item), { once: true });
     }
 
-    function flipCard(row, item) {
+    // Reveal back of card — fade-in via CSS keyframe (.review-fade-in
+    // runs once when the fragment mounts via innerHTML). Same data
+    // shape as before; only the visibility timing changed.
+    function revealCard(row, item) {
         const stage = document.getElementById('review-stage');
         stage.innerHTML = `
-            <div class="review-card">
+            <div class="review-card review-fade-in">
                 <div class="review-card__back">
                     <div class="word-back">${escapeHtml(item.word || '')}</div>
                     <div class="zh">${escapeHtml(item.zh_meaning || '')}</div>
@@ -1044,7 +1076,7 @@ header.brand .subtitle {
                     ${item.usage_note_zh ? `<div class="note">${escapeHtml(item.usage_note_zh)}</div>` : ''}
                 </div>
             </div>
-            <div class="review-actions">
+            <div class="review-actions review-fade-in">
                 <button class="review-btn review-btn--again" data-result="again">Again</button>
                 <button class="review-btn review-btn--hard"  data-result="hard">Hard</button>
                 <button class="review-btn review-btn--good"  data-result="good">Good</button>
