@@ -4279,11 +4279,72 @@ async def my_diagnosis(
     """
     Student-facing diagnosis. user_id ALWAYS comes from JWT — body is
     ignored. Anyone passing target_user_id in body would have it dropped.
+
+    Cached by diagnosis_cache (user_id PK). Cache hit when stored
+    practice_count matches the current row count; any new practice
+    invalidates by count mismatch. Admin endpoint above stays uncached
+    so QA can re-run on demand.
     """
     try:
         user_id = verify_token(authorization)
+        if supabase_admin is None:
+            raise HTTPException(status_code=503, detail="Database not configured")
+
+        # Cheap count probe — head=True returns no rows, just the total.
+        try:
+            count_resp = (
+                supabase_admin.table("practice_records")
+                .select("id", count="exact", head=True)
+                .eq("user_id", user_id)
+                .execute()
+            )
+            current_count = count_resp.count or 0
+        except Exception:
+            logger.exception("diagnosis count probe failed")
+            current_count = None
+
+        # Cache lookup — only trust the row if practice_count matches.
+        if current_count is not None:
+            try:
+                cache_resp = (
+                    supabase_admin.table("diagnosis_cache")
+                    .select("content, practice_count, updated_at")
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                )
+                cache_rows = cache_resp.data or []
+                if cache_rows and cache_rows[0].get("practice_count") == current_count:
+                    cached = cache_rows[0]
+                    return {
+                        "user_id": user_id,
+                        "total_records": current_count,
+                        "practice_count": current_count,
+                        "generated_at": cached.get("updated_at") or datetime.now(timezone.utc).isoformat(),
+                        "diagnosis_markdown": cached.get("content") or "",
+                        "cached": True,
+                    }
+            except Exception:
+                # Cache miss / table missing — fall through to fresh generation.
+                logger.exception("diagnosis cache lookup failed")
+
+        # Cache miss → fresh generation, then upsert.
         # TODO[pro-gate]: pass real is_pro once free/pro split lands.
-        return _generate_user_diagnosis(user_id, is_pro=True)
+        result = _generate_user_diagnosis(user_id, is_pro=True)
+
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            supabase_admin.table("diagnosis_cache").upsert({
+                "user_id":        user_id,
+                "content":        result.get("diagnosis_markdown") or "",
+                "practice_count": result.get("practice_count") or 0,
+                "updated_at":     now_iso,
+            }, on_conflict="user_id").execute()
+        except Exception:
+            # Persisting cache is best-effort — never fail the request on it.
+            logger.exception("diagnosis cache upsert failed", extra={"user_id": user_id})
+
+        return result
     except HTTPException:
         raise
     except Exception as exc:

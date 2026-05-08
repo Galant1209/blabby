@@ -288,6 +288,32 @@
   }
   .drill-link-btn:hover { background: rgba(201,168,76,0.10); }
   .drill-link-btn:active { transform: scale(0.97); }
+
+  /* === Diagnosis skeleton — shown while Claude is still thinking === */
+  @keyframes skel-pulse {
+      0%, 100% { opacity: 0.55; }
+      50%      { opacity: 0.95; }
+  }
+  .diagnosis-skeleton {
+      padding: 4px 0; min-height: 200px;
+  }
+  .diagnosis-skeleton .skel-label {
+      font-style: italic; color: var(--muted); font-size: 14px;
+      margin-bottom: 18px; letter-spacing: 0.02em;
+      animation: skel-pulse 1.4s ease-in-out infinite;
+  }
+  .skel-line {
+      height: 14px; background: var(--border); opacity: 0.5;
+      border-radius: 2px; margin-bottom: 10px;
+      animation: skel-pulse 1.4s ease-in-out infinite;
+  }
+  .skel-line--h        { height: 22px; width: 50%; margin-bottom: 18px;
+                          animation-delay: 0s; background: var(--gold); opacity: 0.35; }
+  .skel-line--short    { width: 40%; animation-delay: 0.4s; }
+  .skel-line--medium   { width: 75%; animation-delay: 0.2s; }
+  .skel-line:nth-of-type(2) { animation-delay: 0.1s; }
+  .skel-line:nth-of-type(3) { animation-delay: 0.2s; }
+  .skel-line:nth-of-type(4) { animation-delay: 0.3s; }
 </style>
 <!-- PostHog Analytics -->
 <script>
@@ -508,6 +534,26 @@
     });
   }
 
+  // Re-observe any new .fade-in nodes added after first render — the diagnosis
+  // panel gets swapped in piecemeal, so a single boot-time observer would miss
+  // the late arrivals.
+  function observeFadeIns(root) {
+    const els = (root || document).querySelectorAll('.fade-in:not(.visible)');
+    if ('IntersectionObserver' in window) {
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            e.target.classList.add('visible');
+            obs.unobserve(e.target);
+          }
+        });
+      }, { threshold: 0.1 });
+      els.forEach(el => obs.observe(el));
+    } else {
+      els.forEach(el => el.classList.add('visible'));
+    }
+  }
+
   async function loadDiagnosis() {
     document.getElementById('container').innerHTML =
       '<div class="panel center"><div class="state-loading">Examining thy practice history…</div></div>';
@@ -527,29 +573,61 @@
       return;
     }
 
-    let res, data, timeline = null;
+    // Fire all three in parallel — timeline + diagnosis + pro check.
+    // Diagnosis is the slow one (cache miss → Claude); we paint the
+    // page in two stages so the user sees the observation header
+    // and skeleton instantly instead of staring at a single spinner
+    // for 5–20s.
+    const timelinePromise = fetch(`${API_BASE}/api/diagnosis/timeline`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).catch(() => null);
+    const diagnosisPromise = fetch(`${API_BASE}/api/diagnosis/me`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const proPromise = fetch(`${API_BASE}/api/drill/check_quota`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+    // === Stage 1: render scaffold immediately with skeleton ===
+    document.getElementById('container').innerHTML = `
+      <div id="observation-slot"></div>
+      <div class="panel fade-in" id="diagnosis-panel">
+        <div class="diagnosis-skeleton" aria-busy="true">
+          <div class="skel-label">Examining thy practice history…</div>
+          <div class="skel-line skel-line--h"></div>
+          <div class="skel-line"></div>
+          <div class="skel-line"></div>
+          <div class="skel-line skel-line--medium"></div>
+          <div class="skel-line skel-line--h" style="margin-top:24px"></div>
+          <div class="skel-line"></div>
+          <div class="skel-line skel-line--short"></div>
+        </div>
+      </div>`;
+    observeFadeIns();
+
+    // === Stage 2: timeline arrives → paint observation header ===
+    let timeline = null;
     try {
-      // Fire diagnosis + timeline in parallel — timeline failure is non-fatal
-      // (header just won't render, the diagnosis still loads).
-      const [diagRes, tlRes] = await Promise.all([
-        fetch(`${API_BASE}/api/diagnosis/me`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch(`${API_BASE}/api/diagnosis/timeline`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).catch(() => null),
-      ]);
-      res = diagRes;
-      if (tlRes && tlRes.ok) {
-        try { timeline = await tlRes.json(); } catch (_) { timeline = null; }
+      const tlRes = await timelinePromise;
+      if (tlRes && tlRes.ok) timeline = await tlRes.json();
+    } catch (_) { timeline = null; }
+    if (timeline) {
+      const slot = document.getElementById('observation-slot');
+      if (slot) {
+        slot.outerHTML = buildObservationHeader(timeline);
+        observeFadeIns();
       }
-    } catch (e) {
+    }
+
+    // === Stage 3: diagnosis arrives → swap skeleton for real content ===
+    let res, data;
+    try { res = await diagnosisPromise; }
+    catch (e) {
       console.error('fetch failed', e);
       showError('The examination could not be completed. Pray, try once more.');
       return;
     }
-
     if (!res.ok) {
       let detail = `Status ${res.status}`;
       try { const j = await res.json(); if (j?.detail) detail = j.detail; } catch (_) {}
@@ -557,7 +635,6 @@
       showError('The examination could not be completed. Pray, try once more.');
       return;
     }
-
     try { data = await res.json(); }
     catch (e) {
       console.error('json parse failed', e);
@@ -571,24 +648,16 @@
         ? 'No practices yet recorded.'
         : `A studied account of ${count} ${count === 1 ? 'practice' : 'practices'} undertaken.`;
 
-    // Pull pro status alongside the diagnosis so the upgrade button can be
-    // hidden for paying users. Fail-open: any error → assume non-pro and
-    // show the upgrade CTA (false positive is acceptable; false negative
-    // would silence a paid user with an "Upgrade" button which is worse).
     let isPro = false;
     try {
-      const qres = await fetch(`${API_BASE}/api/drill/check_quota`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (qres.ok) {
-        const q = await qres.json();
-        isPro = !!(q && q.is_pro);
-      }
+      const pro = await proPromise;
+      isPro = !!(pro && pro.is_pro);
     } catch (_) { /* keep isPro = false */ }
 
-    document.getElementById('container').innerHTML = `
-      ${timeline ? buildObservationHeader(timeline) : ''}
-      <div class="panel fade-in">
+    const panel = document.getElementById('diagnosis-panel');
+    if (panel) {
+      panel.classList.add('visible'); // keep the existing fade-in state
+      panel.innerHTML = `
         <div class="md">${renderMarkdown(data.diagnosis_markdown || '')}</div>
         <div class="meta">Compiled ${new Date(data.generated_at || Date.now()).toLocaleString()}</div>
         <div class="diagnosis-conversion fade-in">
@@ -605,8 +674,8 @@
         <div class="diagnosis-cta fade-in">
           <button id="diagnosis-cta-primary" class="diagnosis-cta__primary">前往單字訓練 →</button>
           <button id="diagnosis-cta-secondary" class="diagnosis-cta__secondary"${isPro ? ' style="display:none"' : ''}>Upgrade to Pro →</button>
-        </div>
-      </div>`;
+        </div>`;
+    }
 
     document.getElementById('diagnosis-cta-primary').addEventListener('click', () => {
       track('diagnosis_drill_clicked');
@@ -620,15 +689,14 @@
       });
     }
 
-    track('diagnosis_viewed', { practice_count: count });
+    track('diagnosis_viewed', { practice_count: count, cached: !!data.cached });
 
     // Walk the rendered .md DOM and append per-weakness metadata + drill
     // buttons. Skips silently if no timeline data or no list items match
     // a known tag keyword.
     if (timeline) injectWeaknessMeta(timeline);
 
-    // Scroll-entrance fade-in. Run AFTER innerHTML so the panel,
-    // conversion box, and CTA cluster (all rendered above) get observed.
+    // Re-run the fade-in observer over the freshly-mounted children.
     const fadeEls = document.querySelectorAll('.fade-in');
     if ('IntersectionObserver' in window) {
         const obs = new IntersectionObserver((entries) => {
