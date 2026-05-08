@@ -2476,30 +2476,21 @@
                 document.getElementById('user-initial').textContent =
                     (email[0] || '?').toUpperCase();
                 document.getElementById('user-email-display').textContent = email;
-                checkAdminAccess();
+                checkAdminAccess(email);
             } catch (err) {
                 console.error('showMain getUser error:', err);
             }
         }
 
-        // Probes /admin/dashboard with the user's JWT — backend gates on
-        // ADMIN_EMAILS, so a 200 means this user is an admin. Anything
-        // else (401/403/network) leaves the link hidden. Pulls its own
-        // session so we don't pass an undefined token in.
-        async function checkAdminAccess() {
-            try {
-                if (!sb) return;
-                const { data: { session } } = await sb.auth.getSession();
-                if (!session || !session.access_token) return;
-                const res = await fetch(`${API_BASE}/admin/dashboard`, {
-                    headers: { 'Authorization': `Bearer ${session.access_token}` }
-                });
-                if (res.ok) {
-                    const link = document.getElementById('admin-link');
-                    if (link) link.style.display = 'block';
-                }
-            } catch (e) {
-                // not admin or network error — stay hidden
+        // Mirrors the gate in admin.html. Client-side check only — the link
+        // is just UI affordance; backend /admin/* still enforces ADMIN_EMAILS
+        // on its own. Mirror this list when adding a new admin.
+        const ADMIN_EMAILS = ['galant.chiu@kumo-edu.com', 'galant19951209@gmail.com'];
+        function checkAdminAccess(userEmail) {
+            const email = String(userEmail || '').toLowerCase();
+            if (ADMIN_EMAILS.map(e => e.toLowerCase()).includes(email)) {
+                const link = document.getElementById('admin-link');
+                if (link) link.style.display = 'block';
             }
         }
         function showAuth() {
