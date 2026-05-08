@@ -4402,6 +4402,12 @@ async def my_diagnosis(
                 if cache_rows and cache_rows[0].get("practice_count") == current_count:
                     cached = cache_rows[0]
                     cached_raw = cached.get("content") or ""
+                    # substring extraction — older cache rows may have prose
+                    # wrapping the JSON; mirror the parse-path hardening.
+                    b_start = cached_raw.find("{")
+                    b_end = cached_raw.rfind("}")
+                    if b_start != -1 and b_end != -1:
+                        cached_raw = cached_raw[b_start:b_end + 1]
                     cached_fmt = "raw"
                     cached_data = None
                     try:
@@ -4434,7 +4440,7 @@ async def my_diagnosis(
             now_iso = datetime.now(timezone.utc).isoformat()
             supabase_admin.table("diagnosis_cache").upsert({
                 "user_id":        user_id,
-                "content":        result.get("diagnosis_markdown") or "",
+                "content":        result.get("raw") or "",
                 "practice_count": result.get("practice_count") or 0,
                 "updated_at":     now_iso,
             }, on_conflict="user_id").execute()
