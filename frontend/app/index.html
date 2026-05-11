@@ -327,6 +327,29 @@
             color: var(--muted);
             margin-bottom: 22px;
         }
+        .daily-question__repeat {
+            display: none;
+            margin-bottom: 18px;
+            padding: 10px 14px;
+            background: rgba(138,126,110,0.07);
+            border-left: 2px solid var(--muted, #8a7e6e);
+            border-radius: 0 4px 4px 0;
+        }
+        .daily-question__repeat.visible { display: block; }
+        .daily-question__repeat-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--muted, #8a7e6e);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            margin-bottom: 5px;
+        }
+        .daily-question__repeat-text {
+            font-size: 13px;
+            color: var(--muted, #8a7e6e);
+            line-height: 1.5;
+        }
 
         .skill-entry-list {
             display: grid;
@@ -2254,6 +2277,10 @@
                 <div class="daily-question__header">今天的題目</div>
                 <div class="daily-question__text" id="daily-question-text"></div>
                 <div class="daily-question__meta" id="daily-question-meta"></div>
+                <div class="daily-question__repeat" id="daily-question-repeat">
+                    <div class="daily-question__repeat-label">You have trodden this ground before.</div>
+                    <div class="daily-question__repeat-text" id="daily-question-repeat-text"></div>
+                </div>
                 <button id="daily-question-btn" class="practice-hub-btn daily-question__cta">開始練習</button>
             </section>
             <div class="skill-entry-list skill-entry-list-v3" aria-label="技能入口">
@@ -2458,6 +2485,7 @@
 
         let currentTopic    = '';
         let currentQuestion = '';
+        let currentPreviousTranscript = null;
         let lastQuestion = null;
         let lastFeedbackData = null;
         let isRetryingSameQuestion = false;
@@ -2541,6 +2569,16 @@
                             : `Part ${part}`;
                     }
                     dailyQuestionEl.style.display = '';
+                }
+                const repeatBanner = document.getElementById('daily-question-repeat');
+                const repeatText   = document.getElementById('daily-question-repeat-text');
+                const prev = (dailyQuestion.previous_transcript || '').trim();
+                if (repeatBanner && repeatText && prev) {
+                    const truncated = prev.length > 120 ? prev.slice(0, 120) + '…' : prev;
+                    repeatText.textContent = `"${truncated}"`;
+                    repeatBanner.classList.add('visible');
+                } else if (repeatBanner) {
+                    repeatBanner.classList.remove('visible');
                 }
                 return;
             }
@@ -3246,6 +3284,9 @@
                 form.append('mode', 'drill');
                 form.append('drill_tag', submittedDrillTag);
             }
+            if (currentPreviousTranscript) {
+                form.append('previous_transcript', currentPreviousTranscript.slice(0, 500));
+            }
 
             try {
                 if (!sb) {
@@ -3802,6 +3843,7 @@
                 // sending an empty question into the recorder flow.
                 if (!dailyQuestion || !dailyQuestion.text) return;
                 setQuestion(dailyQuestion.text, dailyQuestion.topic || '');
+                currentPreviousTranscript = (dailyQuestion.previous_transcript || '').trim() || null;
                 currentTopicSession = { topic: dailyQuestion.topic || '', count: 1 };
                 showSpeakingPractice();
                 setRecorderStatus('準備好就開始');
