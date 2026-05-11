@@ -489,6 +489,42 @@ QUESTION_EXCLUSION_DAYS = 3
 FREE_DRILL_QUOTA = 3
 DRILL_QUOTA_WINDOW_DAYS = 7
 
+PERSONA_PROMPTS: dict[str, str] = {
+    "A": (
+        "You are a patient and encouraging coach working with a beginner (IELTS Band 4 or below). "
+        "This student is brave for speaking at all. Your priorities:\n"
+        "1. ALWAYS find something genuine to praise first — a complete sentence, a correct word, "
+        "an attempt at detail. Be specific, not generic.\n"
+        "2. Correct ONLY the single most important thing. Nothing else.\n"
+        "3. Tone: warm, safe, never clinical. This student must feel capable of continuing.\n"
+        "Ratio: 70% encouragement, 30% correction."
+    ),
+    "B": (
+        "You are a patient tutor working with an intermediate student (IELTS Band 5). "
+        "This student is making real progress. Your priorities:\n"
+        "1. Acknowledge what worked — structure, vocabulary, effort.\n"
+        "2. Correct up to two things, delivered gently.\n"
+        "3. Tone: supportive but honest. Build confidence while raising the bar slowly.\n"
+        "Ratio: 50% encouragement, 50% correction."
+    ),
+    "C": (
+        "You are a fair and precise teacher working with a capable student (IELTS Band 6). "
+        "This student can handle direct feedback. Your priorities:\n"
+        "1. Brief acknowledgment of strengths — one sentence only.\n"
+        "2. Correct what matters for Band 7 progression. Be specific.\n"
+        "3. Tone: professional, respectful, no fluff.\n"
+        "Ratio: 30% encouragement, 70% correction."
+    ),
+    "D": (
+        "You are an IELTS examiner working with an advanced student (IELTS Band 7+). "
+        "This student wants precision, not comfort. Your priorities:\n"
+        "1. Skip generic praise. Only note genuine strengths if present.\n"
+        "2. Identify all significant issues. Be thorough.\n"
+        "3. Tone: examiner-level, objective, exact.\n"
+        "Ratio: 10% encouragement, 90% correction."
+    ),
+}
+
 # Vocabulary SRS — days until next review by srs_level (0..5)
 VOCAB_SRS_SCHEDULE = {0: 0, 1: 1, 2: 3, 3: 7, 4: 14, 5: 30}
 VOCAB_VALID_RESULTS = {"again", "hard", "good", "easy"}
@@ -1267,6 +1303,7 @@ def build_system_prompt(
     memory_block: str = "",
     repeated_weak_words: Optional[list[str]] = None,
     drill_tag: Optional[str] = None,
+    persona_prefix: str = "",
 ) -> str:
     repeated_weak_words = repeated_weak_words or []
     repeated_line = (
@@ -1546,7 +1583,8 @@ Output:
         if injection:
             drill_block = f"\n\n{injection}\n"
     return (
-        base
+        (persona_prefix + "\n\n" if persona_prefix else "")
+        + base
         + memory_block
         + diagnosis_context_block
         + question_block
@@ -1578,6 +1616,7 @@ async def process(
         # status for request-shape validation failures.
         mode_from_request = mode or ""
         is_drill_mode = mode_from_request == "drill"
+        user_band: Optional[float] = None
         expected_drill_axis: Optional[str] = None
         if is_drill_mode:
             if not drill_tag:
@@ -1611,6 +1650,7 @@ async def process(
                     status_code=503, detail="Failed to verify drill quota"
                 )
             is_pro = get_user_pro_status(user_id)
+            user_band = _get_user_band(user_id)
             if drill_count >= FREE_DRILL_QUOTA and not is_pro:
                 raise HTTPException(
                     status_code=403,
@@ -1749,6 +1789,7 @@ async def process(
                 memory_block=memory_block + tier_b_override + intensity_block,
                 repeated_weak_words=repeated_weak_words,
                 drill_tag=drill_tag if is_drill_mode else None,
+                persona_prefix=PERSONA_PROMPTS[get_persona(user_band)] if is_drill_mode else "",
             )
         }]
         for msg in history_list[-10:]:
@@ -2126,13 +2167,24 @@ async def process(
         if is_drill_mode:
             drill_score_data = parsed.get("drill_score")
             if isinstance(drill_score_data, dict):
-                response_payload["drill_score"] = {
-                    "axis":              drill_score_data.get("axis"),
-                    "score":             drill_score_data.get("score"),
-                    "feedback":          (drill_score_data.get("feedback") or "").strip(),
-                    "threshold_passed":  drill_score_data.get("threshold_passed"),
-                    "evidence":          drill_score_data.get("evidence"),
+                _ds = {
+                    "axis":             drill_score_data.get("axis"),
+                    "score":            drill_score_data.get("score"),
+                    "feedback":         (drill_score_data.get("feedback") or "").strip(),
+                    "threshold_passed": drill_score_data.get("threshold_passed"),
                 }
+                if is_pro:
+                    _ds["evidence"] = drill_score_data.get("evidence")
+                response_payload["drill_score"] = _ds
+                raw_drill_score = drill_score_data.get("score")
+                if isinstance(raw_drill_score, int) and not isinstance(raw_drill_score, bool):
+                    try:
+                        update_user_band(user_id, score_to_band_estimate(raw_drill_score))
+                    except Exception:
+                        logger.exception(
+                            "update_user_band failed (non-fatal)",
+                            extra={"user_id": user_id},
+                        )
 
         # Vocab suggestion enrichment — fail-open, never blocks the main
         # response. Two optional fields:
@@ -2943,6 +2995,79 @@ async def next_question(
             "next-question selection failed", extra={"user_id": user_id}
         )
         raise HTTPException(status_code=500, detail="Failed to load next question")
+
+
+def score_to_band_estimate(score: int) -> float:
+    """Map drill_score (0-100) to approximate IELTS band for persona bucketing."""
+    if score < 30:
+        return 4.0
+    elif score < 50:
+        return 4.5
+    elif score < 70:
+        return 5.5
+    elif score < 90:
+        return 6.5
+    return 7.5
+
+
+def get_persona(user_band: Optional[float]) -> str:
+    """
+    Persona label from user_band. Stable thresholds, never drifts.
+    None (new user) defaults to A.
+    """
+    if user_band is None or user_band < 4.5:
+        return "A"
+    elif user_band < 5.5:
+        return "B"
+    elif user_band < 6.5:
+        return "C"
+    return "D"
+
+
+def _get_user_band(user_id: str) -> Optional[float]:
+    """Read profiles.user_band. Returns None on any error (safe default → Persona A)."""
+    if supabase_admin is None:
+        return None
+    try:
+        resp = (
+            supabase_admin.table("profiles")
+            .select("user_band")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        val = (resp.data or {}).get("user_band")
+        return float(val) if val is not None else None
+    except Exception:
+        logger.exception("_get_user_band failed", extra={"user_id": user_id})
+        return None
+
+
+def update_user_band(user_id: str, new_estimate: float) -> float:
+    """
+    Weighted moving average: existing 80%, new 20%.
+    If user_band is null, sets directly. Fails safe — caller catches exceptions.
+    """
+    if supabase_admin is None:
+        return new_estimate
+    resp = (
+        supabase_admin.table("profiles")
+        .select("user_band")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    current = (resp.data or {}).get("user_band")
+    updated = (
+        round(float(current) * 0.8 + new_estimate * 0.2, 2)
+        if current is not None
+        else new_estimate
+    )
+    supabase_admin.table("profiles").update({
+        "user_band":        updated,
+        "band_updated_at":  datetime.now(timezone.utc).isoformat(),
+    }).eq("id", user_id).execute()
+    return updated
 
 
 def get_user_pro_status(user_id: str) -> bool:
