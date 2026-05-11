@@ -1304,6 +1304,7 @@ def build_system_prompt(
     repeated_weak_words: Optional[list[str]] = None,
     drill_tag: Optional[str] = None,
     persona_prefix: str = "",
+    previous_transcript_block: str = "",
 ) -> str:
     repeated_weak_words = repeated_weak_words or []
     repeated_line = (
@@ -1587,6 +1588,7 @@ Output:
         + base
         + memory_block
         + diagnosis_context_block
+        + previous_transcript_block
         + question_block
         + f"\n【本題主題】\n{topic}\n"
         + drill_block
@@ -1606,6 +1608,7 @@ async def process(
     dev_bypass_secret: str = Form(""),
     mode: str = Form(""),
     drill_tag: str = Form(""),
+    previous_transcript: str = Form(""),
     authorization: Optional[str] = Header(None),
 ):
     try:
@@ -1790,6 +1793,14 @@ async def process(
                 repeated_weak_words=repeated_weak_words,
                 drill_tag=drill_tag if is_drill_mode else None,
                 persona_prefix=PERSONA_PROMPTS[get_persona(user_band)] if is_drill_mode else "",
+                previous_transcript_block=(
+                    f'\n\n[PREVIOUS ATTEMPT]\nThe student has answered this question before.'
+                    f' Their previous response was:\n"{previous_transcript.strip()[:500]}"\n\n'
+                    f'In your feedback, explicitly acknowledge their previous attempt.'
+                    f' If this attempt is better, say so specifically.'
+                    f' If not, identify what regressed. Do not be vague.'
+                    if previous_transcript.strip() else ""
+                ),
             )
         }]
         for msg in history_list[-10:]:
@@ -2982,11 +2993,36 @@ async def next_question(
         else:
             chosen = random.choice(questions)
 
+        previous_transcript = None
+        previous_practiced_at = None
+        try:
+            prev_resp = (
+                supabase_admin.table("practice_records")
+                .select("user_transcript, created_at")
+                .eq("user_id", user_id)
+                .eq("question", (chosen.get("text") or "").strip())
+                .not_.is_("user_transcript", "null")
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            prev_rows = prev_resp.data or []
+            if prev_rows and (prev_rows[0].get("user_transcript") or "").strip():
+                previous_transcript = prev_rows[0]["user_transcript"].strip()
+                previous_practiced_at = prev_rows[0].get("created_at")
+        except Exception:
+            logger.exception(
+                "previous_transcript lookup failed (non-fatal)",
+                extra={"user_id": user_id},
+            )
+
         return {
-            "id": chosen.get("id"),
-            "text": chosen.get("text"),
-            "topic": chosen.get("topic"),
-            "part": chosen.get("part"),
+            "id":                    chosen.get("id"),
+            "text":                  chosen.get("text"),
+            "topic":                 chosen.get("topic"),
+            "part":                  chosen.get("part"),
+            "previous_transcript":   previous_transcript,
+            "previous_practiced_at": previous_practiced_at,
         }
     except HTTPException:
         raise
