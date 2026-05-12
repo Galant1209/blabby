@@ -1057,9 +1057,45 @@ Admin 觀測儀表板
   }
 
   function renderSubscriptions(rows) {
-    const root = $('subs-content');
+    const container = $('subs-content');
+    container.innerHTML = '';
+
+    // Pro waitlist section
+    const waitlistSection = document.createElement('div');
+    waitlistSection.style.cssText = 'margin-bottom:32px;';
+    waitlistSection.innerHTML = `
+        <h3 style="font-family:var(--serif);font-size:18px;margin-bottom:12px;color:var(--ink)">Pro Waitlist</h3>
+        <div id="waitlist-content" style="font-size:13px;color:var(--muted);font-style:italic">Loading…</div>
+    `;
+    container.appendChild(waitlistSection);
+    loadWaitlist();
+
+    // Manual Pro toggle section
+    const proSection = document.createElement('div');
+    proSection.style.cssText = 'margin-bottom:32px;';
+    proSection.innerHTML = `
+        <h3 style="font-family:var(--serif);font-size:18px;margin-bottom:12px;color:var(--ink)">Manual Pro Access</h3>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <input type="email" id="pro-email-input" placeholder="user@email.com"
+                style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+            <button onclick="grantPro()"
+                style="padding:8px 16px;background:var(--green);color:var(--gold);border:none;border-radius:4px;font-size:13px;cursor:pointer;">
+                Grant Pro
+            </button>
+            <button onclick="revokePro()"
+                style="padding:8px 16px;background:var(--wine);color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;">
+                Revoke Pro
+            </button>
+        </div>
+        <div id="pro-toggle-result" style="font-size:13px;min-height:20px;"></div>
+        <div id="pro-users-list" style="margin-top:16px;"></div>
+    `;
+    container.appendChild(proSection);
+    loadProUsers();
+
+    // Subscriptions table (or empty state)
     if (!rows.length) {
-      root.innerHTML = '<div class="col__empty">No subscriptions yet.</div>';
+      container.insertAdjacentHTML('beforeend', '<div class="col__empty">No subscriptions yet.</div>');
       return;
     }
     const trs = rows.map(s => {
@@ -1081,7 +1117,7 @@ Admin 觀測儀表板
         </tr>
       `;
     }).join('');
-    root.innerHTML = `
+    container.insertAdjacentHTML('beforeend', `
       <table class="subs-table">
         <thead>
           <tr>
@@ -1091,8 +1127,8 @@ Admin 觀測儀表板
         </thead>
         <tbody>${trs}</tbody>
       </table>
-    `;
-    root.querySelectorAll('.subs-actions-btn').forEach(btn => {
+    `);
+    container.querySelectorAll('.subs-actions-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const subId = btn.dataset.subId;
         const act = btn.dataset.act;
@@ -1101,6 +1137,97 @@ Admin 觀測儀表板
       });
     });
   }
+
+  async function loadWaitlist() {
+    const el = document.getElementById('waitlist-content');
+    if (!el) return;
+    try {
+      const { data, error } = await sb.from('pro_waitlist').select('email,created_at').order('created_at', { ascending: false });
+      if (error || !data || data.length === 0) {
+        el.textContent = 'No signups yet.';
+        return;
+      }
+      el.innerHTML = data.map(r => `
+        <div style="padding:6px 0;border-bottom:1px dashed var(--border);display:flex;justify-content:space-between;">
+            <span>${escapeHtml(r.email)}</span>
+            <span style="color:var(--muted);font-size:11px;">${new Date(r.created_at).toLocaleDateString()}</span>
+        </div>
+      `).join('');
+    } catch(e) {
+      el.textContent = 'Failed to load waitlist.';
+    }
+  }
+
+  async function loadProUsers() {
+    const el = document.getElementById('pro-users-list');
+    if (!el) return;
+    try {
+      const { data, error } = await sb.from('profiles').select('id,email,is_pro').eq('is_pro', true);
+      if (error || !data || data.length === 0) {
+        el.innerHTML = '<div style="font-size:13px;color:var(--muted);font-style:italic">No Pro users yet.</div>';
+        return;
+      }
+      el.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Current Pro Users</div>' +
+        data.map(r => `
+            <div style="padding:6px 0;border-bottom:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:13px;">${escapeHtml(r.email || r.id)}</span>
+                <button onclick="revokeProById('${escapeHtml(r.id)}')"
+                    style="font-size:11px;padding:3px 10px;background:transparent;border:1px solid var(--wine);color:var(--wine);border-radius:4px;cursor:pointer;">
+                    Revoke
+                </button>
+            </div>
+        `).join('');
+    } catch(e) {
+      el.innerHTML = '<div style="font-size:13px;color:var(--wine)">Failed to load Pro users.</div>';
+    }
+  }
+
+  async function grantPro() {
+    const email = document.getElementById('pro-email-input')?.value?.trim();
+    const result = document.getElementById('pro-toggle-result');
+    if (!email) { if(result) result.textContent = 'Enter an email first.'; return; }
+    try {
+      const { data, error } = await sb.from('profiles').update({ is_pro: true }).eq('email', email).select();
+      if (error) throw error;
+      if (!data || data.length === 0) { if(result) result.textContent = 'User not found.'; return; }
+      if(result) { result.textContent = `✓ ${email} is now Pro.`; result.style.color = 'var(--green)'; }
+      window.analytics?.track('admin_pro_granted', { email });
+      loadProUsers();
+    } catch(e) {
+      if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
+    }
+  }
+
+  async function revokePro() {
+    const email = document.getElementById('pro-email-input')?.value?.trim();
+    const result = document.getElementById('pro-toggle-result');
+    if (!email) { if(result) result.textContent = 'Enter an email first.'; return; }
+    try {
+      const { data, error } = await sb.from('profiles').update({ is_pro: false }).eq('email', email).select();
+      if (error) throw error;
+      if (!data || data.length === 0) { if(result) result.textContent = 'User not found.'; return; }
+      if(result) { result.textContent = `✓ ${email} Pro access revoked.`; result.style.color = 'var(--muted)'; }
+      window.analytics?.track('admin_pro_revoked', { email });
+      loadProUsers();
+    } catch(e) {
+      if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
+    }
+  }
+
+  async function revokeProById(userId) {
+    try {
+      await sb.from('profiles').update({ is_pro: false }).eq('id', userId);
+      loadProUsers();
+      window.analytics?.track('admin_pro_revoked', { user_id: userId });
+    } catch(e) {
+      alert('Failed: ' + e.message);
+    }
+  }
+
+  // Expose for inline onclick handlers (renderSubscriptions injects buttons with onclick="grantPro()" etc.)
+  window.grantPro = grantPro;
+  window.revokePro = revokePro;
+  window.revokeProById = revokeProById;
 
   async function extendSub(subId, btn) {
     btn.disabled = true;
