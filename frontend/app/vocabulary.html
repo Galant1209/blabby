@@ -72,22 +72,6 @@ header.brand .subtitle {
     position: relative;
 }
 
-/* Today's review card */
-#today-review .card-headline {
-    font-family: var(--serif); font-size: 19px; color: var(--ink);
-    margin-bottom: 6px;
-}
-#today-review .card-sub {
-    font-size: 13px; color: var(--muted); margin-bottom: 14px;
-}
-#today-review .due-count {
-    font-family: var(--serif); font-size: 28px; font-weight: 500;
-    color: var(--muted); line-height: 1;
-}
-#today-review .due-label {
-    font-size: 13px; color: var(--muted); margin-top: 4px;
-    text-transform: none; font-style: italic;
-}
 .btn-primary {
     display: block; width: 100%; padding: 13px 18px;
     background: var(--green); color: var(--gold); border: none;
@@ -187,24 +171,6 @@ header.brand .subtitle {
 }
 @media (max-width: 360px) { .vocab-grid { grid-template-columns: 1fr; } }
 #recommended-section { margin-bottom: 32px; }
-#vocab-summary {
-    padding: 16px 0;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 24px;
-}
-.summary-title {
-    font-family: var(--serif);
-    font-size: 14px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    margin: 0 0 8px;
-}
-.summary-stats { display: flex; gap: 24px; margin: 12px 0; }
-.summary-stat { text-align: center; }
-.summary-stat span { font-family: var(--serif); font-size: 28px; color: var(--green); display: block; }
-.summary-stat label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-.summary-onboard { font-size: 13px; color: var(--muted); font-style: italic; margin: 0; }
 /* Vocab card extras — better_than line + usage_note_zh inline */
 .vocab-card__better,
 .vocab-card__usage {
@@ -502,163 +468,233 @@ header.brand .subtitle {
     margin-bottom: 12px;
 }
 
-/* ═══════════════════════════════════════════════════════
-   DIARY JOURNAL —復古單字日記本
-═══════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════
+   VOCAB JOURNAL — split-page open book
+═══════════════════════════════════════════════════ */
 
-#vocab-journal {
-    position: relative;
-    background: #F7F0DC;
-    border: 1px solid #C4A96A;
-    border-radius: 4px;
-    padding: 28px 24px 24px;
+#vocab-journal-section {
     margin-bottom: 28px;
-    min-height: 120px;
-    box-shadow:
-        inset 0 0 40px rgba(180,150,80,0.10),
-        2px 4px 12px rgba(44,36,22,0.14);
-    overflow: hidden;
 }
 
-#vocab-journal::before {
+#vocab-journal {
+    border: 1px solid #C4A96A;
+    border-radius: 3px;
+    box-shadow: 2px 4px 0 #C4A96A, 4px 6px 0 rgba(196,169,106,0.22);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.journal-book-inner {
+    display: flex;
+    min-height: 280px;
+}
+
+/* Spine */
+.journal-spine {
+    width: 8px;
+    background: #C4A96A;
+    flex-shrink: 0;
+}
+
+/* Left page — word list */
+.journal-left {
+    width: 130px;
+    flex-shrink: 0;
+    background: #F7F0DC;
+    border-right: 1px solid rgba(180,150,80,0.3);
+    position: relative;
+    padding: 14px 0 0;
+    overflow-y: auto;
+    max-height: 340px;
+}
+
+.journal-left::before {
     content: '';
     position: absolute;
     inset: 0;
     background-image: repeating-linear-gradient(
-        transparent,
-        transparent 31px,
-        rgba(180,150,80,0.20) 31px,
-        rgba(180,150,80,0.20) 32px
+        transparent, transparent 27px,
+        rgba(180,150,80,0.15) 27px,
+        rgba(180,150,80,0.15) 28px
     );
     pointer-events: none;
 }
 
-#vocab-journal::after {
+.journal-left-label {
+    font-family: 'EB Garamond', Georgia, serif;
+    font-style: italic;
+    font-size: 10px;
+    color: #B8A07A;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0 10px 8px;
+    position: relative;
+    z-index: 1;
+    border-bottom: 1px dashed rgba(180,150,80,0.28);
+    margin-bottom: 2px;
+}
+
+#journal-word-list {
+    position: relative;
+    z-index: 1;
+}
+
+.journal-word-item {
+    font-family: 'EB Garamond', Georgia, serif;
+    font-size: 16px;
+    font-weight: 500;
+    color: #5a4e3a;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+    line-height: 1.4;
+    position: relative;
+}
+
+.journal-word-item:hover {
+    color: #2C2416;
+    background: rgba(180,150,80,0.08);
+}
+
+.journal-word-item.active {
+    color: #2C2416;
+    border-left-color: #C9A84C;
+    background: rgba(201,168,76,0.10);
+}
+
+.journal-word-item.active::after {
     content: '';
     position: absolute;
-    top: 0; bottom: 0;
-    left: 44px;
-    width: 1px;
-    background: rgba(180,60,60,0.22);
+    right: -1px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 6px solid transparent;
+    border-left-color: #C9A84C;
+}
+
+/* Right page — entry detail */
+.journal-right {
+    flex: 1;
+    background: #FDFAF4;
+    position: relative;
+    padding: 16px;
+    overflow: hidden;
+}
+
+.journal-right::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+        transparent, transparent 27px,
+        rgba(180,150,80,0.09) 27px,
+        rgba(180,150,80,0.09) 28px
+    );
     pointer-events: none;
 }
 
-.journal-heading {
-    font-family: 'EB Garamond', Georgia, serif;
-    font-size: 13px;
-    font-style: italic;
-    color: #9A8050;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin: 0 0 16px 0;
-    padding-left: 52px;
-    position: relative;
-    z-index: 1;
-}
-
-#journal-word-cloud {
+.journal-entry-empty {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px 10px;
-    padding-left: 52px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 200px;
+    font-family: 'EB Garamond', Georgia, serif;
+    font-style: italic;
+    font-size: 13px;
+    color: #C4A96A;
+    text-align: center;
+    line-height: 2;
     position: relative;
     z-index: 1;
-    min-height: 32px;
 }
 
-#journal-empty {
+.journal-entry-arrow {
+    font-size: 20px;
+    margin-bottom: 6px;
+}
+
+.journal-entry {
+    position: relative;
+    z-index: 1;
+    display: none;
+}
+
+.journal-entry__word {
+    font-family: 'EB Garamond', Georgia, serif;
+    font-size: 26px;
+    font-weight: 500;
+    color: #2C2416;
+    line-height: 1.1;
+    margin-bottom: 2px;
+}
+
+.journal-entry__pos {
+    font-family: 'EB Garamond', Georgia, serif;
+    font-style: italic;
+    font-size: 13px;
+    color: #9A8050;
+    margin-bottom: 8px;
+}
+
+.journal-entry__divider {
+    border: none;
+    border-top: 1px solid rgba(180,150,80,0.3);
+    margin: 8px 0 10px;
+}
+
+.journal-entry__zh {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 17px;
+    font-weight: 500;
+    color: #8B6914;
+    margin-bottom: 10px;
+}
+
+.journal-entry__sentence {
     font-family: 'EB Garamond', Georgia, serif;
     font-style: italic;
     font-size: 14px;
-    color: #B8A07A;
-    padding-left: 52px;
-    position: relative;
-    z-index: 1;
-    line-height: 1.8;
+    color: #5a4e3a;
+    line-height: 1.65;
 }
 
-.journal-word {
-    display: inline-flex;
+/* Footer — review CTA */
+.journal-footer {
+    border-top: 1px dashed rgba(180,150,80,0.4);
+    padding: 11px 16px;
+    background: #F7F0DC;
+    display: flex;
     align-items: center;
+    gap: 8px;
     font-family: 'EB Garamond', Georgia, serif;
-    font-size: 17px;
-    font-weight: 500;
-    color: #2C2416;
-    cursor: pointer;
-    position: relative;
-    padding: 1px 0;
-    border-bottom: 1.5px solid rgba(180,150,80,0.5);
-    transition: color 0.15s, border-color 0.15s;
-    transform-origin: bottom left;
-}
-
-.journal-word:hover {
-    color: #6B1A1A;
-    border-bottom-color: #6B1A1A;
-}
-
-.journal-word__tooltip {
-    position: absolute;
-    bottom: calc(100% + 10px);
-    left: 50%;
-    transform: translateX(-50%) scale(0.92);
-    background: #2C2416;
-    color: #F5F0E8;
-    border-radius: 6px;
-    padding: 10px 14px;
-    min-width: 180px;
-    max-width: 260px;
-    font-size: 13px;
-    font-family: 'Inter Tight', 'Inter', sans-serif;
-    line-height: 1.5;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.18s ease, transform 0.18s ease;
-    z-index: 50;
-    white-space: normal;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-}
-
-.journal-word__tooltip::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: #2C2416;
-}
-
-.journal-word__tooltip.visible {
-    opacity: 1;
-    transform: translateX(-50%) scale(1);
-    pointer-events: auto;
-}
-
-.journal-word__tooltip .tip-pos {
-    font-size: 11px;
-    color: #C9A84C;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 3px;
-    font-family: 'Inter Tight', sans-serif;
-}
-
-.journal-word__tooltip .tip-zh {
-    font-family: 'Noto Serif TC', serif;
-    font-size: 15px;
-    font-weight: 500;
-    color: #C9A84C;
-    margin-bottom: 5px;
-}
-
-.journal-word__tooltip .tip-sentence {
-    font-size: 12px;
-    color: #C4B89A;
     font-style: italic;
-    line-height: 1.5;
+    font-size: 13px;
+    color: #6B4E1A;
+    cursor: pointer;
+    transition: background 0.15s;
 }
 
+.journal-footer:hover { background: #F0E5C4; }
+
+.journal-due-badge {
+    background: #6B4E1A;
+    color: #F7F0DC;
+    font-size: 11px;
+    font-style: normal;
+    font-family: 'Inter Tight', sans-serif;
+    padding: 2px 8px;
+    border-radius: 20px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.journal-footer-text { flex: 1; }
+
+/* Fly ghost */
 .vocab-fly-ghost {
     position: fixed;
     pointer-events: none;
@@ -677,14 +713,14 @@ header.brand .subtitle {
     100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-.journal-word--new {
+.journal-word-item--new {
     animation: journal-ink-in 0.45s cubic-bezier(0.34,1.56,0.64,1) both;
 }
 
 @keyframes journal-pulse {
-    0%   { box-shadow: inset 0 0 40px rgba(180,150,80,0.10), 2px 4px 12px rgba(44,36,22,0.14); }
-    40%  { box-shadow: inset 0 0 40px rgba(201,168,76,0.22), 2px 4px 20px rgba(44,36,22,0.22); }
-    100% { box-shadow: inset 0 0 40px rgba(180,150,80,0.10), 2px 4px 12px rgba(44,36,22,0.14); }
+    0%   { box-shadow: 2px 4px 0 #C4A96A, 4px 6px 0 rgba(196,169,106,0.22); }
+    40%  { box-shadow: 2px 4px 0 #C9A84C, 4px 6px 0 rgba(201,168,76,0.45); }
+    100% { box-shadow: 2px 4px 0 #C4A96A, 4px 6px 0 rgba(196,169,106,0.22); }
 }
 
 .journal--pulse {
@@ -711,37 +747,26 @@ header.brand .subtitle {
     <!-- Section 0: Vocabulary Journal -->
     <section id="vocab-journal-section">
         <div id="vocab-journal">
-            <div class="journal-heading">My Speaking Words &nbsp;·&nbsp; <span id="stat-saved-j">0</span> saved &nbsp;·&nbsp; <span id="stat-mastered-j">0</span> mastered</div>
-            <div id="journal-word-cloud">
-                <div id="journal-empty">Your words will appear here as you collect them.</div>
+            <div class="journal-book-inner">
+                <div class="journal-spine"></div>
+                <div class="journal-left">
+                    <div class="journal-left-label">My words · <span id="stat-saved-j">0</span> saved</div>
+                    <div id="journal-word-list"></div>
+                </div>
+                <div class="journal-right">
+                    <div class="journal-entry-empty" id="journal-entry-empty">
+                        <div class="journal-entry-arrow">←</div>
+                        Select a word<br>to read its entry
+                    </div>
+                    <div class="journal-entry" id="journal-entry"></div>
+                </div>
+            </div>
+            <div class="journal-footer" id="journal-review-cta">
+                <span class="journal-due-badge" id="journal-due-badge">—</span>
+                <span class="journal-footer-text" id="journal-footer-text">Loading review…</span>
+                <span>→</span>
             </div>
         </div>
-    </section>
-
-    <!-- Section 1: Today's Review -->
-    <section id="today-review" class="fade-in">
-        <div class="card">
-            <div class="card-headline">Today's Review</div>
-            <div class="due-count" id="due-count">—</div>
-            <div class="due-label" id="due-label">words due for review</div>
-            <p id="empty-onboarding" class="empty-onboard" style="display:none">
-                Build your first review set by saving 3 speaking-ready words from the bank below.
-            </p>
-            <button class="btn-primary" id="start-review-btn" disabled>開始今日複習</button>
-        </div>
-    </section>
-
-    <!-- Section 1b: My Speaking Words summary -->
-    <section id="vocab-summary" class="fade-in" style="display:none">
-        <h3 class="summary-title">My Speaking Words</h3>
-        <div class="summary-stats">
-            <div class="summary-stat"><span id="stat-saved">0</span><label>saved</label></div>
-            <div class="summary-stat"><span id="stat-learning">0</span><label>learning</label></div>
-            <div class="summary-stat"><span id="stat-mastered">0</span><label>mastered</label></div>
-        </div>
-        <p id="summary-onboarding" class="summary-onboard" style="display:none">
-            Save your first 3 words to start reviewing tomorrow.
-        </p>
     </section>
 
     <!-- Section 1c: Recommended for Today -->
@@ -887,10 +912,6 @@ header.brand .subtitle {
     })();
 
     window.analytics?.track('vocabulary_page_viewed');
-
-    document.addEventListener('click', () => {
-        document.querySelectorAll('.journal-word__tooltip.visible').forEach(t => t.classList.remove('visible'));
-    }, { capture: true });
 
     // ── Section 2: Bank fetch + render ────────────────────────────────
     async function loadBank() {
@@ -1062,15 +1083,13 @@ header.brand .subtitle {
     }
     document.getElementById('generate-vocab-btn')?.addEventListener('click', generateVocab);
 
-    // Add-success toast — auto-hides after 4s; "Begin review →" link
-    // scrolls to #today-review and triggers the existing start-review
-    // CTA when the queue is non-empty. Tracks a single timer so rapid
+    // Add-success toast — auto-hides after 4s. Tracks a single timer so rapid
     // adds reset cleanly.
     let toastTimer = null;
     function showAddedToast() {
         const toast = document.getElementById('vocab-toast');
         if (!toast) return;
-        toast.innerHTML = 'Added to your Vocabulary.<a href="#today-review" data-toast-cta>Begin review →</a>';
+        toast.innerHTML = 'Added to your Vocabulary.<a href="#vocab-journal-section" data-toast-cta>Begin review →</a>';
         toast.classList.add('visible');
         if (toastTimer) clearTimeout(toastTimer);
         toastTimer = setTimeout(() => toast.classList.remove('visible'), 4000);
@@ -1080,10 +1099,6 @@ header.brand .subtitle {
                 e.preventDefault();
                 if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
                 toast.classList.remove('visible');
-                const target = document.getElementById('today-review');
-                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                const startBtn = document.getElementById('start-review-btn');
-                if (startBtn && !startBtn.disabled) startBtn.click();
             }, { once: true });
         }
     }
@@ -1122,8 +1137,8 @@ header.brand .subtitle {
                 `;
                 document.body.appendChild(ghost);
 
-                const targetX = toRect.left + 56;
-                const targetY = toRect.top + 48;
+                const targetX = toRect.left + 20;
+                const targetY = toRect.top + 60;
                 const deltaX  = targetX - fromRect.left;
                 const deltaY  = targetY - fromRect.top;
 
@@ -1214,70 +1229,61 @@ header.brand .subtitle {
     // ── Section 1b: Speaking Words summary stats ──────────────────────
     function renderSummaryStats() {
         const total = myItems.length;
-        const learning = myItems.filter(r => {
-            const lvl = r.srs_level || 0;
-            return lvl > 0 && lvl < 5;
-        }).length;
         const mastered = myItems.filter(r => (r.srs_level || 0) >= 5).length;
-        const setText = (id, n) => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = String(n);
-        };
-        setText('stat-saved', total);
-        setText('stat-learning', learning);
-        setText('stat-mastered', mastered);
-        const onb = document.getElementById('summary-onboarding');
-        if (onb) onb.style.display = total === 0 ? '' : 'none';
-        const jSaved    = document.getElementById('stat-saved-j');
-        const jMastered = document.getElementById('stat-mastered-j');
-        if (jSaved)    jSaved.textContent    = String(total);
-        if (jMastered) jMastered.textContent = String(mastered);
+        const saved = document.getElementById('stat-saved-j');
+        if (saved) saved.textContent = String(total);
     }
 
     // ── Section 3: My Vocabulary ──────────────────────────────────────
     function renderJournal(items, newItemId) {
-        const cloud = document.getElementById('journal-word-cloud');
-        const empty = document.getElementById('journal-empty');
-        if (!cloud) return;
+        const wordList = document.getElementById('journal-word-list');
+        if (!wordList) return;
 
         if (items.length === 0) {
-            cloud.innerHTML = '<div id="journal-empty">Your words will appear here as you collect them.</div>';
+            wordList.innerHTML = '';
+            const saved = document.getElementById('stat-saved-j');
+            if (saved) saved.textContent = '0';
             return;
         }
 
-        const emptyEl = document.getElementById('journal-empty');
-        if (emptyEl) emptyEl.remove();
-
         const existing = new Set(
-            Array.from(cloud.querySelectorAll('.journal-word')).map(el => el.dataset.itemId)
+            Array.from(wordList.querySelectorAll('.journal-word-item')).map(el => el.dataset.itemId)
         );
+
+        const saved = document.getElementById('stat-saved-j');
+        if (saved) saved.textContent = String(items.length);
 
         items.forEach(r => {
             const item = r.vocabulary_items || {};
             const itemId = r.vocabulary_item_id;
             if (!itemId || existing.has(itemId)) return;
 
-            const chip = document.createElement('span');
-            chip.className = 'journal-word' + (itemId === newItemId ? ' journal-word--new' : '');
-            chip.dataset.itemId = itemId;
-            chip.dataset.word = item.word || '';
+            const el = document.createElement('div');
+            el.className = 'journal-word-item' + (itemId === newItemId ? ' journal-word-item--new' : '');
+            el.dataset.itemId = itemId;
+            el.textContent = item.word || '';
 
-            const pos = item.part_of_speech ? `<div class="tip-pos">${escapeHtml(item.part_of_speech)}</div>` : '';
-            const zh  = item.zh_meaning    ? `<div class="tip-zh">${escapeHtml(item.zh_meaning)}</div>` : '';
-            const sen = item.speaking_sentence ? `<div class="tip-sentence">${escapeHtml(item.speaking_sentence)}</div>` : '';
+            el.addEventListener('click', () => {
+                document.querySelectorAll('.journal-word-item').forEach(x => x.classList.remove('active'));
+                el.classList.add('active');
 
-            chip.innerHTML = `${escapeHtml(item.word || '')}
-                <span class="journal-word__tooltip">${pos}${zh}${sen}</span>`;
-
-            chip.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const tip = chip.querySelector('.journal-word__tooltip');
-                const isOpen = tip.classList.contains('visible');
-                document.querySelectorAll('.journal-word__tooltip.visible').forEach(t => t.classList.remove('visible'));
-                if (!isOpen) tip.classList.add('visible');
+                const empty = document.getElementById('journal-entry-empty');
+                const entry = document.getElementById('journal-entry');
+                if (empty) empty.style.display = 'none';
+                if (entry) {
+                    entry.style.display = 'block';
+                    entry.innerHTML = `
+                        <div class="journal-entry__word">${escapeHtml(item.word || '')}</div>
+                        <div class="journal-entry__pos">${escapeHtml(item.part_of_speech || '')}</div>
+                        <hr class="journal-entry__divider">
+                        <div class="journal-entry__zh">${escapeHtml(item.zh_meaning || '')}</div>
+                        ${item.speaking_sentence ? `<div class="journal-entry__sentence">"${escapeHtml(item.speaking_sentence)}"</div>` : ''}
+                    `;
+                }
+                window.analytics?.track('vocabulary_journal_word_tapped', { word: item.word });
             });
 
-            cloud.appendChild(chip);
+            wordList.appendChild(el);
         });
     }
 
@@ -1301,50 +1307,31 @@ header.brand .subtitle {
     //                   (CTA scrolls to #recommended-section instead of opening modal)
     let reviewMode = 'idle';   // 'review' | 'browse' | 'idle'
     async function loadDueCount() {
-        const cnt = document.getElementById('due-count');
-        const lbl = document.getElementById('due-label');
-        const btn = document.getElementById('start-review-btn');
-        const onb = document.getElementById('empty-onboarding');
+        const badge = document.getElementById('journal-due-badge');
+        const footerText = document.getElementById('journal-footer-text');
+        const cta = document.getElementById('journal-review-cta');
         try {
             const body = await authJson('GET', '/api/vocabulary/review/today');
             reviewQueue = Array.isArray(body.items) ? body.items : [];
             const dueCount = reviewQueue.length;
+            if (badge) badge.textContent = String(dueCount);
             if (dueCount === 0) {
-                cnt.style.display = 'none';
-                lbl.textContent = 'No words due today.';
-                if (onb) onb.style.display = '';
-                btn.textContent = 'Browse recommended words';
-                btn.disabled = false;
+                if (footerText) footerText.textContent = 'No words due today · Browse recommended words';
+                if (cta) cta.style.cursor = 'default';
                 reviewMode = 'browse';
             } else {
-                cnt.style.display = '';
-                cnt.textContent = String(dueCount);
-                lbl.textContent = `${dueCount} ${dueCount === 1 ? 'word' : 'words'} due today`;
-                if (onb) onb.style.display = 'none';
-                btn.textContent = "Start today's review";
-                btn.disabled = false;
+                if (footerText) footerText.textContent = `${dueCount} ${dueCount === 1 ? 'word' : 'words'} due today · Begin review`;
                 reviewMode = 'review';
             }
         } catch (e) {
             console.error('loadDueCount failed', e);
-            if (e.message === 'not_signed_in') {
-                cnt.style.display = '';
-                cnt.textContent = '—';
-                lbl.textContent = '請先登入';
-                if (onb) onb.style.display = 'none';
-                btn.disabled = true;
-            } else {
-                cnt.style.display = '';
-                cnt.textContent = '!';
-                lbl.textContent = 'Failed to load';
-                if (onb) onb.style.display = 'none';
-                btn.disabled = true;
-            }
+            if (badge) badge.textContent = '—';
+            if (footerText) footerText.textContent = e.message === 'not_signed_in' ? 'Sign in to review' : 'Failed to load';
             reviewMode = 'idle';
         }
     }
 
-    document.getElementById('start-review-btn').addEventListener('click', () => {
+    document.getElementById('journal-review-cta')?.addEventListener('click', () => {
         if (reviewMode === 'browse') {
             window.analytics?.track('vocabulary_empty_review_cta_clicked');
             const target = document.getElementById('recommended-section');
