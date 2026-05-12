@@ -2427,6 +2427,26 @@
         const drillEvidenceFeedback = document.getElementById('drill-evidence-feedback');
         const drillEvidenceList = document.getElementById('drill-evidence-list');
 
+        function setQuestionText(text, retryCount = 0) {
+            const el = document.getElementById('question-text');
+            if (!el) return;
+            if (!text && retryCount < 3) {
+                setTimeout(() => setQuestionText(text, retryCount + 1), 500);
+                return;
+            }
+            el.textContent = text || '載入題目中…';
+        }
+
+        function setDailyQuestionText(text, retryCount = 0) {
+            const el = document.getElementById('daily-question-text');
+            if (!el) return;
+            if (!text && retryCount < 3) {
+                setTimeout(() => setDailyQuestionText(text, retryCount + 1), 500);
+                return;
+            }
+            el.textContent = text || '載入題目中…';
+        }
+
         const authSection   = document.getElementById('auth-section');
         const mainSection   = document.getElementById('main-section');
         const authEmail     = document.getElementById('auth-email');
@@ -2559,7 +2579,7 @@
                 startPracticeBtn.style.display = 'none';
                 if (dailyQuestionEl) {
                     if (dailyQuestionTextEl) {
-                        dailyQuestionTextEl.textContent = dailyQuestion.text.trim();
+                        setDailyQuestionText(dailyQuestion.text.trim());
                     }
                     if (dailyQuestionMetaEl) {
                         const part = dailyQuestion.part || 2;
@@ -3044,7 +3064,7 @@
             currentQuestion = question;
             currentTopic    = topic;
             practisedInSession.add(question);
-            questionText.textContent = question;
+            setQuestionText(question);
             questionMeta.textContent = `Part 1 · Topic: ${topic}`;
         }
 
