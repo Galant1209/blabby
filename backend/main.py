@@ -1768,7 +1768,7 @@ async def process(
                     )
             finally:
                 os.unlink(tmp_path)
-            user_text = transcript.text
+            user_text = transcript if isinstance(transcript, str) else transcript.text
             if not user_text or not user_text.strip():
                 raise HTTPException(
                     status_code=422,
