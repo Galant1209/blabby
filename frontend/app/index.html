@@ -2031,6 +2031,114 @@
             line-height: 1.6;
             font-weight: 500;
         }
+
+        /* Pro upgrade modal */
+        #pro-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 300;
+            background: rgba(44,36,22,0.55);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        #pro-modal-overlay.visible {
+            display: flex;
+        }
+        #pro-modal {
+            background: #FDFAF4;
+            border: 1px solid #C4A96A;
+            border-radius: 8px;
+            padding: 32px 28px 28px;
+            max-width: 380px;
+            width: 100%;
+            position: relative;
+            box-shadow: 0 8px 32px rgba(44,36,22,0.22);
+        }
+        .pro-modal__close {
+            position: absolute;
+            top: 14px; right: 16px;
+            background: none; border: none;
+            font-size: 20px; color: #8A7E6E;
+            cursor: pointer; line-height: 1;
+        }
+        .pro-modal__close:hover { color: #2C2416; }
+        .pro-modal__crown {
+            font-size: 28px; text-align: center;
+            margin-bottom: 12px;
+        }
+        .pro-modal__title {
+            font-family: 'EB Garamond', Georgia, serif;
+            font-size: 24px; font-weight: 500;
+            color: #2C2416; text-align: center;
+            margin-bottom: 6px;
+        }
+        .pro-modal__sub {
+            font-family: 'EB Garamond', Georgia, serif;
+            font-style: italic;
+            font-size: 14px; color: #8A7E6E;
+            text-align: center; margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        .pro-modal__features {
+            list-style: none;
+            margin: 0 0 24px;
+            padding: 0;
+            border-top: 1px solid #E8DFC8;
+            border-bottom: 1px solid #E8DFC8;
+            padding: 16px 0;
+        }
+        .pro-modal__features li {
+            font-family: 'EB Garamond', Georgia, serif;
+            font-size: 15px; color: #3a3022;
+            padding: 4px 0 4px 20px;
+            position: relative;
+            line-height: 1.5;
+        }
+        .pro-modal__features li::before {
+            content: '✦';
+            position: absolute; left: 0;
+            color: #C9A84C; font-size: 11px;
+            top: 7px;
+        }
+        .pro-modal__email-row {
+            display: flex; gap: 8px;
+            margin-bottom: 10px;
+        }
+        .pro-modal__email {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #C4B89A;
+            border-radius: 6px;
+            font-family: 'EB Garamond', Georgia, serif;
+            font-size: 15px; color: #2C2416;
+            background: #F5F0E8;
+            outline: none;
+        }
+        .pro-modal__email:focus { border-color: #C9A84C; }
+        .pro-modal__submit {
+            padding: 10px 18px;
+            background: #2D5016; color: #C9A84C;
+            border: none; border-radius: 6px;
+            font-family: 'EB Garamond', Georgia, serif;
+            font-size: 15px; cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+        .pro-modal__submit:hover { background: #1f3810; }
+        .pro-modal__submit:disabled { opacity: 0.5; cursor: not-allowed; }
+        .pro-modal__note {
+            font-size: 11px; color: #B8A07A;
+            text-align: center; font-style: italic;
+        }
+        .pro-modal__thanks {
+            text-align: center;
+            font-family: 'EB Garamond', Georgia, serif;
+            font-size: 16px; color: #2D5016;
+            padding: 12px 0;
+            font-style: italic;
+        }
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -2983,10 +3091,12 @@
                 const nudge = document.createElement('div');
                 nudge.className = 'weakness-summary__upgrade';
                 const link = document.createElement('a');
-                link.href = `/upgrade.html?source=weakness&weakness_tag=${encodeURIComponent(topTag || '')}`;
+                link.href = '#';
                 link.textContent = 'Upgrade to Pro →';
-                link.addEventListener('click', () => {
-                    window.analytics.track('upgrade_nudge_clicked', { source: 'weakness_summary' });
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    window.analytics?.track('upgrade_nudge_clicked', { source: 'weakness', weakness_tag: topTag || '' });
+                    openProModal('weakness');
                 });
                 nudge.appendChild(link);
                 container.appendChild(nudge);
@@ -3135,6 +3245,46 @@
             currentTopicSession = { topic: initial.topic, count: 1 };
             if (initial.question && initial.question.trim()) setQuestion(initial.question, initial.topic);
         }
+
+        // ── Pro upgrade modal ─────────────────────────────────
+        function openProModal(source) {
+            const overlay = document.getElementById('pro-modal-overlay');
+            if (overlay) overlay.classList.add('visible');
+            document.getElementById('pro-modal-form').style.display = '';
+            document.getElementById('pro-modal-thanks').style.display = 'none';
+            document.getElementById('pro-modal-email').value = '';
+            window.analytics?.track('pro_modal_opened', { source });
+        }
+        function closeProModal() {
+            const overlay = document.getElementById('pro-modal-overlay');
+            if (overlay) overlay.classList.remove('visible');
+        }
+        document.getElementById('pro-modal-close')?.addEventListener('click', closeProModal);
+        document.getElementById('pro-modal-overlay')?.addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeProModal();
+        });
+        document.getElementById('pro-modal-submit')?.addEventListener('click', async () => {
+            const emailEl = document.getElementById('pro-modal-email');
+            const email = emailEl?.value?.trim();
+            if (!email || !email.includes('@')) {
+                emailEl?.focus();
+                return;
+            }
+            const btn = document.getElementById('pro-modal-submit');
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+            try {
+                await sb.from('pro_waitlist').upsert({ email, created_at: new Date().toISOString() });
+                window.analytics?.track('pro_waitlist_joined', { email });
+            } catch (_) {}
+            document.getElementById('pro-modal-form').style.display = 'none';
+            document.getElementById('pro-modal-thanks').style.display = '';
+            setTimeout(closeProModal, 3000);
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeProModal();
+        });
+        // ── End Pro upgrade modal ─────────────────────────────
 
         // Auth bootstrap: show main if session exists, else show auth form.
         (async () => {
@@ -4552,5 +4702,30 @@
             }
         })();
     </script>
+
+    <div id="pro-modal-overlay" role="dialog" aria-modal="true" aria-label="Blabby Pro">
+        <div id="pro-modal">
+            <button class="pro-modal__close" id="pro-modal-close" aria-label="Close">✕</button>
+            <div class="pro-modal__crown">♛</div>
+            <div class="pro-modal__title">Blabby Pro</div>
+            <div class="pro-modal__sub">For those who intend to pass,<br>not merely to practise.</div>
+            <ul class="pro-modal__features">
+                <li>Unlimited targeted drills on your weaknesses</li>
+                <li>Visual vocabulary patterns — see what you overuse</li>
+                <li>Full speaking history with progress timeline</li>
+                <li>Priority access to new features</li>
+            </ul>
+            <div id="pro-modal-form">
+                <div class="pro-modal__email-row">
+                    <input type="email" class="pro-modal__email" id="pro-modal-email" placeholder="your@email.com" autocomplete="email">
+                    <button class="pro-modal__submit" id="pro-modal-submit">Notify me</button>
+                </div>
+                <div class="pro-modal__note">Early bird pricing. No spam. Unsubscribe anytime.</div>
+            </div>
+            <div id="pro-modal-thanks" class="pro-modal__thanks" style="display:none">
+                Thy name is inscribed. We shall be in touch.
+            </div>
+        </div>
+    </div>
 </body>
 </html>
