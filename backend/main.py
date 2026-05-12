@@ -1761,8 +1761,10 @@ async def process(
                 tmp_path = tmp.name
             try:
                 with open(tmp_path, "rb") as f:
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-1", file=f, language="en"
+                    transcript = groq_client.audio.transcriptions.create(
+                        model="whisper-large-v3-turbo",
+                        file=f,
+                        response_format="text",
                     )
             finally:
                 os.unlink(tmp_path)
