@@ -400,7 +400,7 @@
   </aside>
 </div>
 
-<div class="tab-panel" id="subs-tab">
+<div class="tab-panel" id="subs-tab" style="display:none">
   <div class="subs-wrap">
     <h2>訂閱管理</h2>
     <div id="subs-content"><div class="col__empty">點擊「訂閱管理」載入</div></div>
@@ -697,7 +697,8 @@
     if (!d) return;
     const user = state.users.find(u => u.user_id === state.selectedUserId);
     const lastSeen = user ? fmtDateTime(user.last_seen) : '—';
-    $('right-content').innerHTML = `
+    const rightCol = $('right-content');
+    rightCol.innerHTML = `
       <div class="right-header">
         <div class="right-header__email">${escapeHtml(d.email || d.user_id || '—')}</div>
         <div class="right-header__meta">
@@ -724,6 +725,39 @@
     `;
     $('brief-btn').addEventListener('click', loadBrief);
     $('diag-btn').addEventListener('click', loadDiagnosis);
+
+    if (currentAdminTab === 'subs') {
+        const user = state.users?.find(u => u.user_id === state.selectedUserId);
+        if (!user) return;
+        const isPro = user.is_pro || user.is_pro_grant;
+        const proSection = document.createElement('div');
+        proSection.style.cssText = 'margin-top:16px;padding-top:16px;border-top:1px solid var(--border);';
+        proSection.innerHTML = `
+            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Pro Access</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <span style="font-size:14px;color:${isPro ? 'var(--green)' : 'var(--muted)'};">
+                    ${isPro ? '✦ Pro' : 'Free'}
+                    ${user.is_pro_grant ? '<span style="font-size:11px;color:var(--gold);margin-left:4px;">(manual)</span>' : ''}
+                    ${user.is_pro ? '<span style="font-size:11px;color:var(--green);margin-left:4px;">(subscription)</span>' : ''}
+                </span>
+            </div>
+            ${!isPro ? `
+            <input type="text" id="right-pro-reason" placeholder="Reason (required)"
+                style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-size:12px;margin-bottom:8px;">
+            <button onclick="rightGrantPro()"
+                style="width:100%;padding:8px;background:var(--green);color:var(--gold);border:none;border-radius:4px;font-size:13px;cursor:pointer;">
+                Grant Pro
+            </button>
+            ` : `
+            <button onclick="rightRevokePro()"
+                style="width:100%;padding:8px;background:transparent;border:1px solid var(--wine);color:var(--wine);border-radius:4px;font-size:13px;cursor:pointer;">
+                Revoke Pro
+            </button>
+            `}
+            <div id="right-pro-result" style="font-size:12px;margin-top:8px;"></div>
+        `;
+        rightCol.appendChild(proSection);
+    }
   }
 
   async function loadBrief() {
@@ -851,16 +885,19 @@
   // opens the tab.
   let subsLoaded = false;
   let changelogLoaded = false;
+  let currentAdminTab = 'users';
   function activateTab(name) {
     document.querySelectorAll('.tab').forEach(t => {
       t.classList.toggle('active', t.dataset.tab === name);
     });
+    // Subs reuses the users three-column layout; flag determines right-panel extras.
+    const panelToShow = (name === 'subs') ? 'users' : name;
     document.querySelectorAll('.tab-panel').forEach(p => {
-      p.classList.toggle('active', p.id === `${name}-tab`);
+      p.classList.toggle('active', p.id === `${panelToShow}-tab`);
     });
-    if (name === 'subs' && !subsLoaded) {
-      subsLoaded = true;
-      loadSubscriptions();
+    if (name === 'subs' || name === 'users') {
+      currentAdminTab = name;
+      if (state.selectedUserId) renderRightHeader();
     }
     if (name === 'changelog' && !changelogLoaded) {
       changelogLoaded = true;
@@ -1244,6 +1281,34 @@ Admin 觀測儀表板
         loadProUsers();
     } catch(e) {
         alert('Failed: ' + e.message);
+    }
+  };
+
+  window.rightGrantPro = async function() {
+    const reason = document.getElementById('right-pro-reason')?.value?.trim();
+    const result = document.getElementById('right-pro-result');
+    if (!reason) { if(result) { result.textContent = 'Reason required.'; result.style.color = 'var(--wine)'; } return; }
+    try {
+        await callProGrant(state.selectedUserId, true, reason);
+        if(result) { result.textContent = '✓ Pro granted.'; result.style.color = 'var(--green)'; }
+        window.analytics?.track('admin_pro_granted', { user_id: state.selectedUserId });
+        await loadUsers();
+        renderRightHeader();
+    } catch(e) {
+        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
+    }
+  };
+
+  window.rightRevokePro = async function() {
+    const result = document.getElementById('right-pro-result');
+    try {
+        await callProGrant(state.selectedUserId, false, 'admin revoke');
+        if(result) { result.textContent = '✓ Pro revoked.'; result.style.color = 'var(--muted)'; }
+        window.analytics?.track('admin_pro_revoked', { user_id: state.selectedUserId });
+        await loadUsers();
+        renderRightHeader();
+    } catch(e) {
+        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
     }
   };
 
