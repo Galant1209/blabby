@@ -501,6 +501,195 @@ header.brand .subtitle {
     font-style: italic;
     margin-bottom: 12px;
 }
+
+/* ═══════════════════════════════════════════════════════
+   DIARY JOURNAL —復古單字日記本
+═══════════════════════════════════════════════════════ */
+
+#vocab-journal {
+    position: relative;
+    background: #F7F0DC;
+    border: 1px solid #C4A96A;
+    border-radius: 4px;
+    padding: 28px 24px 24px;
+    margin-bottom: 28px;
+    min-height: 120px;
+    box-shadow:
+        inset 0 0 40px rgba(180,150,80,0.10),
+        2px 4px 12px rgba(44,36,22,0.14);
+    overflow: hidden;
+}
+
+#vocab-journal::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+        transparent,
+        transparent 31px,
+        rgba(180,150,80,0.20) 31px,
+        rgba(180,150,80,0.20) 32px
+    );
+    pointer-events: none;
+}
+
+#vocab-journal::after {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    left: 44px;
+    width: 1px;
+    background: rgba(180,60,60,0.22);
+    pointer-events: none;
+}
+
+.journal-heading {
+    font-family: 'EB Garamond', Georgia, serif;
+    font-size: 13px;
+    font-style: italic;
+    color: #9A8050;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0 0 16px 0;
+    padding-left: 52px;
+    position: relative;
+    z-index: 1;
+}
+
+#journal-word-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding-left: 52px;
+    position: relative;
+    z-index: 1;
+    min-height: 32px;
+}
+
+#journal-empty {
+    font-family: 'EB Garamond', Georgia, serif;
+    font-style: italic;
+    font-size: 14px;
+    color: #B8A07A;
+    padding-left: 52px;
+    position: relative;
+    z-index: 1;
+    line-height: 1.8;
+}
+
+.journal-word {
+    display: inline-flex;
+    align-items: center;
+    font-family: 'EB Garamond', Georgia, serif;
+    font-size: 17px;
+    font-weight: 500;
+    color: #2C2416;
+    cursor: pointer;
+    position: relative;
+    padding: 1px 0;
+    border-bottom: 1.5px solid rgba(180,150,80,0.5);
+    transition: color 0.15s, border-color 0.15s;
+    transform-origin: bottom left;
+}
+
+.journal-word:hover {
+    color: #6B1A1A;
+    border-bottom-color: #6B1A1A;
+}
+
+.journal-word__tooltip {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%) scale(0.92);
+    background: #2C2416;
+    color: #F5F0E8;
+    border-radius: 6px;
+    padding: 10px 14px;
+    min-width: 180px;
+    max-width: 260px;
+    font-size: 13px;
+    font-family: 'Inter Tight', 'Inter', sans-serif;
+    line-height: 1.5;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    z-index: 50;
+    white-space: normal;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+
+.journal-word__tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #2C2416;
+}
+
+.journal-word__tooltip.visible {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+    pointer-events: auto;
+}
+
+.journal-word__tooltip .tip-pos {
+    font-size: 11px;
+    color: #C9A84C;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 3px;
+    font-family: 'Inter Tight', sans-serif;
+}
+
+.journal-word__tooltip .tip-zh {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 15px;
+    font-weight: 500;
+    color: #C9A84C;
+    margin-bottom: 5px;
+}
+
+.journal-word__tooltip .tip-sentence {
+    font-size: 12px;
+    color: #C4B89A;
+    font-style: italic;
+    line-height: 1.5;
+}
+
+.vocab-fly-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 200;
+    font-family: 'EB Garamond', Georgia, serif;
+    font-size: 18px;
+    font-weight: 500;
+    color: #2C2416;
+    white-space: nowrap;
+    will-change: transform, opacity;
+}
+
+@keyframes journal-ink-in {
+    0%   { opacity: 0; transform: scale(0.7) translateY(4px); }
+    60%  { opacity: 1; transform: scale(1.08) translateY(-2px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.journal-word--new {
+    animation: journal-ink-in 0.45s cubic-bezier(0.34,1.56,0.64,1) both;
+}
+
+@keyframes journal-pulse {
+    0%   { box-shadow: inset 0 0 40px rgba(180,150,80,0.10), 2px 4px 12px rgba(44,36,22,0.14); }
+    40%  { box-shadow: inset 0 0 40px rgba(201,168,76,0.22), 2px 4px 20px rgba(44,36,22,0.22); }
+    100% { box-shadow: inset 0 0 40px rgba(180,150,80,0.10), 2px 4px 12px rgba(44,36,22,0.14); }
+}
+
+.journal--pulse {
+    animation: journal-pulse 0.7s ease;
+}
 </style>
 </head>
 <body>
@@ -519,6 +708,16 @@ header.brand .subtitle {
         <div class="subtitle">Don't just remember words. Learn to say better sentences.</div>
     </header>
 
+    <!-- Section 0: Vocabulary Journal -->
+    <section id="vocab-journal-section">
+        <div id="vocab-journal">
+            <div class="journal-heading">My Speaking Words &nbsp;·&nbsp; <span id="stat-saved-j">0</span> saved &nbsp;·&nbsp; <span id="stat-mastered-j">0</span> mastered</div>
+            <div id="journal-word-cloud">
+                <div id="journal-empty">Your words will appear here as you collect them.</div>
+            </div>
+        </div>
+    </section>
+
     <!-- Section 1: Today's Review -->
     <section id="today-review" class="fade-in">
         <div class="card">
@@ -533,7 +732,7 @@ header.brand .subtitle {
     </section>
 
     <!-- Section 1b: My Speaking Words summary -->
-    <section id="vocab-summary" class="fade-in">
+    <section id="vocab-summary" class="fade-in" style="display:none">
         <h3 class="summary-title">My Speaking Words</h3>
         <div class="summary-stats">
             <div class="summary-stat"><span id="stat-saved">0</span><label>saved</label></div>
@@ -595,12 +794,9 @@ header.brand .subtitle {
         </div>
     </section>
 
-    <!-- Section 3: My Vocabulary -->
-    <section id="my-vocab">
-        <h2 class="section-title">My Vocabulary</h2>
-        <div class="card">
-            <div id="my-vocab-list"><div class="loading-state">Loading your collection…</div></div>
-        </div>
+    <!-- Section 3: My Vocabulary (hidden — data still loaded, drives journal) -->
+    <section id="my-vocab" style="display:none">
+        <div id="my-vocab-list"></div>
     </section>
 </main>
 
@@ -691,6 +887,10 @@ header.brand .subtitle {
     })();
 
     window.analytics?.track('vocabulary_page_viewed');
+
+    document.addEventListener('click', () => {
+        document.querySelectorAll('.journal-word__tooltip.visible').forEach(t => t.classList.remove('visible'));
+    }, { capture: true });
 
     // ── Section 2: Bank fetch + render ────────────────────────────────
     async function loadBank() {
@@ -902,6 +1102,51 @@ header.brand .subtitle {
                 vocabulary_item_id: id,
                 source: source === 'recommended' ? 'recommended_added' : 'manual_added',
             });
+
+            // ── FLY ANIMATION ──────────────────────────────────────────
+            const wordEl = btn.closest('.vocab-card')?.querySelector('.vocab-card__word');
+            const journal = document.getElementById('vocab-journal');
+
+            if (wordEl && journal) {
+                const wordText = wordEl.textContent.trim();
+                const fromRect = wordEl.getBoundingClientRect();
+                const toRect   = journal.getBoundingClientRect();
+
+                const ghost = document.createElement('span');
+                ghost.className = 'vocab-fly-ghost';
+                ghost.textContent = wordText;
+                ghost.style.cssText = `
+                    top: ${fromRect.top}px;
+                    left: ${fromRect.left}px;
+                    font-size: ${getComputedStyle(wordEl).fontSize};
+                `;
+                document.body.appendChild(ghost);
+
+                const targetX = toRect.left + 56;
+                const targetY = toRect.top + 48;
+                const deltaX  = targetX - fromRect.left;
+                const deltaY  = targetY - fromRect.top;
+
+                const anim = ghost.animate([
+                    { transform: 'translate(0, 0) scale(1)',   opacity: 1 },
+                    { transform: `translate(${deltaX * 0.5}px, ${deltaY * 0.4}px) scale(1.15)`, opacity: 1, offset: 0.4 },
+                    { transform: `translate(${deltaX}px, ${deltaY}px) scale(0.7)`, opacity: 0 },
+                ], {
+                    duration: 520,
+                    easing: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+                    fill: 'forwards',
+                });
+
+                anim.onfinish = () => {
+                    ghost.remove();
+                    journal.classList.remove('journal--pulse');
+                    void journal.offsetWidth;
+                    journal.classList.add('journal--pulse');
+                    setTimeout(() => journal.classList.remove('journal--pulse'), 800);
+                };
+            }
+            // ── END FLY ANIMATION ─────────────────────────────────────
+
             mySetOfItemIds.add(id);
             btn.textContent = '✓ 已加入';
             window.analytics?.track('vocabulary_item_added', { word, topic });
@@ -909,8 +1154,14 @@ header.brand .subtitle {
                 window.analytics?.track('vocabulary_recommended_added', { word, topic });
             }
             showAddedToast();
-            await loadMy();         // refresh My Vocabulary list
-            await loadDueCount();   // due count may shift if backend sets next_review_at = now
+
+            const body = await authJson('GET', '/api/vocabulary/my');
+            myItems = Array.isArray(body.items) ? body.items : [];
+            mySetOfItemIds = new Set(myItems.map(r => r.vocabulary_item_id).filter(Boolean));
+            renderSummaryStats();
+            renderJournal(myItems, id);
+            renderBank();
+            await loadDueCount();
         } catch (e) {
             btn.disabled = false;
             btn.textContent = '＋ 加入口說單字';
@@ -977,51 +1228,69 @@ header.brand .subtitle {
         setText('stat-mastered', mastered);
         const onb = document.getElementById('summary-onboarding');
         if (onb) onb.style.display = total === 0 ? '' : 'none';
+        const jSaved    = document.getElementById('stat-saved-j');
+        const jMastered = document.getElementById('stat-mastered-j');
+        if (jSaved)    jSaved.textContent    = String(total);
+        if (jMastered) jMastered.textContent = String(mastered);
     }
 
     // ── Section 3: My Vocabulary ──────────────────────────────────────
+    function renderJournal(items, newItemId) {
+        const cloud = document.getElementById('journal-word-cloud');
+        const empty = document.getElementById('journal-empty');
+        if (!cloud) return;
+
+        if (items.length === 0) {
+            cloud.innerHTML = '<div id="journal-empty">Your words will appear here as you collect them.</div>';
+            return;
+        }
+
+        const emptyEl = document.getElementById('journal-empty');
+        if (emptyEl) emptyEl.remove();
+
+        const existing = new Set(
+            Array.from(cloud.querySelectorAll('.journal-word')).map(el => el.dataset.itemId)
+        );
+
+        items.forEach(r => {
+            const item = r.vocabulary_items || {};
+            const itemId = r.vocabulary_item_id;
+            if (!itemId || existing.has(itemId)) return;
+
+            const chip = document.createElement('span');
+            chip.className = 'journal-word' + (itemId === newItemId ? ' journal-word--new' : '');
+            chip.dataset.itemId = itemId;
+            chip.dataset.word = item.word || '';
+
+            const pos = item.part_of_speech ? `<div class="tip-pos">${escapeHtml(item.part_of_speech)}</div>` : '';
+            const zh  = item.zh_meaning    ? `<div class="tip-zh">${escapeHtml(item.zh_meaning)}</div>` : '';
+            const sen = item.speaking_sentence ? `<div class="tip-sentence">${escapeHtml(item.speaking_sentence)}</div>` : '';
+
+            chip.innerHTML = `${escapeHtml(item.word || '')}
+                <span class="journal-word__tooltip">${pos}${zh}${sen}</span>`;
+
+            chip.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const tip = chip.querySelector('.journal-word__tooltip');
+                const isOpen = tip.classList.contains('visible');
+                document.querySelectorAll('.journal-word__tooltip.visible').forEach(t => t.classList.remove('visible'));
+                if (!isOpen) tip.classList.add('visible');
+            });
+
+            cloud.appendChild(chip);
+        });
+    }
+
     async function loadMy() {
-        const list = document.getElementById('my-vocab-list');
         try {
             const body = await authJson('GET', '/api/vocabulary/my');
             myItems = Array.isArray(body.items) ? body.items : [];
             mySetOfItemIds = new Set(myItems.map(r => r.vocabulary_item_id).filter(Boolean));
             renderSummaryStats();
-            if (myItems.length === 0) {
-                list.innerHTML = `
-                    <div class="empty-state" style="text-align:center; padding:24px 12px;">
-                        <div style="margin-bottom:6px;">Your vocabulary grows with every practice session.</div>
-                        <div style="margin-bottom:18px;">Complete a session to receive your first words.</div>
-                        <button type="button" class="btn-primary" onclick="window.location.href='/'">Go Practice</button>
-                    </div>`;
-            } else {
-                list.innerHTML = myItems.map(r => {
-                    const item = r.vocabulary_items || {};
-                    const lvl = Math.max(0, Math.min(5, r.srs_level || 0));
-                    const pips = Array.from({length: 5}, (_, i) =>
-                        `<span class="srs-pip ${i < lvl ? 'srs-pip--filled' : ''}"></span>`).join('');
-                    return `
-                        <div class="my-vocab-row">
-                            <div class="my-vocab-row__main">
-                                <div class="my-vocab-row__word">${escapeHtml(item.word || '')}</div>
-                                <div class="my-vocab-row__zh">${escapeHtml(item.zh_meaning || '')}</div>
-                            </div>
-                            <div class="my-vocab-row__meta">
-                                <div>${pips}</div>
-                                <div>${escapeHtml(fmtDate(r.next_review_at))}</div>
-                            </div>
-                        </div>`;
-                }).join('');
-            }
-            // Re-render bank so the +/✓ state reflects the updated mySet.
+            renderJournal(myItems, null);
             renderBank();
         } catch (e) {
             console.error('loadMy failed', e);
-            if (e.message === 'not_signed_in') {
-                list.innerHTML = '<div class="empty-state">請先登入以查看你的單字。</div>';
-            } else {
-                list.innerHTML = '<div class="error-state">Failed to load your vocabulary.</div>';
-            }
         }
     }
 
