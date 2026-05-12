@@ -2433,10 +2433,27 @@
             const el = document.getElementById('question-text');
             if (!el) return;
             if (!text && retryCount < 3) {
-                setTimeout(() => { if (gen === _questionGeneration) setQuestionText(text, retryCount + 1); }, 500);
+                setTimeout(() => {
+                    if (gen === _questionGeneration) loadAndSetQuestion();
+                }, 600);
                 return;
             }
             if (gen === _questionGeneration) el.textContent = text || '載入題目中…';
+        }
+
+        async function loadAndSetQuestion() {
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session) return;
+                const r = await fetch(`${API_BASE}/api/questions/next`, {
+                    headers: { Authorization: `Bearer ${session.access_token}` }
+                });
+                if (!r.ok) return;
+                const body = await r.json();
+                if (body && body.text && body.text.trim()) {
+                    setQuestion(body.text.trim(), body.topic || '');
+                }
+            } catch (_) {}
         }
 
         let _dailyQuestionGeneration = 0;
@@ -3116,7 +3133,7 @@
         if (QUESTION_BANK.length > 0) {
             const initial = pickRandomFromBank();
             currentTopicSession = { topic: initial.topic, count: 1 };
-            setQuestion(initial.question, initial.topic);
+            if (initial.question && initial.question.trim()) setQuestion(initial.question, initial.topic);
         }
 
         // Auth bootstrap: show main if session exists, else show auth form.
@@ -3840,7 +3857,7 @@
             // normal "start today's practice" behaviour.
             const tag = pendingResume && pendingResume.weakness_tag;
             if (pendingResume && tag && WEAKNESS_LABELS[tag]) {
-                setQuestion(pendingResume.question, pendingResume.topic);
+                if (pendingResume.question && pendingResume.question.trim()) setQuestion(pendingResume.question, pendingResume.topic);
                 currentTopicSession = { topic: pendingResume.topic, count: 1 };
                 showSpeakingPractice();
                 setRecorderStatus('先把上一題講順');
@@ -3866,7 +3883,7 @@
                 // populated (or after it cleared), do nothing rather than
                 // sending an empty question into the recorder flow.
                 if (!dailyQuestion || !dailyQuestion.text) return;
-                setQuestion(dailyQuestion.text, dailyQuestion.topic || '');
+                if (dailyQuestion.text && dailyQuestion.text.trim()) setQuestion(dailyQuestion.text, dailyQuestion.topic || '');
                 currentPreviousTranscript = (dailyQuestion.previous_transcript || '').trim() || null;
                 currentTopicSession = { topic: dailyQuestion.topic || '', count: 1 };
                 showSpeakingPractice();
@@ -3916,7 +3933,7 @@
                 }
             }
 
-            setQuestion(pick.question, pick.topic);
+            if (pick.question && pick.question.trim()) setQuestion(pick.question, pick.topic);
             lastFeedbackData = null;
             isRetryingSameQuestion = false;
             feedbackSection.classList.remove('visible');
