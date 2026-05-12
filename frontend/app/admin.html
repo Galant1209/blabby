@@ -1075,20 +1075,26 @@ Admin 觀測儀表板
     proSection.style.cssText = 'margin-bottom:32px;';
     proSection.innerHTML = `
         <h3 style="font-family:var(--serif);font-size:18px;margin-bottom:12px;color:var(--ink)">Manual Pro Access</h3>
-        <div style="display:flex;gap:8px;margin-bottom:12px;">
-            <input type="email" id="pro-email-input" placeholder="user@email.com"
-                style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
-            <button onclick="grantPro()"
-                style="padding:8px 16px;background:var(--green);color:var(--gold);border:none;border-radius:4px;font-size:13px;cursor:pointer;">
-                Grant Pro
-            </button>
-            <button onclick="revokePro()"
-                style="padding:8px 16px;background:var(--wine);color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;">
-                Revoke Pro
-            </button>
+        <div style="margin-bottom:12px;">
+            <input type="text" id="pro-search-input" placeholder="Search by email…"
+                oninput="filterProSearchResults(this.value)"
+                style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:4px;font-size:13px;margin-bottom:8px;">
+            <div id="pro-search-results" style="margin-bottom:8px;max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;display:none;"></div>
+            <input type="text" id="pro-reason-input" placeholder="Reason for grant (required)"
+                style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:4px;font-size:13px;margin-bottom:8px;">
+            <div style="display:flex;gap:8px;">
+                <button onclick="grantPro()"
+                    style="padding:8px 16px;background:var(--green);color:var(--gold);border:none;border-radius:4px;font-size:13px;cursor:pointer;">
+                    Grant Pro
+                </button>
+                <button onclick="revokePro()"
+                    style="padding:8px 16px;background:var(--wine);color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;">
+                    Revoke Pro
+                </button>
+            </div>
         </div>
-        <div id="pro-toggle-result" style="font-size:13px;min-height:20px;"></div>
-        <div id="pro-users-list" style="margin-top:16px;"></div>
+        <div id="pro-toggle-result" style="font-size:13px;min-height:20px;margin-bottom:16px;"></div>
+        <div id="pro-users-list"></div>
     `;
     container.appendChild(proSection);
     loadProUsers();
@@ -1158,125 +1164,112 @@ Admin 觀測儀表板
     }
   }
 
+  let _selectedProUserId = null;
+  let _selectedProEmail = null;
+
+  window.filterProSearchResults = function(query) {
+    const results = document.getElementById('pro-search-results');
+    if (!results) return;
+    const q = query.trim().toLowerCase();
+    if (!q) { results.style.display = 'none'; return; }
+    const matches = (state.users || []).filter(u => u.email && u.email.toLowerCase().includes(q)).slice(0, 8);
+    if (matches.length === 0) { results.style.display = 'none'; return; }
+    results.style.display = '';
+    results.innerHTML = matches.map(u => `
+        <div onclick="selectProUser('${u.user_id}', '${escapeHtml(u.email)}')"
+            style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);"
+            onmouseover="this.style.background='#f5f0e8'" onmouseout="this.style.background=''">
+            ${escapeHtml(u.email)}
+        </div>
+    `).join('');
+  };
+
+  window.selectProUser = function(userId, email) {
+    _selectedProUserId = userId;
+    _selectedProEmail = email;
+    const input = document.getElementById('pro-search-input');
+    if (input) input.value = email;
+    const results = document.getElementById('pro-search-results');
+    if (results) results.style.display = 'none';
+  };
+
+  async function callProGrant(userId, granted, reason) {
+    const r = await fetch(`${API_BASE}/admin/user/${userId}/pro_grant`, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${state.token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ granted, reason }),
+    });
+    if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || `HTTP ${r.status}`);
+    }
+    return r.json();
+  }
+
+  window.grantPro = async function() {
+    const result = document.getElementById('pro-toggle-result');
+    const reason = document.getElementById('pro-reason-input')?.value?.trim();
+    if (!_selectedProUserId) { if(result) { result.textContent = 'Select a user first.'; result.style.color = 'var(--wine)'; } return; }
+    if (!reason) { if(result) { result.textContent = 'Reason is required.'; result.style.color = 'var(--wine)'; } return; }
+    try {
+        await callProGrant(_selectedProUserId, true, reason);
+        if(result) { result.textContent = `✓ ${_selectedProEmail} is now Pro.`; result.style.color = 'var(--green)'; }
+        window.analytics?.track('admin_pro_granted', { email: _selectedProEmail });
+        loadProUsers();
+    } catch(e) {
+        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
+    }
+  };
+
+  window.revokePro = async function() {
+    const result = document.getElementById('pro-toggle-result');
+    if (!_selectedProUserId) { if(result) { result.textContent = 'Select a user first.'; result.style.color = 'var(--wine)'; } return; }
+    try {
+        await callProGrant(_selectedProUserId, false, 'admin revoke');
+        if(result) { result.textContent = `✓ ${_selectedProEmail} Pro access revoked.`; result.style.color = 'var(--muted)'; }
+        window.analytics?.track('admin_pro_revoked', { email: _selectedProEmail });
+        loadProUsers();
+    } catch(e) {
+        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
+    }
+  };
+
+  window.revokeProById = async function(userId, email) {
+    try {
+        await callProGrant(userId, false, 'admin revoke');
+        window.analytics?.track('admin_pro_revoked', { email });
+        loadProUsers();
+    } catch(e) {
+        alert('Failed: ' + e.message);
+    }
+  };
+
   async function loadProUsers() {
     const el = document.getElementById('pro-users-list');
     if (!el) return;
-    try {
-      // Only show admin-granted Pro users — subscriber-driven is_pro lives in the table below.
-      const { data, error } = await sb.from('profiles').select('id,is_pro_grant').eq('is_pro_grant', true);
-      if (error || !data || data.length === 0) {
-        el.innerHTML = '<div style="font-size:13px;color:var(--muted);font-style:italic">No manually-granted Pro users.</div>';
+    const proUsers = (state.users || []).filter(u => u.is_pro || u.is_pro_grant);
+    if (proUsers.length === 0) {
+        el.innerHTML = '<div style="font-size:13px;color:var(--muted);font-style:italic">No Pro users yet.</div>';
         return;
-      }
-      // Resolve emails from state.users (loaded at admin gate; profiles has no email column).
-      const emailById = {};
-      for (const u of (state.users || [])) emailById[u.user_id] = u.email;
-      el.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Current Pro Users (manual grants)</div>' +
-        data.map(r => {
-          const label = emailById[r.id] || r.id;
-          return `
+    }
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Current Pro Users</div>' +
+        proUsers.map(u => `
             <div style="padding:6px 0;border-bottom:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-size:13px;">${escapeHtml(label)}</span>
-                <button onclick="revokeProById('${escapeHtml(r.id)}')"
+                <div>
+                    <span style="font-size:13px;">${escapeHtml(u.email || u.user_id)}</span>
+                    ${u.is_pro_grant ? '<span style="font-size:10px;color:var(--gold);margin-left:6px;">manual</span>' : ''}
+                    ${u.is_pro ? '<span style="font-size:10px;color:var(--green);margin-left:6px;">subscription</span>' : ''}
+                </div>
+                <button onclick="revokeProById('${u.user_id}', '${escapeHtml(u.email || '')}')"
                     style="font-size:11px;padding:3px 10px;background:transparent;border:1px solid var(--wine);color:var(--wine);border-radius:4px;cursor:pointer;">
                     Revoke
                 </button>
             </div>
-          `;
-        }).join('');
-    } catch(e) {
-      el.innerHTML = '<div style="font-size:13px;color:var(--wine)">Failed to load Pro users.</div>';
-    }
+        `).join('');
   }
-
-  // Resolve email → user_id via state.users (loaded at admin gate). Returns null if not found.
-  function resolveUserIdByEmail(email) {
-    const lower = (email || '').toLowerCase();
-    const u = (state.users || []).find(x => (x.email || '').toLowerCase() === lower);
-    return u ? u.user_id : null;
-  }
-
-  async function grantPro() {
-    const email = document.getElementById('pro-email-input')?.value?.trim();
-    const result = document.getElementById('pro-toggle-result');
-    if (!email) { if(result) result.textContent = 'Enter an email first.'; return; }
-    const userId = resolveUserIdByEmail(email);
-    if (!userId) {
-      if(result) { result.textContent = `${email} not in admin user list. Refresh 用戶管理 tab.`; result.style.color = 'var(--wine)'; }
-      return;
-    }
-    const reason = window.prompt('Reason for granting Pro (required for audit):');
-    if (!reason || !reason.trim()) {
-      if(result) result.textContent = 'Grant cancelled (reason required).';
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}/pro_grant`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ granted: true, reason: reason.trim() }),
-      });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status} — ${errBody}`);
-      }
-      if(result) { result.textContent = `✓ ${email} is now Pro.`; result.style.color = 'var(--green)'; }
-      window.analytics?.track('admin_pro_granted', { email, user_id: userId });
-      loadProUsers();
-    } catch(e) {
-      if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
-    }
-  }
-
-  async function revokePro() {
-    const email = document.getElementById('pro-email-input')?.value?.trim();
-    const result = document.getElementById('pro-toggle-result');
-    if (!email) { if(result) result.textContent = 'Enter an email first.'; return; }
-    const userId = resolveUserIdByEmail(email);
-    if (!userId) {
-      if(result) { result.textContent = `${email} not in admin user list. Refresh 用戶管理 tab.`; result.style.color = 'var(--wine)'; }
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}/pro_grant`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ granted: false }),
-      });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status} — ${errBody}`);
-      }
-      if(result) { result.textContent = `✓ ${email} Pro access revoked.`; result.style.color = 'var(--muted)'; }
-      window.analytics?.track('admin_pro_revoked', { email, user_id: userId });
-      loadProUsers();
-    } catch(e) {
-      if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
-    }
-  }
-
-  async function revokeProById(userId) {
-    try {
-      const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}/pro_grant`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ granted: false }),
-      });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status} — ${errBody}`);
-      }
-      window.analytics?.track('admin_pro_revoked', { user_id: userId });
-      loadProUsers();
-    } catch(e) {
-      alert('Failed: ' + e.message);
-    }
-  }
-
-  // Expose for inline onclick handlers (renderSubscriptions injects buttons with onclick="grantPro()" etc.)
-  window.grantPro = grantPro;
-  window.revokePro = revokePro;
-  window.revokeProById = revokeProById;
 
   async function extendSub(subId, btn) {
     btn.disabled = true;
