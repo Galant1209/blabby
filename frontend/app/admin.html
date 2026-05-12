@@ -1162,36 +1162,66 @@ Admin 觀測儀表板
     const el = document.getElementById('pro-users-list');
     if (!el) return;
     try {
-      const { data, error } = await sb.from('profiles').select('id,email,is_pro').eq('is_pro', true);
+      // Only show admin-granted Pro users — subscriber-driven is_pro lives in the table below.
+      const { data, error } = await sb.from('profiles').select('id,is_pro_grant').eq('is_pro_grant', true);
       if (error || !data || data.length === 0) {
-        el.innerHTML = '<div style="font-size:13px;color:var(--muted);font-style:italic">No Pro users yet.</div>';
+        el.innerHTML = '<div style="font-size:13px;color:var(--muted);font-style:italic">No manually-granted Pro users.</div>';
         return;
       }
-      el.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Current Pro Users</div>' +
-        data.map(r => `
+      // Resolve emails from state.users (loaded at admin gate; profiles has no email column).
+      const emailById = {};
+      for (const u of (state.users || [])) emailById[u.user_id] = u.email;
+      el.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Current Pro Users (manual grants)</div>' +
+        data.map(r => {
+          const label = emailById[r.id] || r.id;
+          return `
             <div style="padding:6px 0;border-bottom:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-size:13px;">${escapeHtml(r.email || r.id)}</span>
+                <span style="font-size:13px;">${escapeHtml(label)}</span>
                 <button onclick="revokeProById('${escapeHtml(r.id)}')"
                     style="font-size:11px;padding:3px 10px;background:transparent;border:1px solid var(--wine);color:var(--wine);border-radius:4px;cursor:pointer;">
                     Revoke
                 </button>
             </div>
-        `).join('');
+          `;
+        }).join('');
     } catch(e) {
       el.innerHTML = '<div style="font-size:13px;color:var(--wine)">Failed to load Pro users.</div>';
     }
+  }
+
+  // Resolve email → user_id via state.users (loaded at admin gate). Returns null if not found.
+  function resolveUserIdByEmail(email) {
+    const lower = (email || '').toLowerCase();
+    const u = (state.users || []).find(x => (x.email || '').toLowerCase() === lower);
+    return u ? u.user_id : null;
   }
 
   async function grantPro() {
     const email = document.getElementById('pro-email-input')?.value?.trim();
     const result = document.getElementById('pro-toggle-result');
     if (!email) { if(result) result.textContent = 'Enter an email first.'; return; }
+    const userId = resolveUserIdByEmail(email);
+    if (!userId) {
+      if(result) { result.textContent = `${email} not in admin user list. Refresh 用戶管理 tab.`; result.style.color = 'var(--wine)'; }
+      return;
+    }
+    const reason = window.prompt('Reason for granting Pro (required for audit):');
+    if (!reason || !reason.trim()) {
+      if(result) result.textContent = 'Grant cancelled (reason required).';
+      return;
+    }
     try {
-      const { data, error } = await sb.from('profiles').update({ is_pro: true }).eq('email', email).select();
-      if (error) throw error;
-      if (!data || data.length === 0) { if(result) result.textContent = 'User not found.'; return; }
+      const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}/pro_grant`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ granted: true, reason: reason.trim() }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} — ${errBody}`);
+      }
       if(result) { result.textContent = `✓ ${email} is now Pro.`; result.style.color = 'var(--green)'; }
-      window.analytics?.track('admin_pro_granted', { email });
+      window.analytics?.track('admin_pro_granted', { email, user_id: userId });
       loadProUsers();
     } catch(e) {
       if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
@@ -1202,12 +1232,23 @@ Admin 觀測儀表板
     const email = document.getElementById('pro-email-input')?.value?.trim();
     const result = document.getElementById('pro-toggle-result');
     if (!email) { if(result) result.textContent = 'Enter an email first.'; return; }
+    const userId = resolveUserIdByEmail(email);
+    if (!userId) {
+      if(result) { result.textContent = `${email} not in admin user list. Refresh 用戶管理 tab.`; result.style.color = 'var(--wine)'; }
+      return;
+    }
     try {
-      const { data, error } = await sb.from('profiles').update({ is_pro: false }).eq('email', email).select();
-      if (error) throw error;
-      if (!data || data.length === 0) { if(result) result.textContent = 'User not found.'; return; }
+      const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}/pro_grant`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ granted: false }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} — ${errBody}`);
+      }
       if(result) { result.textContent = `✓ ${email} Pro access revoked.`; result.style.color = 'var(--muted)'; }
-      window.analytics?.track('admin_pro_revoked', { email });
+      window.analytics?.track('admin_pro_revoked', { email, user_id: userId });
       loadProUsers();
     } catch(e) {
       if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
@@ -1216,9 +1257,17 @@ Admin 觀測儀表板
 
   async function revokeProById(userId) {
     try {
-      await sb.from('profiles').update({ is_pro: false }).eq('id', userId);
-      loadProUsers();
+      const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}/pro_grant`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ granted: false }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} — ${errBody}`);
+      }
       window.analytics?.track('admin_pro_revoked', { user_id: userId });
+      loadProUsers();
     } catch(e) {
       alert('Failed: ' + e.message);
     }
