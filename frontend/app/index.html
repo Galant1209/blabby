@@ -2427,24 +2427,28 @@
         const drillEvidenceFeedback = document.getElementById('drill-evidence-feedback');
         const drillEvidenceList = document.getElementById('drill-evidence-list');
 
+        let _questionGeneration = 0;
         function setQuestionText(text, retryCount = 0) {
+            const gen = ++_questionGeneration;
             const el = document.getElementById('question-text');
             if (!el) return;
             if (!text && retryCount < 3) {
-                setTimeout(() => setQuestionText(text, retryCount + 1), 500);
+                setTimeout(() => { if (gen === _questionGeneration) setQuestionText(text, retryCount + 1); }, 500);
                 return;
             }
-            el.textContent = text || '載入題目中…';
+            if (gen === _questionGeneration) el.textContent = text || '載入題目中…';
         }
 
+        let _dailyQuestionGeneration = 0;
         function setDailyQuestionText(text, retryCount = 0) {
+            const gen = ++_dailyQuestionGeneration;
             const el = document.getElementById('daily-question-text');
             if (!el) return;
             if (!text && retryCount < 3) {
-                setTimeout(() => setDailyQuestionText(text, retryCount + 1), 500);
+                setTimeout(() => { if (gen === _dailyQuestionGeneration) setDailyQuestionText(text, retryCount + 1); }, 500);
                 return;
             }
-            el.textContent = text || '載入題目中…';
+            if (gen === _dailyQuestionGeneration) el.textContent = text || '載入題目中…';
         }
 
         const authSection   = document.getElementById('auth-section');
