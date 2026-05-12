@@ -3259,9 +3259,16 @@
             const overlay = document.getElementById('pro-modal-overlay');
             if (overlay) overlay.classList.remove('visible');
         }
-        document.getElementById('pro-modal-close')?.addEventListener('click', closeProModal);
-        document.getElementById('pro-modal-overlay')?.addEventListener('click', (e) => {
-            if (e.target === e.currentTarget) closeProModal();
+        const overlay = document.getElementById('pro-modal-overlay');
+        const modal = document.getElementById('pro-modal');
+
+        document.getElementById('pro-modal-close')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeProModal();
+        });
+
+        overlay?.addEventListener('click', (e) => {
+            if (modal && !modal.contains(e.target)) closeProModal();
         });
         document.getElementById('pro-modal-submit')?.addEventListener('click', async () => {
             const emailEl = document.getElementById('pro-modal-email');
