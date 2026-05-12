@@ -400,11 +400,24 @@
   </aside>
 </div>
 
-<div class="tab-panel" id="subs-tab" style="display:none">
-  <div class="subs-wrap">
-    <h2>訂閱管理</h2>
-    <div id="subs-content"><div class="col__empty">點擊「訂閱管理」載入</div></div>
-  </div>
+<div id="subs-tab" class="tab-panel">
+    <div style="display:flex;height:calc(100vh - 100px);overflow:hidden;">
+        <!-- Left: user list -->
+        <div style="width:220px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;background:var(--surface);">
+            <div style="padding:12px 16px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid var(--border);">
+                使用者
+            </div>
+            <div id="subs-user-list"></div>
+        </div>
+        <!-- Right: Pro management -->
+        <div style="flex:1;overflow-y:auto;padding:28px 32px;">
+            <div id="subs-right-panel">
+                <div style="font-size:14px;color:var(--muted);font-style:italic;margin-top:40px;text-align:center;">
+                    Select a user to manage Pro access.
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="tab-panel" id="changelog-tab">
@@ -697,8 +710,7 @@
     if (!d) return;
     const user = state.users.find(u => u.user_id === state.selectedUserId);
     const lastSeen = user ? fmtDateTime(user.last_seen) : '—';
-    const rightCol = $('right-content');
-    rightCol.innerHTML = `
+    $('right-content').innerHTML = `
       <div class="right-header">
         <div class="right-header__email">${escapeHtml(d.email || d.user_id || '—')}</div>
         <div class="right-header__meta">
@@ -725,39 +737,6 @@
     `;
     $('brief-btn').addEventListener('click', loadBrief);
     $('diag-btn').addEventListener('click', loadDiagnosis);
-
-    if (currentAdminTab === 'subs') {
-        const user = state.users?.find(u => u.user_id === state.selectedUserId);
-        if (!user) return;
-        const isPro = user.is_pro || user.is_pro_grant;
-        const proSection = document.createElement('div');
-        proSection.style.cssText = 'margin-top:16px;padding-top:16px;border-top:1px solid var(--border);';
-        proSection.innerHTML = `
-            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Pro Access</div>
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-                <span style="font-size:14px;color:${isPro ? 'var(--green)' : 'var(--muted)'};">
-                    ${isPro ? '✦ Pro' : 'Free'}
-                    ${user.is_pro_grant ? '<span style="font-size:11px;color:var(--gold);margin-left:4px;">(manual)</span>' : ''}
-                    ${user.is_pro ? '<span style="font-size:11px;color:var(--green);margin-left:4px;">(subscription)</span>' : ''}
-                </span>
-            </div>
-            ${!isPro ? `
-            <input type="text" id="right-pro-reason" placeholder="Reason (required)"
-                style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-size:12px;margin-bottom:8px;">
-            <button onclick="rightGrantPro()"
-                style="width:100%;padding:8px;background:var(--green);color:var(--gold);border:none;border-radius:4px;font-size:13px;cursor:pointer;">
-                Grant Pro
-            </button>
-            ` : `
-            <button onclick="rightRevokePro()"
-                style="width:100%;padding:8px;background:transparent;border:1px solid var(--wine);color:var(--wine);border-radius:4px;font-size:13px;cursor:pointer;">
-                Revoke Pro
-            </button>
-            `}
-            <div id="right-pro-result" style="font-size:12px;margin-top:8px;"></div>
-        `;
-        rightCol.appendChild(proSection);
-    }
   }
 
   async function loadBrief() {
@@ -883,21 +862,16 @@
   // Subs/changelog are lazy on first click. Subs round-trips an API; changelog
   // is static but rendering 5 versions of HTML is still wasted work if no one
   // opens the tab.
-  let subsLoaded = false;
   let changelogLoaded = false;
-  let currentAdminTab = 'users';
   function activateTab(name) {
     document.querySelectorAll('.tab').forEach(t => {
       t.classList.toggle('active', t.dataset.tab === name);
     });
-    // Subs reuses the users three-column layout; flag determines right-panel extras.
-    const panelToShow = (name === 'subs') ? 'users' : name;
     document.querySelectorAll('.tab-panel').forEach(p => {
-      p.classList.toggle('active', p.id === `${panelToShow}-tab`);
+      p.classList.toggle('active', p.id === `${name}-tab`);
     });
-    if (name === 'subs' || name === 'users') {
-      currentAdminTab = name;
-      if (state.selectedUserId) renderRightHeader();
+    if (name === 'subs') {
+      loadSubsTab();
     }
     if (name === 'changelog' && !changelogLoaded) {
       changelogLoaded = true;
@@ -1335,6 +1309,107 @@ Admin 觀測儀表板
             </div>
         `).join('');
   }
+
+  async function loadSubsTab() {
+    const listEl = document.getElementById('subs-user-list');
+    if (!listEl) return;
+    if (!state.users || state.users.length === 0) await loadUsers();
+    listEl.innerHTML = state.users.map(u => {
+        const isPro = u.is_pro || u.is_pro_grant;
+        return `
+            <div onclick="selectSubsUser('${u.user_id}')" id="subs-user-${u.user_id}"
+                style="padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s;"
+                onmouseover="this.style.background='#f5f0e8'" onmouseout="this.style.background=''">
+                <div style="font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    ${escapeHtml(u.email || u.user_id)}
+                </div>
+                <div style="font-size:11px;margin-top:2px;color:${isPro ? 'var(--green)' : 'var(--muted)'};">
+                    ${isPro ? '✦ Pro' : 'Free'}
+                    ${u.is_pro_grant ? '<span style="color:var(--gold)"> · manual</span>' : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+  }
+
+  let _subsSelectedUserId = null;
+
+  window.selectSubsUser = function(userId) {
+    _subsSelectedUserId = userId;
+    document.querySelectorAll('[id^="subs-user-"]').forEach(el => el.style.background = '');
+    const selected = document.getElementById(`subs-user-${userId}`);
+    if (selected) selected.style.background = '#f0e9d6';
+
+    const user = state.users?.find(u => u.user_id === userId);
+    if (!user) return;
+    const isPro = user.is_pro || user.is_pro_grant;
+    const panel = document.getElementById('subs-right-panel');
+    if (!panel) return;
+
+    panel.innerHTML = `
+        <div style="margin-bottom:4px;font-size:18px;font-family:var(--serif);color:var(--ink);">
+            ${escapeHtml(user.email || userId)}
+        </div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:24px;">
+            ${user.record_count || 0} practices
+        </div>
+        <div style="padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-width:400px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Pro Access</div>
+            <div style="font-size:22px;font-family:var(--serif);color:${isPro ? 'var(--green)' : 'var(--muted)'};margin-bottom:6px;">
+                ${isPro ? '✦ Pro' : 'Free'}
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:20px;">
+                ${user.is_pro ? '✓ Active subscription' : ''}
+                ${user.is_pro_grant ? '✓ Manually granted' : ''}
+                ${!isPro ? 'No Pro access.' : ''}
+            </div>
+            ${!isPro ? `
+                <input type="text" id="subs-reason-input" placeholder="Reason for grant (required)"
+                    style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:4px;font-size:13px;margin-bottom:10px;background:var(--bg);">
+                <button onclick="subsGrantPro()"
+                    style="width:100%;padding:11px;background:var(--green);color:var(--gold);border:none;border-radius:4px;font-size:14px;font-family:var(--serif);cursor:pointer;letter-spacing:0.03em;">
+                    Grant Pro Access
+                </button>
+            ` : `
+                <button onclick="subsRevokePro()"
+                    style="width:100%;padding:11px;background:transparent;border:1px solid var(--wine);color:var(--wine);border-radius:4px;font-size:14px;font-family:var(--serif);cursor:pointer;letter-spacing:0.03em;">
+                    Revoke Pro Access
+                </button>
+            `}
+            <div id="subs-pro-result" style="font-size:13px;margin-top:12px;min-height:20px;text-align:center;"></div>
+        </div>
+    `;
+  };
+
+  window.subsGrantPro = async function() {
+    const reason = document.getElementById('subs-reason-input')?.value?.trim();
+    const result = document.getElementById('subs-pro-result');
+    if (!reason) { if(result) { result.textContent = 'Reason is required.'; result.style.color = 'var(--wine)'; } return; }
+    try {
+        await callProGrant(_subsSelectedUserId, true, reason);
+        if(result) { result.textContent = '✓ Pro access granted.'; result.style.color = 'var(--green)'; }
+        window.analytics?.track('admin_pro_granted', { user_id: _subsSelectedUserId });
+        await loadUsers();
+        await loadSubsTab();
+        selectSubsUser(_subsSelectedUserId);
+    } catch(e) {
+        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
+    }
+  };
+
+  window.subsRevokePro = async function() {
+    const result = document.getElementById('subs-pro-result');
+    try {
+        await callProGrant(_subsSelectedUserId, false, 'admin revoke');
+        if(result) { result.textContent = '✓ Pro access revoked.'; result.style.color = 'var(--muted)'; }
+        window.analytics?.track('admin_pro_revoked', { user_id: _subsSelectedUserId });
+        await loadUsers();
+        await loadSubsTab();
+        selectSubsUser(_subsSelectedUserId);
+    } catch(e) {
+        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
+    }
+  };
 
   async function extendSub(subId, btn) {
     btn.disabled = true;
