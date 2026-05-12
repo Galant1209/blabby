@@ -983,10 +983,24 @@ header.brand .subtitle {
     async function loadRecommended() {
         const grid = document.getElementById('recommended-grid');
         try {
-            const r = await fetch(`${API_BASE}/api/vocabulary/items?limit=6`);
+            const r = await fetch(`${API_BASE}/api/vocabulary/items`);
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const body = await r.json();
-            const items = (Array.isArray(body.items) ? body.items : []).slice(0, 6);
+            let items = Array.isArray(body.items) ? body.items : [];
+
+            // Exclude already-saved words
+            items = items.filter(it => !mySetOfItemIds.has(it.id));
+
+            // Daily deterministic shuffle — seed = YYYYMMDD
+            const today = new Date();
+            const seed = today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
+            let s = seed;
+            items = items
+                .map(it => { s = (s * 1664525 + 1013904223) & 0xffffffff; return { it, sort: s }; })
+                .sort((a, b) => a.sort - b.sort)
+                .map(x => x.it)
+                .slice(0, 6);
+
             if (items.length === 0) {
                 grid.innerHTML = '<div class="empty-state">No recommendations yet.</div>';
                 return;
