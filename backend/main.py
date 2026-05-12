@@ -4768,6 +4768,22 @@ async def admin_user_diagnosis(
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(exc)}") from exc
 
 
+async def _refresh_diagnosis_cache(user_id: str):
+    try:
+        result = await asyncio.to_thread(_generate_user_diagnosis, user_id, True)
+        current_count_resp = supabase_admin.table("practice_records").select("id", count="exact").eq("user_id", user_id).execute()
+        current_count = current_count_resp.count or 0
+        supabase_admin.table("diagnosis_cache").upsert({
+            "user_id": user_id,
+            "content": result.get("raw") or "",
+            "practice_count": current_count,
+            "updated_at": "now()",
+        }).execute()
+        logger.info(f"diagnosis cache refreshed for {user_id}")
+    except Exception as e:
+        logger.warning(f"_refresh_diagnosis_cache failed: {e}")
+
+
 @app.post("/api/diagnosis/me")
 @limiter.limit("10/minute")
 async def my_diagnosis(
@@ -4788,79 +4804,43 @@ async def my_diagnosis(
         if supabase_admin is None:
             raise HTTPException(status_code=503, detail="Database not configured")
 
-        # Cheap count probe — head=True returns no rows, just the total.
-        try:
-            count_resp = (
-                supabase_admin.table("practice_records")
-                .select("id", count="exact", head=True)
-                .eq("user_id", user_id)
-                .execute()
-            )
-            current_count = count_resp.count or 0
-        except Exception:
-            logger.exception("diagnosis count probe failed")
-            current_count = None
+        # Always get current count for staleness check
+        current_count_resp = supabase_admin.table("practice_records").select("id", count="exact").eq("user_id", user_id).execute()
+        current_count = current_count_resp.count or 0
 
-        # Cache lookup — only trust the row if practice_count matches.
-        if current_count is not None:
+        # Check cache
+        cache_resp = supabase_admin.table("diagnosis_cache").select("content,practice_count,updated_at").eq("user_id", user_id).limit(1).execute()
+        cache = cache_resp.data[0] if cache_resp.data else None
+
+        if cache and cache.get("content"):
+            # Return immediately — stale or fresh
+            is_stale = cache.get("practice_count") != current_count
+            if is_stale:
+                asyncio.create_task(_refresh_diagnosis_cache(user_id))
+            # Parse content same way as before
+            content = cache["content"]
             try:
-                cache_resp = (
-                    supabase_admin.table("diagnosis_cache")
-                    .select("content, practice_count, updated_at")
-                    .eq("user_id", user_id)
-                    .limit(1)
-                    .execute()
-                )
-                cache_rows = cache_resp.data or []
-                if cache_rows and cache_rows[0].get("practice_count") == current_count:
-                    cached = cache_rows[0]
-                    cached_raw = cached.get("content") or ""
-                    # substring extraction — older cache rows may have prose
-                    # wrapping the JSON; mirror the parse-path hardening.
-                    b_start = cached_raw.find("{")
-                    b_end = cached_raw.rfind("}")
-                    if b_start != -1 and b_end != -1:
-                        cached_raw = cached_raw[b_start:b_end + 1]
-                    cached_fmt = "raw"
-                    cached_data = None
-                    try:
-                        parsed_cached = json.loads(cached_raw)
-                        if isinstance(parsed_cached.get("weaknesses"), list):
-                            cached_fmt = "structured"
-                            cached_data = parsed_cached
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-                    return {
-                        "user_id": user_id,
-                        "total_records": current_count,
-                        "practice_count": current_count,
-                        "generated_at": cached.get("updated_at") or datetime.now(timezone.utc).isoformat(),
-                        "format": cached_fmt,
-                        "data": cached_data,
-                        "raw": cached_raw,
-                        "diagnosis_markdown": cached_raw,
-                        "cached": True,
-                    }
+                start = content.find("{")
+                end = content.rfind("}") + 1
+                if start != -1 and end > start:
+                    parsed = json.loads(content[start:end])
+                    return {"format": "structured", "data": parsed, "source": "cache"}
             except Exception:
-                # Cache miss / table missing — fall through to fresh generation.
-                logger.exception("diagnosis cache lookup failed")
+                pass
+            return {"format": "raw", "raw": content, "source": "cache"}
 
-        # Cache miss → fresh generation, then upsert.
-        # TODO[pro-gate]: pass real is_pro once free/pro split lands.
-        result = _generate_user_diagnosis(user_id, is_pro=True)
-
+        # No cache — first time, must wait
+        result = await asyncio.to_thread(_generate_user_diagnosis, user_id, True)
+        # Save to cache
         try:
-            now_iso = datetime.now(timezone.utc).isoformat()
             supabase_admin.table("diagnosis_cache").upsert({
-                "user_id":        user_id,
-                "content":        result.get("raw") or "",
-                "practice_count": result.get("practice_count") or 0,
-                "updated_at":     now_iso,
-            }, on_conflict="user_id").execute()
-        except Exception:
-            # Persisting cache is best-effort — never fail the request on it.
-            logger.exception("diagnosis cache upsert failed", extra={"user_id": user_id})
-
+                "user_id": user_id,
+                "content": result.get("raw") or "",
+                "practice_count": current_count,
+                "updated_at": "now()",
+            }).execute()
+        except Exception as e:
+            logger.warning(f"diagnosis cache save failed: {e}")
         return result
     except HTTPException:
         raise
