@@ -74,7 +74,7 @@ DRILL_PROMPTS: dict[str, dict] = {
 ALL existing rules in this prompt remain in force. You will still:
 - Return ONE correction object (not multiple)
 - Keep why_it_hurts under 60 characters
-- Keep better_phrasing_en under 30 characters
+- Keep better_phrasing_en under 60 characters
 - Keep next_task under 80 characters
 - Follow on_topic, off-topic, and tone-tier (A/B/C) rules unchanged
 - Use the same JSON schema PLUS the drill_score field
@@ -278,7 +278,7 @@ Off-topic rule from baseline still wins for correction content."""
 ALL existing rules in this prompt remain in force. You will still:
 - Return ONE correction object (not multiple)
 - Keep why_it_hurts under 60 characters
-- Keep better_phrasing_en under 30 characters
+- Keep better_phrasing_en under 60 characters
 - Keep next_task under 80 characters
 - Follow on_topic, off-topic, and tone-tier (A/B/C) rules unchanged
 - Use the same JSON schema PLUS the drill_score field
@@ -993,7 +993,7 @@ def validate_correction_response(
        on_topic=false (off-topic carve-out). When on_topic=true, BOTH
        phrasing fields must be non-empty.
     5. why_it_hurts <= 60 characters (len(text), Chinese counts as 1 each)
-    6. better_phrasing_en <= 30 characters (when non-empty)
+    6. better_phrasing_en <= 60 characters (when non-empty)
     7. better_phrasing_zh <= 30 characters (when non-empty)
     8. next_task <= 80 characters
     9. When expected_drill_axis is set (drill mode), data["drill_score"] must
@@ -1061,8 +1061,8 @@ def validate_correction_response(
 
     if len(why_it_hurts) > 60:
         return False, f"why_it_hurts is {len(why_it_hurts)} chars (max 60)"
-    if better_phrasing_en and len(better_phrasing_en) > 30:
-        return False, f"better_phrasing_en is {len(better_phrasing_en)} chars (max 30)"
+    if better_phrasing_en and len(better_phrasing_en) > 60:
+        return False, f"better_phrasing_en is {len(better_phrasing_en)} chars (max 60)"
     if better_phrasing_zh and len(better_phrasing_zh) > 30:
         return False, f"better_phrasing_zh is {len(better_phrasing_zh)} chars (max 30)"
     if len(next_task) > 80:
@@ -1399,7 +1399,7 @@ Your job is to find the single most painful blockage in this answer and give one
 - correction 物件包含四個欄位，全部必填，缺一個或留空字串都視為違規：
   - quoted: 從用戶原句直接引用的片段，讓學生看到自己講了什麼
   - why_it_hurts: 為什麼這個地方傷害表達；繁體中文；最多 60 個字（why_it_hurts must be under 60 Chinese characters. Count before responding.）
-  - better_phrasing_en: 一個更好的講法（英文版本）；最多 30 個字（含字母與標點；better_phrasing_en must be under 30 characters.）
+  - better_phrasing_en: 一個更好的講法（英文版本）；最多 60 個字（含字母與標點；better_phrasing_en must be under 60 characters.）
   - better_phrasing_zh: 上述英文版本的中文對照；最多 30 個中文字
   - next_task: 下一輪請學生試的具體任務；繁體中文；最多 80 個字（next_task must be under 80 Chinese characters.）
 - If you cannot fit within these limits, shorten until you can. Do not skip fields.
@@ -1556,7 +1556,7 @@ Output:
   "correction": {
     "quoted": "從用戶原句直接引用的片段（不可省略、不可改寫）",
     "why_it_hurts": "為什麼這個地方傷害表達；繁中；最多 60 字",
-    "better_phrasing_en": "一個更好的講法（英文版本）；最多 30 字；偏題時可為空字串",
+    "better_phrasing_en": "一個更好的講法（英文版本）；最多 60 字；偏題時可為空字串",
     "better_phrasing_zh": "上述英文版本的中文對照；最多 30 中文字；偏題時可為空字串",
     "next_task": "下一輪請學生試的具體任務；繁中；最多 80 字"
   },
@@ -1851,16 +1851,16 @@ async def process(
                     correction = parsed.get("correction")
                     if isinstance(correction, dict):
                         bpe = correction.get("better_phrasing_en") or ""
-                        if isinstance(bpe, str) and len(bpe) > 30:
+                        if isinstance(bpe, str) and len(bpe) > 60:
                             words = bpe.split()
                             truncated = ""
                             for w in words:
                                 candidate = (truncated + " " + w).strip()
-                                if len(candidate) <= 30:
+                                if len(candidate) <= 60:
                                     truncated = candidate
                                 else:
                                     break
-                            correction["better_phrasing_en"] = truncated or bpe[:30]
+                            correction["better_phrasing_en"] = truncated or bpe[:60]
 
                         wih = correction.get("why_it_hurts") or ""
                         if isinstance(wih, str) and len(wih) > 60:
