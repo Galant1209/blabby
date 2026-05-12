@@ -4777,7 +4777,7 @@ async def _refresh_diagnosis_cache(user_id: str):
             "user_id": user_id,
             "content": result.get("raw") or "",
             "practice_count": current_count,
-            "updated_at": "now()",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }).execute()
         logger.info(f"diagnosis cache refreshed for {user_id}")
     except Exception as e:
@@ -4816,7 +4816,11 @@ async def my_diagnosis(
             # Return immediately — stale or fresh
             is_stale = cache.get("practice_count") != current_count
             if is_stale:
-                asyncio.create_task(_refresh_diagnosis_cache(user_id))
+                _bg_tasks = getattr(asyncio.get_event_loop(), '_blabby_bg_tasks', set())
+                asyncio.get_event_loop()._blabby_bg_tasks = _bg_tasks
+                task = asyncio.create_task(_refresh_diagnosis_cache(user_id))
+                _bg_tasks.add(task)
+                task.add_done_callback(_bg_tasks.discard)
             # Parse content same way as before
             content = cache["content"]
             try:
@@ -4824,10 +4828,22 @@ async def my_diagnosis(
                 end = content.rfind("}") + 1
                 if start != -1 and end > start:
                     parsed = json.loads(content[start:end])
-                    return {"format": "structured", "data": parsed, "source": "cache"}
+                    return {
+                        "format": "structured",
+                        "data": parsed,
+                        "source": "cache",
+                        "cached": True,
+                        "diagnosis_markdown": parsed.get("summary", ""),
+                    }
             except Exception:
                 pass
-            return {"format": "raw", "raw": content, "source": "cache"}
+            return {
+                "format": "raw",
+                "raw": content,
+                "source": "cache",
+                "cached": True,
+                "diagnosis_markdown": content,
+            }
 
         # No cache — first time, must wait
         result = await asyncio.to_thread(_generate_user_diagnosis, user_id, True)
@@ -4837,7 +4853,7 @@ async def my_diagnosis(
                 "user_id": user_id,
                 "content": result.get("raw") or "",
                 "practice_count": current_count,
-                "updated_at": "now()",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }).execute()
         except Exception as e:
             logger.warning(f"diagnosis cache save failed: {e}")
