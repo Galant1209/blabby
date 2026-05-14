@@ -1,0 +1,362 @@
+[
+  {
+    "id": "people_01",
+    "category": "People",
+    "title": "Describe a person who has had a significant influence on your life",
+    "bullet_1": "who this person is",
+    "bullet_2": "how you know this person",
+    "bullet_3": "what this person has done that influenced you",
+    "bullet_4": "and explain why this person has been so important to you"
+  },
+  {
+    "id": "people_02",
+    "category": "People",
+    "title": "Describe a teacher who made a strong impression on you",
+    "bullet_1": "who this teacher was",
+    "bullet_2": "what subject they taught",
+    "bullet_3": "what made them different from other teachers",
+    "bullet_4": "and explain how they affected your attitude towards learning"
+  },
+  {
+    "id": "people_03",
+    "category": "People",
+    "title": "Describe a famous person you admire",
+    "bullet_1": "who this person is",
+    "bullet_2": "what they are famous for",
+    "bullet_3": "what you know about their life",
+    "bullet_4": "and explain why you admire them"
+  },
+  {
+    "id": "people_04",
+    "category": "People",
+    "title": "Describe a friend you have known for a long time",
+    "bullet_1": "who this person is",
+    "bullet_2": "how and when you first met",
+    "bullet_3": "what you usually do together",
+    "bullet_4": "and explain why this friendship has lasted so long"
+  },
+  {
+    "id": "people_05",
+    "category": "People",
+    "title": "Describe a person in your family who you spend the most time with",
+    "bullet_1": "who this person is",
+    "bullet_2": "what kinds of things you do together",
+    "bullet_3": "what this person's personality is like",
+    "bullet_4": "and explain why you spend so much time with this person"
+  },
+  {
+    "id": "people_06",
+    "category": "People",
+    "title": "Describe someone you know who is good at their job",
+    "bullet_1": "who this person is",
+    "bullet_2": "what their job is",
+    "bullet_3": "what skills or qualities make them good at it",
+    "bullet_4": "and explain how you know they are good at their job"
+  },
+  {
+    "id": "people_07",
+    "category": "People",
+    "title": "Describe a person you met recently who you found interesting",
+    "bullet_1": "who this person is",
+    "bullet_2": "where and how you met them",
+    "bullet_3": "what you talked about",
+    "bullet_4": "and explain what made this person interesting to you"
+  },
+  {
+    "id": "people_08",
+    "category": "People",
+    "title": "Describe an elderly person you respect",
+    "bullet_1": "who this person is",
+    "bullet_2": "how you know this person",
+    "bullet_3": "what their life has been like",
+    "bullet_4": "and explain why you respect this person"
+  },
+  {
+    "id": "places_01",
+    "category": "Places",
+    "title": "Describe a place you enjoy visiting in your free time",
+    "bullet_1": "where this place is",
+    "bullet_2": "how often you go there",
+    "bullet_3": "what you do when you are there",
+    "bullet_4": "and explain why you enjoy visiting this place"
+  },
+  {
+    "id": "places_02",
+    "category": "Places",
+    "title": "Describe a city or town you would like to live in",
+    "bullet_1": "where this city or town is",
+    "bullet_2": "what it looks like",
+    "bullet_3": "what facilities or features it has",
+    "bullet_4": "and explain why you would like to live there"
+  },
+  {
+    "id": "places_03",
+    "category": "Places",
+    "title": "Describe a natural place that impressed you",
+    "bullet_1": "where this place is",
+    "bullet_2": "when you visited it",
+    "bullet_3": "what you saw and did there",
+    "bullet_4": "and explain why it made such an impression on you"
+  },
+  {
+    "id": "places_04",
+    "category": "Places",
+    "title": "Describe a restaurant or café you like",
+    "bullet_1": "where it is located",
+    "bullet_2": "what kind of food or drinks it serves",
+    "bullet_3": "who you usually go there with",
+    "bullet_4": "and explain why you like this place"
+  },
+  {
+    "id": "places_05",
+    "category": "Places",
+    "title": "Describe a place in your hometown that you know well",
+    "bullet_1": "what kind of place it is",
+    "bullet_2": "how long you have known this place",
+    "bullet_3": "what happens or what people do there",
+    "bullet_4": "and explain why this place is important to you"
+  },
+  {
+    "id": "places_06",
+    "category": "Places",
+    "title": "Describe a building you find interesting",
+    "bullet_1": "what this building is",
+    "bullet_2": "where it is located",
+    "bullet_3": "what it looks like inside and outside",
+    "bullet_4": "and explain why you find it interesting"
+  },
+  {
+    "id": "places_07",
+    "category": "Places",
+    "title": "Describe a foreign country you would like to visit",
+    "bullet_1": "which country it is",
+    "bullet_2": "what you know about this country",
+    "bullet_3": "what you would do or see there",
+    "bullet_4": "and explain why you would like to visit this country"
+  },
+  {
+    "id": "places_08",
+    "category": "Places",
+    "title": "Describe a public space in your city that you like",
+    "bullet_1": "what kind of space it is",
+    "bullet_2": "where it is",
+    "bullet_3": "what people use it for",
+    "bullet_4": "and explain why you like this place"
+  },
+  {
+    "id": "objects_01",
+    "category": "Objects",
+    "title": "Describe an object that is important to you",
+    "bullet_1": "what this object is",
+    "bullet_2": "how long you have had it",
+    "bullet_3": "how you use it or what you do with it",
+    "bullet_4": "and explain why it is important to you"
+  },
+  {
+    "id": "objects_02",
+    "category": "Objects",
+    "title": "Describe a gift you received that you really liked",
+    "bullet_1": "what the gift was",
+    "bullet_2": "who gave it to you and when",
+    "bullet_3": "how you use or keep it",
+    "bullet_4": "and explain why you liked this gift so much"
+  },
+  {
+    "id": "objects_03",
+    "category": "Objects",
+    "title": "Describe a piece of technology you find useful",
+    "bullet_1": "what this technology is",
+    "bullet_2": "how long you have been using it",
+    "bullet_3": "what you use it for",
+    "bullet_4": "and explain why you find it so useful"
+  },
+  {
+    "id": "objects_04",
+    "category": "Objects",
+    "title": "Describe a book that you have read more than once",
+    "bullet_1": "what the book is",
+    "bullet_2": "when you first read it",
+    "bullet_3": "what the book is about",
+    "bullet_4": "and explain why you have read it more than once"
+  },
+  {
+    "id": "objects_05",
+    "category": "Objects",
+    "title": "Describe something you own that you would find difficult to replace",
+    "bullet_1": "what this thing is",
+    "bullet_2": "how long you have had it",
+    "bullet_3": "what you use it for or what it means to you",
+    "bullet_4": "and explain why it would be difficult to replace"
+  },
+  {
+    "id": "objects_06",
+    "category": "Objects",
+    "title": "Describe a piece of clothing or jewellery that someone gave you",
+    "bullet_1": "what it is",
+    "bullet_2": "who gave it to you",
+    "bullet_3": "when you wear or use it",
+    "bullet_4": "and explain why this item is special to you"
+  },
+  {
+    "id": "objects_07",
+    "category": "Objects",
+    "title": "Describe a musical instrument you would like to learn",
+    "bullet_1": "what the instrument is",
+    "bullet_2": "how difficult it is to learn",
+    "bullet_3": "where you could learn to play it",
+    "bullet_4": "and explain why you want to learn this instrument"
+  },
+  {
+    "id": "objects_08",
+    "category": "Objects",
+    "title": "Describe a photo that means a lot to you",
+    "bullet_1": "what is in the photo",
+    "bullet_2": "when and where the photo was taken",
+    "bullet_3": "who took it",
+    "bullet_4": "and explain why this photo means so much to you"
+  },
+  {
+    "id": "events_01",
+    "category": "Events",
+    "title": "Describe an event in your life that you remember well",
+    "bullet_1": "what the event was",
+    "bullet_2": "when and where it happened",
+    "bullet_3": "who was involved",
+    "bullet_4": "and explain why you remember it so well"
+  },
+  {
+    "id": "events_02",
+    "category": "Events",
+    "title": "Describe a celebration or festival you enjoyed",
+    "bullet_1": "what kind of celebration or festival it was",
+    "bullet_2": "when and where it took place",
+    "bullet_3": "what happened during the event",
+    "bullet_4": "and explain why you enjoyed it"
+  },
+  {
+    "id": "events_03",
+    "category": "Events",
+    "title": "Describe a sports event you watched or took part in",
+    "bullet_1": "what the sport was",
+    "bullet_2": "when and where this event took place",
+    "bullet_3": "what happened during the event",
+    "bullet_4": "and explain how you felt about it"
+  },
+  {
+    "id": "events_04",
+    "category": "Events",
+    "title": "Describe a time when you helped someone",
+    "bullet_1": "who you helped",
+    "bullet_2": "what the situation was",
+    "bullet_3": "how you helped",
+    "bullet_4": "and explain how you felt after helping"
+  },
+  {
+    "id": "events_05",
+    "category": "Events",
+    "title": "Describe a family gathering you enjoyed",
+    "bullet_1": "what the occasion was",
+    "bullet_2": "who was there",
+    "bullet_3": "what you did or talked about",
+    "bullet_4": "and explain why you enjoyed this gathering"
+  },
+  {
+    "id": "events_06",
+    "category": "Events",
+    "title": "Describe a concert, show, or performance you attended",
+    "bullet_1": "what kind of performance it was",
+    "bullet_2": "when and where it took place",
+    "bullet_3": "who performed and what happened",
+    "bullet_4": "and explain how this performance made you feel"
+  },
+  {
+    "id": "events_07",
+    "category": "Events",
+    "title": "Describe a time you received some good news",
+    "bullet_1": "what the good news was",
+    "bullet_2": "when and how you received it",
+    "bullet_3": "who told you",
+    "bullet_4": "and explain how you felt when you received the news"
+  },
+  {
+    "id": "events_08",
+    "category": "Events",
+    "title": "Describe an important decision you have made in your life",
+    "bullet_1": "what the decision was",
+    "bullet_2": "when you made it",
+    "bullet_3": "how difficult it was to make",
+    "bullet_4": "and explain the effect this decision had on your life"
+  },
+  {
+    "id": "experiences_01",
+    "category": "Experiences",
+    "title": "Describe a time when you learned something new",
+    "bullet_1": "what you learned",
+    "bullet_2": "when and where you learned it",
+    "bullet_3": "how you went about learning it",
+    "bullet_4": "and explain how this new skill or knowledge has been useful"
+  },
+  {
+    "id": "experiences_02",
+    "category": "Experiences",
+    "title": "Describe a time when you overcame a difficulty",
+    "bullet_1": "what the difficulty was",
+    "bullet_2": "when it happened",
+    "bullet_3": "what you did to deal with it",
+    "bullet_4": "and explain what you learned from this experience"
+  },
+  {
+    "id": "experiences_03",
+    "category": "Experiences",
+    "title": "Describe an experience when you worked as part of a team",
+    "bullet_1": "what the project or task was",
+    "bullet_2": "who was in the team",
+    "bullet_3": "what your role was",
+    "bullet_4": "and explain whether the teamwork was successful and why"
+  },
+  {
+    "id": "experiences_04",
+    "category": "Experiences",
+    "title": "Describe a time when you visited somewhere for the first time",
+    "bullet_1": "where you went",
+    "bullet_2": "when and why you went there",
+    "bullet_3": "what you did and saw",
+    "bullet_4": "and explain how you felt visiting this place for the first time"
+  },
+  {
+    "id": "experiences_05",
+    "category": "Experiences",
+    "title": "Describe a time when you felt proud of something you achieved",
+    "bullet_1": "what the achievement was",
+    "bullet_2": "when it happened",
+    "bullet_3": "how much effort it took",
+    "bullet_4": "and explain why you felt proud"
+  },
+  {
+    "id": "experiences_06",
+    "category": "Experiences",
+    "title": "Describe a time when you tried a new food or dish",
+    "bullet_1": "what the food or dish was",
+    "bullet_2": "where and when you tried it",
+    "bullet_3": "what it tasted like",
+    "bullet_4": "and explain whether you would eat it again and why"
+  },
+  {
+    "id": "experiences_07",
+    "category": "Experiences",
+    "title": "Describe a time when you had to speak in public",
+    "bullet_1": "what the occasion was",
+    "bullet_2": "who you were speaking to",
+    "bullet_3": "what you said",
+    "bullet_4": "and explain how you felt before, during, and after speaking"
+  },
+  {
+    "id": "experiences_08",
+    "category": "Experiences",
+    "title": "Describe a time when something unexpected happened",
+    "bullet_1": "what happened",
+    "bullet_2": "when and where it happened",
+    "bullet_3": "how you reacted",
+    "bullet_4": "and explain how this unexpected event affected you"
+  }
+]
