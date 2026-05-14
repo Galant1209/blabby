@@ -2139,6 +2139,280 @@
             padding: 12px 0;
             font-style: italic;
         }
+
+        /* ── Part 2 ─────────────────────────────────────────── */
+        .part-switcher {
+            display: flex;
+            gap: 0;
+            border: 1.5px solid var(--border);
+            background: var(--surface);
+        }
+        .part-tab {
+            flex: 1;
+            padding: 10px 0;
+            background: transparent;
+            border: none;
+            border-right: 1px solid var(--border);
+            font-family: 'Libre Baskerville', serif;
+            font-size: 12px;
+            font-style: italic;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .part-tab:last-child { border-right: none; }
+        .part-tab--active {
+            background: var(--green);
+            color: var(--gold);
+        }
+        .p2-section {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .p2-section[hidden] { display: none; }
+        .p2-card-wrap {
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-top: 3px solid var(--green);
+            padding: 22px 24px 20px;
+        }
+        .p2-part-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--gold);
+            letter-spacing: 0.08em;
+            margin-bottom: 8px;
+        }
+        .p2-category-chip {
+            display: inline-block;
+            font-family: var(--sans);
+            font-size: 10px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--muted);
+            background: var(--paper);
+            border: 1px solid var(--border);
+            padding: 2px 8px;
+            margin-bottom: 10px;
+        }
+        .p2-title {
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-weight: 500;
+            font-size: 20px;
+            color: var(--ink);
+            line-height: 1.4;
+            margin-bottom: 14px;
+        }
+        .p2-bullets-header {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        .p2-bullets {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 18px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .p2-bullets li {
+            font-family: 'EB Garamond', serif;
+            font-size: 15px;
+            color: var(--ink-soft);
+            padding-left: 14px;
+            position: relative;
+        }
+        .p2-bullets li::before {
+            content: '—';
+            position: absolute;
+            left: 0;
+            color: var(--border);
+        }
+        .p2-action-btn {
+            width: 100%;
+            padding: 13px 20px;
+            background: var(--green);
+            color: var(--gold);
+            border: 1px solid var(--green);
+            font-family: 'Playfair Display', 'Noto Serif TC', serif;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.07em;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+        }
+        .p2-action-btn:hover { background: var(--green-dark); color: var(--gold-warm); }
+        .p2-action-btn--secondary {
+            background: transparent;
+            color: var(--muted);
+            border-color: var(--border);
+        }
+        .p2-action-btn--secondary:hover { background: var(--paper); color: var(--ink); }
+        .p2-timer-card {
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            padding: 36px 24px 32px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+        .p2-phase-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--gold);
+            letter-spacing: 0.08em;
+        }
+        .p2-countdown {
+            font-family: var(--sans);
+            font-size: 3.8rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--ink);
+            line-height: 1;
+        }
+        .p2-hint {
+            font-family: 'EB Garamond', serif;
+            font-style: italic;
+            font-size: 13px;
+            color: var(--muted);
+        }
+        .p2-record-time {
+            font-family: var(--sans);
+            font-size: 18px;
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            color: var(--ink);
+        }
+        .p2-bar-track {
+            width: 100%;
+            height: 4px;
+            background: var(--border);
+            overflow: hidden;
+        }
+        .p2-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--gold);
+            transition: width 1s linear;
+        }
+        .p2-transcript-block {
+            background: var(--paper);
+            border: 1px solid var(--border);
+            padding: 14px 16px;
+            font-family: 'EB Garamond', serif;
+            font-size: 15px;
+            color: var(--ink-soft);
+            line-height: 1.6;
+        }
+        .p2-transcript-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--gold);
+            letter-spacing: 0.08em;
+            margin-bottom: 8px;
+        }
+        .p2-score-card {
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-top: 3px solid var(--gold);
+            padding: 22px 24px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        .p2-overall {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+        .p2-overall-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--gold);
+            letter-spacing: 0.08em;
+        }
+        .p2-overall-band {
+            font-family: var(--sans);
+            font-size: 2.6rem;
+            font-weight: 800;
+            color: var(--ink);
+            line-height: 1;
+        }
+        .p2-criteria-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .p2-criterion {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        .p2-criterion-band {
+            flex-shrink: 0;
+            min-width: 36px;
+            padding: 2px 6px;
+            background: var(--paper);
+            border: 1px solid var(--border);
+            font-family: var(--sans);
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--ink);
+            text-align: center;
+        }
+        .p2-criterion-body { flex: 1; }
+        .p2-criterion-name {
+            font-family: 'Libre Baskerville', serif;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--ink);
+            margin-bottom: 2px;
+        }
+        .p2-criterion-desc {
+            font-family: 'EB Garamond', serif;
+            font-size: 14px;
+            color: var(--ink-soft);
+            line-height: 1.5;
+        }
+        .p2-feedback-section { display: flex; flex-direction: column; gap: 8px; }
+        .p2-feedback-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--muted);
+            letter-spacing: 0.06em;
+        }
+        .p2-feedback-list {
+            list-style: none;
+            padding: 0; margin: 0;
+            display: flex; flex-direction: column; gap: 6px;
+        }
+        .p2-feedback-list li {
+            font-family: 'EB Garamond', serif;
+            font-size: 15px;
+            color: var(--ink-soft);
+            padding-left: 14px;
+            position: relative;
+            line-height: 1.5;
+        }
+        .p2-feedback-list li::before {
+            content: '·';
+            position: absolute; left: 2px;
+            color: var(--gold);
+            font-size: 18px; line-height: 1.2;
+        }
+        /* ── /Part 2 ─────────────────────────────────────────── */
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -2256,6 +2530,12 @@
             <p class="tagline">每天開口，讓單字從腦袋跑到嘴巴</p>
         </header>
 
+        <!-- Part 1 / Part 2 switcher — shown when speaking-practice is visible -->
+        <div id="part-switcher" class="part-switcher" style="display:none">
+            <button id="part1-tab" class="part-tab part-tab--active">Part 1</button>
+            <button id="part2-tab" class="part-tab">Part 2</button>
+        </div>
+
         <!-- Diagnosis entry card — sits ABOVE Scenario A. Owned by feature/student-diagnosis. -->
         <section id="speaking-practice" class="speaking-practice">
             <section class="question-card">
@@ -2355,6 +2635,49 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ── Part 2 phases ────────────────────────────── -->
+
+            <!-- Phase 1: Topic card -->
+            <section id="p2-card" class="p2-section" hidden>
+                <div class="p2-card-wrap">
+                    <div class="p2-part-label">Part 2 · 你的題目</div>
+                    <div id="p2-category" class="p2-category-chip"></div>
+                    <div id="p2-title" class="p2-title"></div>
+                    <div class="p2-bullets-header">You should say:</div>
+                    <ul id="p2-bullets" class="p2-bullets"></ul>
+                </div>
+                <button id="p2-prep-btn" class="p2-action-btn">開始備考 (1:00)</button>
+                <button id="p2-new-topic-btn-card" class="p2-action-btn p2-action-btn--secondary">換一題</button>
+            </section>
+
+            <!-- Phase 2: Prep countdown -->
+            <section id="p2-prep" class="p2-section" hidden>
+                <div class="p2-timer-card">
+                    <div class="p2-phase-label">備考中</div>
+                    <div id="p2-countdown" class="p2-countdown">1:00</div>
+                    <p class="p2-hint">時間到後自動開始錄音</p>
+                </div>
+            </section>
+
+            <!-- Phase 3: Recording -->
+            <section id="p2-record" class="p2-section" hidden>
+                <div class="p2-timer-card">
+                    <div class="p2-phase-label">錄音中</div>
+                    <div id="p2-time" class="p2-record-time">0:00 / 2:00</div>
+                    <div class="p2-bar-track" style="width:100%"><div id="p2-bar" class="p2-bar-fill"></div></div>
+                    <p class="p2-hint">最長 2 分鐘，完成後按提交</p>
+                </div>
+                <button id="p2-stop-btn" class="p2-action-btn">完成，提交</button>
+            </section>
+
+            <!-- Phase 4: Score display -->
+            <section id="p2-score" class="p2-section" hidden>
+                <div id="p2-transcript-block" class="p2-transcript-block" style="display:none"></div>
+                <div id="p2-score-card" class="p2-score-card"></div>
+                <button id="p2-new-topic-btn" class="p2-action-btn p2-action-btn--secondary">換一題再練</button>
+            </section>
+
         </section>
 
         <section id="quick-start" class="practice-hub card-v3" style="margin-bottom: 16px;">
@@ -3129,6 +3452,22 @@
             if (QUESTION_BANK.length === 0) await loadQuestionBank();
             if (practiceHub) practiceHub.style.display = 'none';
             if (speakingPractice) speakingPractice.classList.remove('visible');
+            const switcher = p2El('part-switcher');
+            if (switcher) switcher.style.display = 'none';
+            // Reset Part 2 to Part 1 default when returning to hub
+            if (currentPart === 2) {
+                currentPart = 1;
+                p2StopAll();
+                p2ShowOnly(null);
+                const questionCard = document.querySelector('.question-card');
+                const recorderCard = document.querySelector('.recorder-card');
+                if (questionCard) questionCard.hidden = false;
+                if (recorderCard) recorderCard.hidden = false;
+                const pt1 = p2El('part1-tab');
+                const pt2 = p2El('part2-tab');
+                if (pt1) pt1.classList.add('part-tab--active');
+                if (pt2) pt2.classList.remove('part-tab--active');
+            }
             // Sprint 2B: returning to Hub cancels any pending drill — drill
             // is one-shot per click of "修這個弱點", and the user has just
             // backed out of the speaking flow without submitting.
@@ -3160,6 +3499,8 @@
             const quickStart = document.getElementById('quick-start');
             if (quickStart) quickStart.style.display = 'none';
             if (speakingPractice) speakingPractice.classList.add('visible');
+            const switcher = p2El('part-switcher');
+            if (switcher) switcher.style.display = '';
             lastQuestion = currentQuestion || lastQuestion;
             updatePracticeHubState();
         }
@@ -3413,6 +3754,17 @@
         let chunks        = [];
         let isRecording   = false;
 
+        // Part 2 state
+        let currentPart      = 1;
+        let part2Topic       = null;
+        let p2PrepTimer      = null;
+        let p2RecordTimer    = null;
+        let p2SecondsLeft    = 60;
+        let p2RecordSeconds  = 0;
+        let p2MediaRecorder  = null;
+        let p2Chunks         = [];
+        let p2IsRecording    = false;
+
         async function startRecording() {
             if (isRecording) return;
             recordBtn.disabled = true;
@@ -3561,6 +3913,249 @@
                 }
             }
         }
+
+        // ── Part 2 functions ──────────────────────────────────────────
+
+        function p2El(id) { return document.getElementById(id); }
+
+        function p2ShowOnly(sectionId) {
+            ['p2-card', 'p2-prep', 'p2-record', 'p2-score'].forEach(id => {
+                const el = p2El(id);
+                if (el) el.hidden = id !== sectionId;
+            });
+        }
+
+        function switchToPart(n) {
+            currentPart = n;
+            const part1Tab = p2El('part1-tab');
+            const part2Tab = p2El('part2-tab');
+            if (part1Tab) part1Tab.classList.toggle('part-tab--active', n === 1);
+            if (part2Tab) part2Tab.classList.toggle('part-tab--active', n === 2);
+
+            const questionCard = document.querySelector('.question-card');
+            const recorderCard = document.querySelector('.recorder-card');
+            if (n === 1) {
+                if (questionCard) questionCard.hidden = false;
+                if (recorderCard) recorderCard.hidden = false;
+                if (feedbackSection) feedbackSection.classList.remove('visible');
+                p2ShowOnly(null);
+                p2StopAll();
+            } else {
+                if (questionCard) questionCard.hidden = true;
+                if (recorderCard) recorderCard.hidden = true;
+                if (feedbackSection) feedbackSection.classList.remove('visible');
+                p2ShowOnly(null);
+                loadPart2Topic();
+            }
+        }
+
+        function p2StopAll() {
+            clearInterval(p2PrepTimer);
+            clearInterval(p2RecordTimer);
+            p2PrepTimer = null;
+            p2RecordTimer = null;
+            if (p2MediaRecorder && p2MediaRecorder.state !== 'inactive') {
+                p2MediaRecorder.stop();
+            }
+            p2IsRecording = false;
+        }
+
+        async function loadPart2Topic() {
+            p2ShowOnly(null);
+            try {
+                const res = await fetch(`${API_BASE}/part2/topics`);
+                if (!res.ok) throw new Error('topics fetch failed');
+                part2Topic = await res.json();
+            } catch (e) {
+                console.error('loadPart2Topic error', e);
+                return;
+            }
+            const titleEl   = p2El('p2-title');
+            const catEl     = p2El('p2-category');
+            const bulletsEl = p2El('p2-bullets');
+            if (titleEl)   titleEl.textContent   = part2Topic.title;
+            if (catEl)     catEl.textContent      = part2Topic.category;
+            if (bulletsEl) {
+                bulletsEl.innerHTML = [
+                    part2Topic.bullet_1,
+                    part2Topic.bullet_2,
+                    part2Topic.bullet_3,
+                    part2Topic.bullet_4,
+                ].map(b => `<li>${b}</li>`).join('');
+            }
+            p2ShowOnly('p2-card');
+        }
+
+        function p2FmtTime(secs) {
+            const m = Math.floor(secs / 60);
+            const s = String(secs % 60).padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        function startPart2Prep() {
+            p2SecondsLeft = 60;
+            p2ShowOnly('p2-prep');
+            const countdownEl = p2El('p2-countdown');
+            if (countdownEl) countdownEl.textContent = '1:00';
+
+            p2PrepTimer = setInterval(() => {
+                p2SecondsLeft--;
+                if (countdownEl) countdownEl.textContent = p2FmtTime(p2SecondsLeft);
+                if (p2SecondsLeft <= 0) {
+                    clearInterval(p2PrepTimer);
+                    p2PrepTimer = null;
+                    startPart2Recording();
+                }
+            }, 1000);
+        }
+
+        async function startPart2Recording() {
+            p2ShowOnly('p2-record');
+            p2RecordSeconds = 0;
+            const timeEl = p2El('p2-time');
+            const barEl  = p2El('p2-bar');
+            if (timeEl) timeEl.textContent = `0:00 / 2:00`;
+            if (barEl)  barEl.style.width  = '0%';
+
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (err) {
+                console.error('Part 2 getUserMedia error', err);
+                p2ShowOnly('p2-card');
+                return;
+            }
+            p2Chunks = [];
+            p2MediaRecorder = new MediaRecorder(stream);
+            p2MediaRecorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) p2Chunks.push(e.data);
+            };
+            p2MediaRecorder.onstop = () => {
+                stream.getTracks().forEach(t => t.stop());
+                const blob = new Blob(p2Chunks, { type: 'audio/webm' });
+                submitPart2Audio(blob);
+            };
+            p2MediaRecorder.start();
+            p2IsRecording = true;
+
+            p2RecordTimer = setInterval(() => {
+                p2RecordSeconds++;
+                if (timeEl) timeEl.textContent = `${p2FmtTime(p2RecordSeconds)} / 2:00`;
+                if (barEl)  barEl.style.width  = `${Math.min(100, (p2RecordSeconds / 120) * 100)}%`;
+                if (p2RecordSeconds >= 120) {
+                    clearInterval(p2RecordTimer);
+                    p2RecordTimer = null;
+                    stopPart2Recording();
+                }
+            }, 1000);
+        }
+
+        function stopPart2Recording() {
+            clearInterval(p2RecordTimer);
+            p2RecordTimer = null;
+            if (p2MediaRecorder && p2MediaRecorder.state !== 'inactive') {
+                p2MediaRecorder.stop();
+            }
+            p2IsRecording = false;
+        }
+
+        async function submitPart2Audio(blob) {
+            const stopBtn = p2El('p2-stop-btn');
+            if (stopBtn) { stopBtn.disabled = true; stopBtn.textContent = '評分中…'; }
+
+            let accessToken = null;
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                accessToken = session && session.access_token;
+            } catch (e) { /* ignore */ }
+
+            if (!accessToken) {
+                if (stopBtn) { stopBtn.disabled = false; stopBtn.textContent = '完成，提交'; }
+                return;
+            }
+
+            const bullets = [
+                part2Topic.bullet_1,
+                part2Topic.bullet_2,
+                part2Topic.bullet_3,
+                part2Topic.bullet_4,
+            ];
+            const form = new FormData();
+            form.append('audio', blob, 'recording.webm');
+            form.append('topic_title', part2Topic.title);
+            form.append('bullet_points', JSON.stringify(bullets));
+
+            try {
+                const controller = new AbortController();
+                const tid = setTimeout(() => controller.abort(), 90000);
+                let res;
+                try {
+                    res = await fetch(`${API_BASE}/part2/evaluate`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${accessToken}` },
+                        body: form,
+                        signal: controller.signal,
+                    });
+                } finally {
+                    clearTimeout(tid);
+                }
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+                const data = await res.json();
+                renderPart2Score(data);
+            } catch (err) {
+                console.error('Part 2 submit error', err);
+                if (stopBtn) { stopBtn.disabled = false; stopBtn.textContent = '完成，提交'; }
+            }
+        }
+
+        function renderPart2Score(data) {
+            p2ShowOnly('p2-score');
+
+            // transcript
+            const transcriptEl = p2El('p2-transcript-block');
+            if (transcriptEl && data.transcript) {
+                transcriptEl.style.display = '';
+                transcriptEl.innerHTML =
+                    `<div class="p2-transcript-label">你剛剛說：</div>` +
+                    `<div>${data.transcript}</div>`;
+            }
+
+            // score card
+            const cardEl = p2El('p2-score-card');
+            if (!cardEl) return;
+
+            const criteriaHtml = (data.criteria || []).map(c =>
+                `<div class="p2-criterion">
+                    <div class="p2-criterion-band">${c.band}</div>
+                    <div class="p2-criterion-body">
+                        <div class="p2-criterion-name">${c.name}</div>
+                        <div class="p2-criterion-desc">${c.description}</div>
+                    </div>
+                </div>`
+            ).join('');
+
+            const liHtml = arr => (arr || []).map(s => `<li>${s}</li>`).join('');
+
+            cardEl.innerHTML =
+                `<div class="p2-overall">
+                    <div class="p2-overall-label">Overall Band</div>
+                    <div class="p2-overall-band">${data.band_score}</div>
+                </div>
+                <div class="p2-criteria-list">${criteriaHtml}</div>
+                <div class="p2-feedback-section">
+                    <div class="p2-feedback-label">Strengths</div>
+                    <ul class="p2-feedback-list">${liHtml(data.strengths)}</ul>
+                </div>
+                <div class="p2-feedback-section">
+                    <div class="p2-feedback-label">Improvements</div>
+                    <ul class="p2-feedback-list">${liHtml(data.improvements)}</ul>
+                </div>`;
+        }
+
+        // ── /Part 2 functions ─────────────────────────────────────────
 
         function getWeaknessLabel(tag) {
             return WEAKNESS_LABELS[tag] || '待觀察';
@@ -4098,6 +4693,15 @@
             if (rc) rc.style.display = 'none';
             setRecorderStatus('準備好了就按錄音');
         });
+
+        // ── Part 2 event listeners ────────────────────────────────────
+        p2El('part1-tab').addEventListener('click', () => switchToPart(1));
+        p2El('part2-tab').addEventListener('click', () => switchToPart(2));
+        p2El('p2-prep-btn').addEventListener('click', startPart2Prep);
+        p2El('p2-stop-btn').addEventListener('click', stopPart2Recording);
+        p2El('p2-new-topic-btn').addEventListener('click', () => loadPart2Topic());
+        p2El('p2-new-topic-btn-card').addEventListener('click', () => loadPart2Topic());
+        // ── /Part 2 event listeners ───────────────────────────────────
 
         const adminSection = document.getElementById('admin-section');
         const adminList = document.getElementById('admin-list');

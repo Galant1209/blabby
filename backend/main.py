@@ -22,6 +22,7 @@ import uuid
 import hmac
 import hashlib
 from collections import Counter
+from pathlib import Path
 
 load_dotenv()
 
@@ -4863,6 +4864,127 @@ async def my_diagnosis(
     except Exception as exc:
         logger.exception("my_diagnosis endpoint failed")
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(exc)}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Part 2 topic cards
+# ---------------------------------------------------------------------------
+
+_part2_topics: list[dict] = []
+
+
+def _load_part2_topics() -> list[dict]:
+    global _part2_topics
+    if _part2_topics:
+        return _part2_topics
+    data_path = Path(__file__).parent / "data" / "ielts_part2_topics.json"
+    with open(data_path, encoding="utf-8") as f:
+        _part2_topics = json.load(f)
+    return _part2_topics
+
+
+@app.get("/part2/topics")
+async def get_part2_topic(category: Optional[str] = None):
+    topics = _load_part2_topics()
+    pool = [t for t in topics if t["category"] == category] if category else topics
+    if not pool:
+        raise HTTPException(status_code=404, detail="No topics for that category")
+    return random.choice(pool)
+
+
+# ---------------------------------------------------------------------------
+# Part 2 evaluation
+# ---------------------------------------------------------------------------
+
+def _build_part2_scoring_prompt(topic_title: str, bullets: list[str]) -> str:
+    bullets_text = "\n".join(f"- {b}" for b in bullets)
+    return f"""You are an experienced IELTS examiner scoring a Speaking Part 2 response.
+
+The candidate was given this cue card:
+Topic: {topic_title}
+You should say:
+{bullets_text}
+
+Score the response on all four IELTS Speaking criteria. Return ONLY a JSON object — no markdown, no explanation.
+
+JSON shape:
+{{
+  "band_score": <float, average of four criteria rounded to nearest 0.5>,
+  "criteria": [
+    {{"name": "Fluency & Coherence", "band": <float>, "description": "<one concrete sentence about what was observed>"}},
+    {{"name": "Lexical Resource", "band": <float>, "description": "<one concrete sentence>"}},
+    {{"name": "Grammatical Range & Accuracy", "band": <float>, "description": "<one concrete sentence>"}},
+    {{"name": "Pronunciation", "band": <float>, "description": "<one concrete sentence inferred from vocabulary range and word choices>"}}
+  ],
+  "strengths": ["<specific observed behaviour>", "<specific observed behaviour>"],
+  "improvements": ["<actionable language fix>", "<actionable language fix>"]
+}}
+
+Rules:
+- Band values must be multiples of 0.5 between 4.0 and 9.0
+- band_score = mean of four criteria bands, rounded to nearest 0.5
+- descriptions and improvements must reference the actual transcript (quote words/phrases when useful)
+- strengths and improvements: 2–3 items each
+- tone: factual, no praise or encouragement — describe what you measured"""
+
+
+@app.post("/part2/evaluate")
+@limiter.limit("5/minute")
+async def part2_evaluate(
+    request: Request,
+    audio: UploadFile = File(...),
+    topic_title: str = Form(...),
+    bullet_points: str = Form(...),
+    authorization: Optional[str] = Header(None),
+):
+    user_id = verify_token(authorization)
+
+    try:
+        bullets: list[str] = json.loads(bullet_points)
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=422, detail="bullet_points must be a JSON array string")
+
+    # Step 1: transcribe via Groq Whisper
+    audio_bytes = await audio.read()
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+    try:
+        with open(tmp_path, "rb") as f:
+            transcript = groq_client.audio.transcriptions.create(
+                model="whisper-large-v3-turbo",
+                file=f,
+                response_format="text",
+            )
+    finally:
+        os.unlink(tmp_path)
+
+    transcript = (transcript or "").strip()
+    if not transcript:
+        raise HTTPException(status_code=422, detail="Could not transcribe audio — no speech detected")
+
+    # Step 2: Claude scoring
+    system_prompt = _build_part2_scoring_prompt(topic_title, bullets)
+    result = run_claude([
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": transcript},
+    ])
+
+    # Step 3: persist to practice_records
+    if supabase_admin is not None:
+        try:
+            supabase_admin.table("practice_records").insert({
+                "user_id":          user_id,
+                "topic":            topic_title,
+                "question":         topic_title,
+                "user_transcript":  transcript,
+                "coach_response":   json.dumps(result),
+                "mode":             "part2",
+            }).execute()
+        except Exception:
+            logger.exception("part2 practice_record insert failed", extra={"user_id": user_id})
+
+    return {**result, "transcript": transcript}
 
 
 if __name__ == "__main__":
