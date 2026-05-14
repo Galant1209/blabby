@@ -2412,6 +2412,65 @@
             color: var(--gold);
             font-size: 18px; line-height: 1.2;
         }
+        .p2-criterion-improvement {
+            font-family: 'EB Garamond', serif;
+            font-style: italic;
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 3px;
+        }
+        /* Category filter */
+        .p2-cat-filter {
+            display: flex; flex-wrap: wrap; gap: 6px;
+            padding: 14px 0 4px;
+        }
+        .p2-cat-btn {
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            background: transparent;
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .p2-cat-btn:hover { background: var(--paper); color: var(--ink); }
+        .p2-cat-btn--active {
+            background: var(--paper);
+            border-color: var(--gold);
+            color: var(--ink);
+        }
+        /* Generic Part 2 modal */
+        .p2-modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(44, 36, 22, 0.55);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 1000; padding: 24px;
+        }
+        .p2-modal-overlay[hidden] { display: none; }
+        .p2-modal {
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            border-top: 3px solid var(--wine);
+            max-width: 360px; width: 100%;
+            padding: 24px 22px 20px;
+            display: flex; flex-direction: column; gap: 14px;
+        }
+        .p2-modal__title {
+            font-family: 'Playfair Display', serif;
+            font-size: 16px; font-weight: 700;
+            color: var(--ink);
+        }
+        .p2-modal__body {
+            font-family: 'EB Garamond', serif;
+            font-size: 15px; color: var(--ink-soft);
+            line-height: 1.55;
+        }
+        .p2-modal__buttons {
+            display: flex; flex-direction: column; gap: 8px;
+        }
         /* ── /Part 2 ─────────────────────────────────────────── */
     </style>
     <!-- PostHog Analytics -->
@@ -2647,6 +2706,14 @@
                     <div class="p2-bullets-header">You should say:</div>
                     <ul id="p2-bullets" class="p2-bullets"></ul>
                 </div>
+                <div id="p2-cat-filter" class="p2-cat-filter">
+                    <button class="p2-cat-btn p2-cat-btn--active" data-cat="">All</button>
+                    <button class="p2-cat-btn" data-cat="People">People</button>
+                    <button class="p2-cat-btn" data-cat="Places">Places</button>
+                    <button class="p2-cat-btn" data-cat="Objects">Objects</button>
+                    <button class="p2-cat-btn" data-cat="Events">Events</button>
+                    <button class="p2-cat-btn" data-cat="Experiences">Experiences</button>
+                </div>
                 <button id="p2-prep-btn" class="p2-action-btn">開始備考 (1:00)</button>
                 <button id="p2-new-topic-btn-card" class="p2-action-btn p2-action-btn--secondary">換一題</button>
             </section>
@@ -2769,6 +2836,16 @@
                 </div>
             </div>
         </section>
+
+        <!-- Part 2 generic modal -->
+        <div id="p2-modal-overlay" class="p2-modal-overlay" role="dialog" aria-modal="true" hidden>
+            <div class="p2-modal">
+                <div id="p2-modal-title" class="p2-modal__title"></div>
+                <div id="p2-modal-body" class="p2-modal__body"></div>
+                <div id="p2-modal-buttons" class="p2-modal__buttons"></div>
+            </div>
+        </div>
+
     </main>
 
     <script>
@@ -3764,6 +3841,8 @@
         let p2MediaRecorder  = null;
         let p2Chunks         = [];
         let p2IsRecording    = false;
+        let p2LastBlob       = null;
+        let p2CurrentCategory = null;
 
         async function startRecording() {
             if (isRecording) return;
@@ -3945,7 +4024,7 @@
                 if (recorderCard) recorderCard.hidden = true;
                 if (feedbackSection) feedbackSection.classList.remove('visible');
                 p2ShowOnly(null);
-                loadPart2Topic();
+                loadPart2Topic(p2CurrentCategory);
             }
         }
 
@@ -3960,10 +4039,33 @@
             p2IsRecording = false;
         }
 
-        async function loadPart2Topic() {
+        function showP2Modal(title, body, buttons) {
+            const overlay = p2El('p2-modal-overlay');
+            p2El('p2-modal-title').textContent = title;
+            p2El('p2-modal-body').textContent  = body;
+            const btnsEl = p2El('p2-modal-buttons');
+            btnsEl.innerHTML = '';
+            buttons.forEach(({ label, action, variant = 'secondary' }) => {
+                const btn = document.createElement('button');
+                btn.textContent = label;
+                btn.className = `p2-action-btn${variant === 'secondary' ? ' p2-action-btn--secondary' : ''}`;
+                btn.addEventListener('click', () => {
+                    overlay.hidden = true;
+                    action();
+                });
+                btnsEl.appendChild(btn);
+            });
+            overlay.hidden = false;
+        }
+
+        async function loadPart2Topic(category) {
+            p2CurrentCategory = category || null;
             p2ShowOnly(null);
+            const url = category
+                ? `${API_BASE}/part2/topics?category=${encodeURIComponent(category)}`
+                : `${API_BASE}/part2/topics`;
             try {
-                const res = await fetch(`${API_BASE}/part2/topics`);
+                const res = await fetch(url);
                 if (!res.ok) throw new Error('topics fetch failed');
                 part2Topic = await res.json();
             } catch (e) {
@@ -4021,8 +4123,12 @@
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             } catch (err) {
-                console.error('Part 2 getUserMedia error', err);
+                const isPermission = err.name === 'NotAllowedError' || err.name === 'NotFoundError';
+                const msg = isPermission
+                    ? '麥克風存取被拒絕。請到瀏覽器設定 → 網站設定 → 麥克風，允許此網站存取後重新整理頁面。'
+                    : '無法取得麥克風，請確認裝置已連接麥克風後重試。';
                 p2ShowOnly('p2-card');
+                showP2Modal('無法錄音', msg, [{ label: '知道了', action: () => {} }]);
                 return;
             }
             p2Chunks = [];
@@ -4060,6 +4166,22 @@
         }
 
         async function submitPart2Audio(blob) {
+            if (p2RecordSeconds < 15) {
+                showP2Modal(
+                    '錄音太短',
+                    '錄音不足 15 秒。IELTS Part 2 需要說 1–2 分鐘，請重新練習。',
+                    [
+                        { label: '重新錄音', action: () => loadPart2Topic(p2CurrentCategory), variant: 'primary' },
+                        { label: '還是送出',  action: () => p2DoSubmit(blob),                  variant: 'secondary' },
+                    ]
+                );
+                return;
+            }
+            await p2DoSubmit(blob);
+        }
+
+        async function p2DoSubmit(blob) {
+            p2LastBlob = blob;
             const stopBtn = p2El('p2-stop-btn');
             if (stopBtn) { stopBtn.disabled = true; stopBtn.textContent = '評分中…'; }
 
@@ -4107,6 +4229,14 @@
                 renderPart2Score(data);
             } catch (err) {
                 console.error('Part 2 submit error', err);
+                showP2Modal(
+                    '評分失敗',
+                    '評分失敗，請檢查網路連線後再試一次。你的錄音不會遺失。',
+                    [
+                        { label: '重試',     action: () => p2DoSubmit(p2LastBlob), variant: 'primary' },
+                        { label: '重新開始', action: () => switchToPart(2),        variant: 'secondary' },
+                    ]
+                );
                 if (stopBtn) { stopBtn.disabled = false; stopBtn.textContent = '完成，提交'; }
             }
         }
@@ -4114,7 +4244,6 @@
         function renderPart2Score(data) {
             p2ShowOnly('p2-score');
 
-            // transcript
             const transcriptEl = p2El('p2-transcript-block');
             if (transcriptEl && data.transcript) {
                 transcriptEl.style.display = '';
@@ -4123,9 +4252,16 @@
                     `<div>${data.transcript}</div>`;
             }
 
-            // score card
             const cardEl = p2El('p2-score-card');
             if (!cardEl) return;
+
+            if (data.scoring_failed || !Array.isArray(data.criteria) || data.criteria.length === 0) {
+                cardEl.innerHTML =
+                    `<div class="p2-transcript-label" style="color:var(--muted)">
+                        AI 評分暫時無法使用，以下是你的逐字稿供參考。
+                    </div>`;
+                return;
+            }
 
             const criteriaHtml = (data.criteria || []).map(c =>
                 `<div class="p2-criterion">
@@ -4133,6 +4269,7 @@
                     <div class="p2-criterion-body">
                         <div class="p2-criterion-name">${c.name}</div>
                         <div class="p2-criterion-desc">${c.description}</div>
+                        ${c.improvement ? `<div class="p2-criterion-improvement">→ ${c.improvement}</div>` : ''}
                     </div>
                 </div>`
             ).join('');
@@ -4699,8 +4836,15 @@
         p2El('part2-tab').addEventListener('click', () => switchToPart(2));
         p2El('p2-prep-btn').addEventListener('click', startPart2Prep);
         p2El('p2-stop-btn').addEventListener('click', stopPart2Recording);
-        p2El('p2-new-topic-btn').addEventListener('click', () => loadPart2Topic());
-        p2El('p2-new-topic-btn-card').addEventListener('click', () => loadPart2Topic());
+        p2El('p2-new-topic-btn').addEventListener('click', () => loadPart2Topic(p2CurrentCategory));
+        p2El('p2-new-topic-btn-card').addEventListener('click', () => loadPart2Topic(p2CurrentCategory));
+        document.querySelectorAll('.p2-cat-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.p2-cat-btn').forEach(b => b.classList.remove('p2-cat-btn--active'));
+                btn.classList.add('p2-cat-btn--active');
+                loadPart2Topic(btn.dataset.cat || null);
+            });
+        });
         // ── /Part 2 event listeners ───────────────────────────────────
 
         const adminSection = document.getElementById('admin-section');

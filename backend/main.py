@@ -4898,34 +4898,100 @@ async def get_part2_topic(category: Optional[str] = None):
 
 def _build_part2_scoring_prompt(topic_title: str, bullets: list[str]) -> str:
     bullets_text = "\n".join(f"- {b}" for b in bullets)
-    return f"""You are an experienced IELTS examiner scoring a Speaking Part 2 response.
+    return f"""You are a trained IELTS Speaking examiner. Score the Part 2 monologue below against all four official criteria. Return ONLY a valid JSON object — no markdown fences, no commentary before or after.
 
-The candidate was given this cue card:
+CUE CARD given to candidate:
 Topic: {topic_title}
 You should say:
 {bullets_text}
 
-Score the response on all four IELTS Speaking criteria. Return ONLY a JSON object — no markdown, no explanation.
+--- OFFICIAL IELTS BAND DESCRIPTOR ANCHORS ---
 
-JSON shape:
+Fluency & Coherence
+  Band 5: Hesitations and repetitions frequently interrupt flow; limited use of cohesive devices
+  Band 6: Some repetition or self-correction; uses basic connectives (and, but, so, because)
+  Band 7: Speaks at length without noticeable effort; good use of discourse markers and cohesive devices
+  Band 8+: Speaks fluently with only occasional hesitation; ideas are logically sequenced throughout
+
+Lexical Resource
+  Band 5: Uses limited vocabulary; errors in word choice noticeably impede communication
+  Band 6: Uses adequate vocabulary for familiar topics; some errors in word choice or collocation
+  Band 7: Uses less common and idiomatic vocabulary; some awareness of style; occasional inaccuracies
+  Band 8+: Uses a wide vocabulary naturally and flexibly; errors are rare and do not impede communication
+
+Grammatical Range & Accuracy
+  Band 5: Produces short simple sentences; errors are frequent and sometimes cause difficulty for the listener
+  Band 6: Mix of simple and complex structures; errors in complex forms are common; meaning is rarely lost
+  Band 7: Uses a variety of complex structures frequently; some errors but they rarely reduce communication
+  Band 8+: Wide range of structures; majority of sentences are error-free; errors are minor slips
+
+Pronunciation
+  Band 5: Limited control of pronunciation features; L1 accent frequently interferes with intelligibility
+  Band 6: Generally intelligible despite accent; some features of pronunciation affect clarity at times
+  Band 7: Easy to understand throughout; uses features of connected speech; accent does not impede
+  Band 8+: Uses a wide range of pronunciation features; is easy to understand; accent adds character
+
+--- ANTI-INFLATION RULES (mandatory, apply before assigning bands) ---
+
+1. Count filler words/phrases in the transcript: "um", "uh", "er", "like" (as filler), "you know" (as filler). If total > 3 occurrences, Fluency & Coherence MUST NOT exceed 6.5.
+2. Count distinct vocabulary items above CEFR B1 level. If fewer than 5 such items appear, Lexical Resource MUST NOT exceed 5.5.
+3. Count total words in the transcript. If word count < 100, ALL four bands MUST NOT exceed 6.0.
+4. No criterion may receive a band above 7.0 UNLESS its description field contains a direct quote from the transcript as evidence.
+5. When uncertain between two adjacent bands, assign the LOWER band (round down).
+
+--- JSON OUTPUT FORMAT ---
+
+Return exactly this structure. Every field is required:
 {{
-  "band_score": <float, average of four criteria rounded to nearest 0.5>,
+  "band_score": <float — mean of four bands, rounded to nearest 0.5>,
   "criteria": [
-    {{"name": "Fluency & Coherence", "band": <float>, "description": "<one concrete sentence about what was observed>"}},
-    {{"name": "Lexical Resource", "band": <float>, "description": "<one concrete sentence>"}},
-    {{"name": "Grammatical Range & Accuracy", "band": <float>, "description": "<one concrete sentence>"}},
-    {{"name": "Pronunciation", "band": <float>, "description": "<one concrete sentence inferred from vocabulary range and word choices>"}}
+    {{
+      "name": "Fluency & Coherence",
+      "band": <float, 0.5 increment, 4.0–9.0>,
+      "description": "<one sentence citing concrete transcript evidence>",
+      "improvement": "<one actionable fix — reference specific words or patterns from the transcript>"
+    }},
+    {{
+      "name": "Lexical Resource",
+      "band": <float>,
+      "description": "<one sentence citing concrete transcript evidence>",
+      "improvement": "<one actionable fix>"
+    }},
+    {{
+      "name": "Grammatical Range & Accuracy",
+      "band": <float>,
+      "description": "<one sentence citing concrete transcript evidence>",
+      "improvement": "<one actionable fix>"
+    }},
+    {{
+      "name": "Pronunciation",
+      "band": <float — infer from vocabulary precision, self-corrections, and transcription artefacts>,
+      "description": "<one sentence citing concrete transcript evidence>",
+      "improvement": "<one actionable fix>"
+    }}
   ],
-  "strengths": ["<specific observed behaviour>", "<specific observed behaviour>"],
-  "improvements": ["<actionable language fix>", "<actionable language fix>"]
+  "strengths": ["<specific observed behaviour with transcript evidence>", "<specific observed behaviour>"],
+  "improvements": ["<actionable language fix targeting a clear pattern>", "<actionable language fix>"]
 }}
 
-Rules:
-- Band values must be multiples of 0.5 between 4.0 and 9.0
-- band_score = mean of four criteria bands, rounded to nearest 0.5
-- descriptions and improvements must reference the actual transcript (quote words/phrases when useful)
-- strengths and improvements: 2–3 items each
-- tone: factual, no praise or encouragement — describe what you measured"""
+Computation rule: band_score = round(mean([fc, lr, gra, pron]) * 2) / 2
+Tone rule: factual, clinical — describe what was measured, not how the candidate felt."""
+
+
+def _persist_part2(user_id: str, topic_title: str, transcript: str, result: Optional[dict]) -> None:
+    if supabase_admin is None:
+        return
+    try:
+        supabase_admin.table("practice_records").insert({
+            "user_id":          user_id,
+            "topic":            topic_title,
+            "question":         topic_title,
+            "user_transcript":  transcript,
+            "coach_response":   json.dumps(result) if result is not None else None,
+            "mode":             "part2",
+        }).execute()
+    except Exception:
+        logger.exception("part2 practice_record insert failed", extra={"user_id": user_id})
 
 
 @app.post("/part2/evaluate")
@@ -4964,25 +5030,19 @@ async def part2_evaluate(
         raise HTTPException(status_code=422, detail="Could not transcribe audio — no speech detected")
 
     # Step 2: Claude scoring
-    system_prompt = _build_part2_scoring_prompt(topic_title, bullets)
-    result = run_claude([
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": transcript},
-    ])
+    try:
+        system_prompt = _build_part2_scoring_prompt(topic_title, bullets)
+        result = run_claude([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": transcript},
+        ])
+    except Exception:
+        logger.exception("part2 claude scoring failed", extra={"user_id": user_id})
+        _persist_part2(user_id, topic_title, transcript, None)
+        return {"transcript": transcript, "scoring_failed": True}
 
     # Step 3: persist to practice_records
-    if supabase_admin is not None:
-        try:
-            supabase_admin.table("practice_records").insert({
-                "user_id":          user_id,
-                "topic":            topic_title,
-                "question":         topic_title,
-                "user_transcript":  transcript,
-                "coach_response":   json.dumps(result),
-                "mode":             "part2",
-            }).execute()
-        except Exception:
-            logger.exception("part2 practice_record insert failed", extra={"user_id": user_id})
+    _persist_part2(user_id, topic_title, transcript, result)
 
     return {**result, "transcript": transcript}
 
