@@ -74,6 +74,7 @@
             right: 16px;
         }
         .user-avatar-btn {
+            position: relative;
             width: 32px;
             height: 32px;
             border-radius: 50%;
@@ -91,6 +92,37 @@
         .user-avatar-btn:hover {
             background: var(--gold);
             color: var(--surface);
+        }
+        /* Pro indicator — tiny gold ✦ pinned to avatar top-left, only when .is-pro */
+        .user-avatar-btn.is-pro::before {
+            content: '✦';
+            position: absolute;
+            top: -4px;
+            left: -3px;
+            font-size: 10px;
+            line-height: 1;
+            color: var(--gold);
+            text-shadow: 0 0 2px var(--surface);
+        }
+        /* Inline Pro chip next to email / username displays */
+        .pro-chip {
+            display: none;
+            margin-left: 6px;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: var(--gold);
+        }
+        .pro-chip.is-shown { display: inline; }
+        /* Score-page Pro-only header line */
+        .pro-feedback-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 11px;
+            color: var(--gold);
+            letter-spacing: 0.06em;
+            margin-bottom: 10px;
         }
         .user-dropdown {
             position: absolute;
@@ -2681,6 +2713,7 @@
             </button>
             <div id="user-dropdown" class="user-dropdown" style="display:none">
                 <div id="user-email-display" class="user-email-display"></div>
+                <span id="user-pro-chip" class="pro-chip" aria-hidden="true">✦ PRO</span>
                 <a href="/admin.html" id="admin-link" style="display: none; padding: 8px 16px; font-family: 'Libre Baskerville', serif; font-size: 13px; color: #C9A84C; text-decoration: none; border-bottom: 1px solid rgba(201,168,76,0.2);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px;margin-right:4px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Admin</a>
                 <button id="logout-btn" class="user-logout-btn">登出</button>
             </div>
@@ -3396,7 +3429,23 @@
                 drillQuotaState = await res.json();
             } catch (err) {
                 console.warn('loadDrillQuota failed:', err);
+            } finally {
+                applyProIndicator();
             }
+        }
+
+        // Toggle Pro identity affordances (avatar corner ✦, email-side PRO chip)
+        // based on cached is_pro signal. Idempotent + null-safe — runs after
+        // each loadDrillQuota and on any path that may change Pro state.
+        function isUserPro() {
+            return !!(drillQuotaState && drillQuotaState.is_pro === true);
+        }
+        function applyProIndicator() {
+            const pro = isUserPro();
+            const avatar = document.getElementById('user-avatar-btn');
+            if (avatar) avatar.classList.toggle('is-pro', pro);
+            const chip = document.getElementById('user-pro-chip');
+            if (chip) chip.classList.toggle('is-shown', pro);
         }
 
         // Hub vocab-entry — show due-count subline if any items are due
@@ -4424,8 +4473,12 @@
 
             const liHtml = arr => (arr || []).map(s => `<li>${s}</li>`).join('');
 
+            const proHeader = isUserPro()
+                ? `<div class="pro-feedback-label">✦ Pro 會員專屬診斷</div>`
+                : '';
+
             cardEl.innerHTML =
-                `<div class="p2-overall">
+                `${proHeader}<div class="p2-overall">
                     <div class="p2-overall-band">${data.band_score}</div>
                     <div class="p2-overall-label">Overall Band</div>
                 </div>
@@ -4822,6 +4875,20 @@
             lastFeedbackData = data;
             // Persistence is server-side now; the hub rehydrates from
             // /api/practice-records/last-unresolved on next load.
+
+            // Pro-only header line above feedback content. Idempotent —
+            // re-render replaces any prior occurrence so it never duplicates.
+            const fbSection = document.getElementById('feedback-section');
+            if (fbSection) {
+                const prior = fbSection.querySelector(':scope > .pro-feedback-label');
+                if (prior) prior.remove();
+                if (isUserPro()) {
+                    const label = document.createElement('div');
+                    label.className = 'pro-feedback-label';
+                    label.textContent = '✦ Pro 會員專屬診斷';
+                    fbSection.insertBefore(label, fbSection.firstChild);
+                }
+            }
 
             // 顯示用戶說的話
             document.getElementById('user-transcript').textContent = data.text || '';
