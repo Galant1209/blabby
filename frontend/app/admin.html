@@ -103,13 +103,130 @@
   .subs-user-row__status.free { color: var(--muted); }
   .subs-user-row__status .manual { color: var(--gold); margin-left: 6px; font-style: italic; }
 
-  /* Middle: detail */
-  .subs-detail { padding: 20px 24px; }
-  .subs-detail__email {
-    font-family: var(--serif); font-size: 18px; color: var(--navy);
-    margin-bottom: 4px; word-break: break-all;
+  /* Middle: detail (redesign — hierarchy: info card → action area → result) */
+  .subs-detail { padding: 24px 28px; max-width: 560px; }
+
+  /* Info card — always visible when a user is selected */
+  .subs-info { margin-bottom: 24px; }
+  .subs-info__email {
+    font-family: var(--serif); font-size: 22px; font-weight: 700;
+    color: var(--navy); margin-bottom: 10px; word-break: break-all;
   }
-  .subs-detail__meta { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+  .subs-info__meta {
+    display: flex; flex-direction: column; gap: 3px;
+    font-size: 12px; color: var(--muted); margin-bottom: 16px;
+  }
+  .subs-info__meta-label { font-style: italic; }
+
+  /* Big status badge — same visual weight as .badge.valid/.invalid */
+  .subs-status-badge {
+    display: inline-block;
+    padding: 6px 14px;
+    font-family: var(--sans); font-size: 13px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    border-radius: 3px;
+  }
+  .subs-status-badge--pro {
+    background: var(--green); color: var(--gold);
+    border: 1px solid var(--green);
+  }
+  .subs-status-badge--free {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .subs-info__grant-line {
+    font-size: 11px; color: var(--muted); font-style: italic;
+    margin-top: 8px; line-height: 1.5; word-break: break-word;
+  }
+
+  /* Pro audit info box — reuses cream + gold left-border visual language */
+  .subs-pro-info {
+    background: var(--cream); border-left: 2px solid var(--gold);
+    padding: 12px 14px; margin-bottom: 14px;
+    font-family: var(--serif); font-size: 13px; color: var(--ink);
+  }
+  .subs-pro-info__row { padding: 2px 0; }
+  .subs-pro-info__row-label {
+    display: inline-block; min-width: 80px;
+    font-size: 11px; font-family: var(--sans); color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .subs-pro-info__row-value {
+    font-family: var(--serif); color: var(--ink);
+  }
+
+  /* Action area — single primary entry point, no clutter */
+  .subs-action {
+    margin-top: 18px;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+  .subs-action__upgrade {
+    width: 100%;
+    padding: 11px 16px;
+    background: transparent;
+    color: var(--green);
+    border: 1px solid var(--green);
+    border-radius: 3px;
+    font-family: var(--serif); font-size: 14px; letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 100ms ease;
+  }
+  .subs-action__upgrade:hover:not(:disabled) {
+    background: rgba(45,80,22,0.06);
+  }
+  .subs-action__revoke {
+    padding: 7px 14px;
+    background: transparent;
+    color: var(--red);
+    border: 1px solid var(--red);
+    border-radius: 3px;
+    font-family: var(--sans); font-size: 12px; letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 100ms ease;
+  }
+  .subs-action__revoke:hover:not(:disabled) {
+    background: rgba(107,26,26,0.06);
+  }
+  .subs-action__upgrade:disabled,
+  .subs-action__revoke:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Expand-on-click grant form (hidden by default) */
+  .subs-grant-form { display: none; }
+  .subs-grant-form.is-open { display: flex; flex-direction: column; gap: 10px; }
+  .subs-grant-form__label {
+    font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .subs-grant-form__input {
+    padding: 9px 12px; border: 1px solid var(--border); border-radius: 3px;
+    font-family: var(--sans); font-size: 13px; color: var(--ink);
+    background: var(--bg);
+  }
+  .subs-grant-form__input:focus { outline: none; border-color: var(--gold); }
+  .subs-grant-form__confirm {
+    padding: 10px 16px;
+    background: var(--green); color: var(--gold);
+    border: 1px solid var(--green); border-radius: 3px;
+    font-family: var(--serif); font-size: 14px; letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+  .subs-grant-form__confirm:hover:not(:disabled) { background: #244112; }
+  .subs-grant-form__confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+  .subs-grant-form__cancel {
+    align-self: center;
+    font-size: 12px; color: var(--muted);
+    cursor: pointer; text-decoration: underline;
+    background: transparent; border: none; padding: 4px;
+  }
+  .subs-grant-form__cancel:hover { color: var(--ink); }
+
+  /* Inline result */
+  .subs-result {
+    font-size: 13px; min-height: 18px; margin-top: 12px;
+  }
+  .subs-result.ok  { color: var(--green); }
+  .subs-result.err { color: var(--red); }
   .subs-detail__status-box {
     background: var(--cream); border-left: 2px solid var(--gold);
     padding: 14px 16px; margin-bottom: 16px;
@@ -1604,43 +1721,108 @@ Admin 觀測儀表板
       middle.innerHTML = '<div class="col__empty">User not found.</div>';
       return;
     }
-    const isPro = user.is_pro || user.is_pro_grant;
-    const statusLines = [
-      user.is_pro       ? '✓ Active subscription'    : '',
-      user.is_pro_grant ? '✓ Manually granted'       : '',
-      !isPro            ? 'No Pro access.'           : '',
-    ].filter(Boolean).join(' · ');
-    const formHTML = isPro
-      ? `
-        <button class="subs-detail__btn subs-detail__btn--revoke" id="subs-revoke-btn" type="button">
-          Revoke Pro Access
-        </button>
-      `
-      : `
-        <label for="subs-reason-input">Reason for grant (required)</label>
-        <input type="text" id="subs-reason-input" placeholder="e.g. early access, content creator, refund">
-        <button class="subs-detail__btn subs-detail__btn--grant" id="subs-grant-btn" type="button">
-          Grant Pro Access
-        </button>
+
+    // Field-name fallback chain — get_admin_users_full RPC has 2 historical
+    // versions (v1: is_pro/practice_count/last_practice, v2: is_pro_paid/
+    // is_pro_effective + grant audit columns). Try both so UI works on either.
+    const isPaid    = user.is_pro_paid ?? user.is_pro ?? false;
+    const isGranted = user.is_pro_grant === true;
+    const isPro     = user.is_pro_effective ?? (isPaid || isGranted);
+    const practices = user.practice_count ?? user.record_count ?? 0;
+    const memberSince = user.created_at;
+    const grantAt     = user.pro_grant_at;
+    const grantReason = user.pro_grant_reason;
+    const grantBy     = user.pro_grant_by;
+
+    // === Section 1: user info card ===
+    const metaRows = [
+      memberSince ? `<div><span class="subs-info__meta-label">Member since:</span> ${escapeHtml(fmtDateTime(memberSince))}</div>` : '',
+      `<div><span class="subs-info__meta-label">Total practices:</span> ${escapeHtml(practices)}</div>`,
+    ].filter(Boolean).join('');
+
+    const statusBadge = isPro
+      ? `<span class="subs-status-badge subs-status-badge--pro">✦ PRO</span>`
+      : `<span class="subs-status-badge subs-status-badge--free">FREE</span>`;
+
+    // Pro grant-line summary (date + reason) below the badge for granted users
+    let proGrantLine = '';
+    if (isPro && isGranted) {
+      const bits = [];
+      if (grantAt) bits.push(`Granted ${escapeHtml(fmtDateTime(grantAt))}`);
+      if (grantBy) bits.push(`by ${escapeHtml(grantBy)}`);
+      if (bits.length) proGrantLine = `<div class="subs-info__grant-line">${bits.join(' · ')}${grantReason ? ` · "${escapeHtml(grantReason)}"` : ''}</div>`;
+    } else if (isPro && isPaid && !isGranted) {
+      proGrantLine = `<div class="subs-info__grant-line">Active paid subscription</div>`;
+    }
+
+    // === Section 2: action area ===
+    let actionHTML = '';
+    if (isPro) {
+      // PRO user: audit info box (only meaningful when manually granted) + revoke button
+      const auditBox = isGranted ? `
+        <div class="subs-pro-info">
+          ${grantAt     ? `<div class="subs-pro-info__row"><span class="subs-pro-info__row-label">Granted</span> <span class="subs-pro-info__row-value">${escapeHtml(fmtDateTime(grantAt))}</span></div>` : ''}
+          ${grantBy     ? `<div class="subs-pro-info__row"><span class="subs-pro-info__row-label">By</span> <span class="subs-pro-info__row-value">${escapeHtml(grantBy)}</span></div>` : ''}
+          ${grantReason ? `<div class="subs-pro-info__row"><span class="subs-pro-info__row-label">Reason</span> <span class="subs-pro-info__row-value">${escapeHtml(grantReason)}</span></div>` : ''}
+        </div>
+      ` : '';
+      actionHTML = `
+        ${auditBox}
+        <button class="subs-action__revoke" id="subs-revoke-btn" type="button">撤銷 Pro 權限</button>
       `;
+    } else {
+      // FREE user: trigger button → expand inline form
+      actionHTML = `
+        <button class="subs-action__upgrade" id="subs-upgrade-trigger" type="button">升級為 Pro</button>
+        <div class="subs-grant-form" id="subs-grant-form">
+          <label class="subs-grant-form__label" for="subs-reason-input">Reason for grant (required)</label>
+          <input class="subs-grant-form__input" type="text" id="subs-reason-input" placeholder="e.g. early access, content creator, refund">
+          <button class="subs-grant-form__confirm" id="subs-grant-btn" type="button">Grant Pro Access</button>
+          <button class="subs-grant-form__cancel" id="subs-cancel-link" type="button">Cancel</button>
+        </div>
+      `;
+    }
+
     middle.innerHTML = `
       <div class="subs-detail">
-        <div class="subs-detail__email">${escapeHtml(user.email || userId)}</div>
-        <div class="subs-detail__meta">${user.record_count || 0} practices · last ${escapeHtml(fmtDateTime(user.last_seen))}</div>
-        <div class="subs-detail__status-box">
-          <div class="subs-detail__status-label">Pro Access</div>
-          <div class="subs-detail__status-value ${isPro ? 'pro' : 'free'}">${isPro ? '✦ Pro' : 'Free'}</div>
-          <div class="subs-detail__status-note">${statusLines}</div>
+        <div class="subs-info">
+          <div class="subs-info__email">${escapeHtml(user.email || userId)}</div>
+          <div class="subs-info__meta">${metaRows}</div>
+          ${statusBadge}
+          ${proGrantLine}
         </div>
-        <div class="subs-detail__form">
-          ${formHTML}
-          <div class="subs-detail__result" id="subs-pro-result"></div>
+        <div class="subs-action">
+          ${actionHTML}
+          <div class="subs-result" id="subs-pro-result"></div>
         </div>
       </div>
     `;
-    const grantBtn = document.getElementById('subs-grant-btn');
+
+    // Wire interactions
+    const upgradeBtn = document.getElementById('subs-upgrade-trigger');
+    const grantForm  = document.getElementById('subs-grant-form');
+    const cancelBtn  = document.getElementById('subs-cancel-link');
+    const reasonInp  = document.getElementById('subs-reason-input');
+    const grantBtn   = document.getElementById('subs-grant-btn');
+    const revokeBtn  = document.getElementById('subs-revoke-btn');
+
+    if (upgradeBtn && grantForm) {
+      upgradeBtn.addEventListener('click', () => {
+        grantForm.classList.add('is-open');
+        upgradeBtn.style.display = 'none';
+        if (reasonInp) reasonInp.focus();
+      });
+    }
+    if (cancelBtn && grantForm && upgradeBtn) {
+      cancelBtn.addEventListener('click', () => {
+        grantForm.classList.remove('is-open');
+        upgradeBtn.style.display = '';
+        if (reasonInp) reasonInp.value = '';
+        const result = document.getElementById('subs-pro-result');
+        if (result) { result.textContent = ''; result.className = 'subs-result'; }
+      });
+    }
     if (grantBtn) grantBtn.addEventListener('click', subsGrantPro);
-    const revokeBtn = document.getElementById('subs-revoke-btn');
     if (revokeBtn) revokeBtn.addEventListener('click', subsRevokePro);
   };
 
@@ -1710,7 +1892,7 @@ Admin 觀測儀表板
       await loadSubsTab();
     } catch (err) {
       if (result) { result.textContent = `Failed: ${err.message}`; result.className = 'subs-detail__result err'; }
-      if (btn) { btn.disabled = false; btn.textContent = 'Revoke Pro Access'; }
+      if (btn) { btn.disabled = false; btn.textContent = '撤銷 Pro 權限'; }
     }
   }
 
