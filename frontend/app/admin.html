@@ -234,13 +234,15 @@
 
   /* Part 1 / Part 2 filter tabs — sits between triage-bar and practice rows.
      NOT sticky: when triage-bar wraps (actions row breaks to second line on
-     narrow widths) its height exceeds the 40px gap to top:81px and the tabs
-     would overlap the show-all toggle. Tabs scroll with content; triage-bar
-     stays sticky alone. */
+     narrow widths) its height would push the tabs into overlap. Tabs scroll
+     with content; triage-bar stays sticky alone. Background uses --cream so
+     it's visually distinct from the --surface triage-bar above. */
   .part-filter-tabs {
     display: flex; gap: 4px;
-    padding: 8px 14px;
-    background: var(--surface);
+    margin-top: 8px;
+    padding: 10px 14px;
+    background: var(--cream);
+    border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
   }
   .part-filter-tab {
