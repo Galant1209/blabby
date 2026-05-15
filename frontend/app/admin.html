@@ -232,13 +232,16 @@
     font-size: 11px; color: var(--muted); font-style: italic;
   }
 
-  /* Part 1 / Part 2 filter tabs — sits between triage-bar and practice rows */
+  /* Part 1 / Part 2 filter tabs — sits between triage-bar and practice rows.
+     NOT sticky: when triage-bar wraps (actions row breaks to second line on
+     narrow widths) its height exceeds the 40px gap to top:81px and the tabs
+     would overlap the show-all toggle. Tabs scroll with content; triage-bar
+     stays sticky alone. */
   .part-filter-tabs {
     display: flex; gap: 4px;
     padding: 8px 14px;
     background: var(--surface);
     border-bottom: 1px solid var(--line);
-    position: sticky; top: 81px; z-index: 1;
   }
   .part-filter-tab {
     padding: 4px 12px;
@@ -707,7 +710,10 @@
       </div>
     `;
 
-    const isP2 = (r) => typeof r.coach_response === 'string' && r.coach_response.trim().startsWith('{');
+    // Primary: server-side mode field. Fallback: coach_response JSON shape
+    // (covers historical records before mode was added to the SELECT).
+    const isP2 = (r) => r.mode === 'part2'
+      || (typeof r.coach_response === 'string' && r.coach_response.trim().startsWith('{'));
     const rows = records.map(r => {
       const grade = r.quality_grade || 'none';
       const badgeLabel = grade === 'none' ? 'unrated' : grade;

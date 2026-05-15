@@ -4573,7 +4573,7 @@ async def admin_user_records(
         response = (
             supabase_admin.table("practice_records")
             .select(
-                "id, topic, question, user_transcript, coach_response, "
+                "id, mode, topic, question, user_transcript, coach_response, "
                 "better_expression, better_expression_zh, next_question, "
                 "weakness_tag, memory_snapshot, created_at, "
                 "quality_grade, quality_reason"
