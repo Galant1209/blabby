@@ -72,6 +72,9 @@
             position: absolute;
             top: 16px;
             right: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .user-avatar-btn {
             position: relative;
@@ -93,28 +96,32 @@
             background: var(--gold);
             color: var(--surface);
         }
-        /* Pro indicator — tiny gold ✦ pinned to avatar top-left, only when .is-pro */
+        /* Pro indicator — gold ✦ pinned to avatar top-left, only when .is-pro */
         .user-avatar-btn.is-pro::before {
             content: '✦';
             position: absolute;
-            top: -4px;
-            left: -3px;
-            font-size: 10px;
+            top: -6px;
+            left: -5px;
+            font-size: 14px;
             line-height: 1;
-            color: var(--gold);
-            text-shadow: 0 0 2px var(--surface);
+            color: #B8860B;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
         }
-        /* Inline Pro chip next to email / username displays */
+        /* Pro chip — pill badge next to avatar (always visible when .is-shown) */
         .pro-chip {
             display: none;
-            margin-left: 6px;
             font-family: 'Libre Baskerville', serif;
             font-size: 10px;
             font-weight: 700;
             letter-spacing: 0.08em;
             color: var(--gold);
+            padding: 3px 9px;
+            border: 1px solid var(--gold);
+            border-radius: 999px;
+            background: rgba(201, 168, 76, 0.10);
+            white-space: nowrap;
         }
-        .pro-chip.is-shown { display: inline; }
+        .pro-chip.is-shown { display: inline-flex; align-items: center; }
         /* Score-page Pro-only header line */
         .pro-feedback-label {
             font-family: 'Libre Baskerville', serif;
@@ -2708,12 +2715,12 @@
 
     <main id="main-section" class="app" style="display:none">
         <div class="user-menu-wrapper">
+            <span id="user-pro-chip" class="pro-chip" aria-hidden="true">✦ PRO</span>
             <button id="user-avatar-btn" class="user-avatar-btn" aria-label="用戶選單">
                 <span id="user-initial">?</span>
             </button>
             <div id="user-dropdown" class="user-dropdown" style="display:none">
                 <div id="user-email-display" class="user-email-display"></div>
-                <span id="user-pro-chip" class="pro-chip" aria-hidden="true">✦ PRO</span>
                 <a href="/admin.html" id="admin-link" style="display: none; padding: 8px 16px; font-family: 'Libre Baskerville', serif; font-size: 13px; color: #C9A84C; text-decoration: none; border-bottom: 1px solid rgba(201,168,76,0.2);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px;margin-right:4px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Admin</a>
                 <button id="logout-btn" class="user-logout-btn">登出</button>
             </div>
