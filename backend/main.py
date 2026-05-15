@@ -4976,7 +4976,18 @@ Return exactly this structure. Every field is required:
 
 Computation rule: band_score = round(mean([fc, lr, gra, pron]) * 2) / 2
 Tone rule: factual, clinical — describe what was measured, not how the candidate felt.
-Language rule: the top-level "strengths" and "improvements" array items MUST be written in Traditional Chinese (繁體中文, zh-TW) — NOT Simplified Chinese, NOT English. English transcript quotes may be embedded inside the Chinese text as evidence (e.g. 引用「I think it's...」). All other fields (band_score, criteria[].name, criteria[].band, criteria[].description, criteria[].improvement) remain in English."""
+Language rule: the top-level "strengths" and "improvements" array items MUST be written in Traditional Chinese (繁體中文, zh-TW) — NOT Simplified Chinese, NOT English. English transcript quotes may be embedded inside the Chinese text as evidence (e.g. 引用「I think it's...」). All other fields (band_score, criteria[].name, criteria[].band, criteria[].description, criteria[].improvement) remain in English.
+
+--- BAND SCORE CALIBRATION RULES (non-negotiable, override the computation rule when in conflict) ---
+
+1. Assess honestly first — transcribe what was actually said. Do not assume intent or fill in what the candidate "probably meant".
+2. Overall band_score must be within ±1.0 of the LOWEST individual criterion score. If applying this clamp produces a different value than the mean computation, the clamp wins.
+3. If the candidate speaks fewer than 30 seconds (estimate from transcript length: ~50 words at natural pace), overall band_score cannot exceed 4.0.
+4. If major grammatical errors (tense, subject-verb agreement, basic word order) appear in nearly every sentence, the Grammatical Range & Accuracy criterion cannot exceed 4.5.
+5. Do not inflate scores to encourage the candidate — a band 4.0 response must receive 4.0, not 5.5. Encouragement is not your job.
+6. All criterion bands and the overall band_score MUST use 0.5 increments only (e.g. 4.0, 4.5, 5.0). Never 4.3, 5.7, or any other fraction.
+
+Accuracy over encouragement. These rules are non-negotiable."""
 
 
 def _persist_part2(user_id: str, topic_title: str, transcript: str, result: Optional[dict]) -> None:
