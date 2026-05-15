@@ -1339,11 +1339,14 @@
         /* Part 1 / Part 2 filter tabs above the records list */
         .admin-filter-tabs {
             display: flex;
+            flex-wrap: wrap;
             gap: 0;
             margin-bottom: 12px;
             border-bottom: 1px solid var(--border);
         }
         .admin-filter-tab {
+            flex-shrink: 0;
+            white-space: nowrap;
             background: transparent;
             border: none;
             border-bottom: 2px solid transparent;
