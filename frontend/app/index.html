@@ -2319,6 +2319,28 @@
             background: var(--gold);
             transition: width 1s linear;
         }
+        /* Indeterminate loading bar shown under the submit button while scoring */
+        .p2-loading-bar {
+            height: 2px;
+            margin-top: 10px;
+            background: var(--paper);
+            overflow: hidden;
+            position: relative;
+        }
+        .p2-loading-bar[hidden] { display: none; }
+        .p2-loading-bar::before {
+            content: '';
+            position: absolute;
+            top: 0; bottom: 0;
+            left: -40%;
+            width: 40%;
+            background: var(--gold);
+            animation: p2-loading-slide 1.2s ease-in-out infinite;
+        }
+        @keyframes p2-loading-slide {
+            0%   { left: -40%; }
+            100% { left: 100%; }
+        }
         .p2-transcript-block {
             background: var(--paper);
             border: 1px solid var(--border);
@@ -2422,7 +2444,7 @@
         }
         .p2-feedback-list li {
             font-family: 'EB Garamond', serif;
-            font-size: 14px;
+            font-size: 15px;
             color: var(--ink-soft);
             line-height: 1.55;
         }
@@ -2712,6 +2734,7 @@
                     <p class="p2-hint">最長 2 分鐘，完成後按提交</p>
                 </div>
                 <button id="p2-stop-btn" class="p2-action-btn">完成，提交</button>
+                <div id="p2-loading-bar" class="p2-loading-bar" hidden aria-hidden="true"></div>
             </section>
 
             <!-- Phase 4: Score display -->
@@ -4091,6 +4114,14 @@
             p2IsRecording = true;
             // Defensive: clear any orphan interval from a prior aborted run.
             if (p2RecordTimer) { clearInterval(p2RecordTimer); p2RecordTimer = null; }
+            // Reset stale submit-state UI from a prior cycle: the success path of
+            // p2DoSubmit hides #p2-record via p2ShowOnly without unwinding the
+            // button/loader, so re-entering record state would otherwise show
+            // "評分中…" + an animating loader.
+            const stopBtnReset = p2El('p2-stop-btn');
+            if (stopBtnReset) { stopBtnReset.disabled = false; stopBtnReset.textContent = '完成，提交'; }
+            const loaderReset = p2El('p2-loading-bar');
+            if (loaderReset) loaderReset.hidden = true;
             p2ShowOnly('p2-record');
             p2RecordSeconds = 0;
             const timeEl = p2El('p2-time');
@@ -4163,7 +4194,9 @@
         async function p2DoSubmit(blob) {
             p2LastBlob = blob;
             const stopBtn = p2El('p2-stop-btn');
+            const loader  = p2El('p2-loading-bar');
             if (stopBtn) { stopBtn.disabled = true; stopBtn.textContent = '評分中…'; }
+            if (loader)  loader.hidden = false;
 
             let accessToken = null;
             try {
@@ -4173,6 +4206,7 @@
 
             if (!accessToken) {
                 if (stopBtn) { stopBtn.disabled = false; stopBtn.textContent = '完成，提交'; }
+                if (loader)  loader.hidden = true;
                 return;
             }
 
@@ -4218,6 +4252,7 @@
                     ]
                 );
                 if (stopBtn) { stopBtn.disabled = false; stopBtn.textContent = '完成，提交'; }
+                if (loader)  loader.hidden = true;
             }
         }
 
