@@ -4028,8 +4028,14 @@ async def admin_set_pro_grant(
     status. The webhook-controlled is_pro column is NEVER touched here,
     so a manual grant survives a subscription cancellation.
 
-    Body: { "granted": bool, "reason": str|null }
+    Body: {
+        "granted":    bool,
+        "reason":     str|null,
+        "expires_at": ISO 8601 datetime str|null   # null = permanent
+    }
     Reason is REQUIRED when granted=true (audit trail).
+    expires_at is optional; if absent or null on grant, the grant is permanent.
+    On revoke, expires_at is always cleared.
     """
     try:
         admin_id = verify_admin(authorization)
@@ -4051,6 +4057,23 @@ async def admin_set_pro_grant(
                 detail="A reason is required when granting Pro (audit trail)",
             )
 
+        # Parse + validate expires_at. Accept ISO 8601 with or without timezone;
+        # store as UTC-aware. Reject garbage so the DB stays clean.
+        expires_at_iso: Optional[str] = None
+        if granted:
+            raw_expires = body.get("expires_at")
+            if raw_expires is not None and str(raw_expires).strip() != "":
+                try:
+                    expires_dt = datetime.fromisoformat(str(raw_expires).replace("Z", "+00:00"))
+                    if expires_dt.tzinfo is None:
+                        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+                    expires_at_iso = expires_dt.astimezone(timezone.utc).isoformat()
+                except (ValueError, TypeError):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="expires_at must be a valid ISO 8601 datetime string or null",
+                    )
+
         # Resolve admin email for the audit column.
         try:
             admin_resp = supabase_admin.auth.admin.get_user_by_id(admin_id)
@@ -4061,11 +4084,12 @@ async def admin_set_pro_grant(
 
         now_iso = datetime.now(timezone.utc).isoformat()
         update_data = {
-            "is_pro_grant":     granted,
-            "pro_grant_reason": reason   if granted else None,
-            "pro_grant_at":     now_iso  if granted else None,
-            "pro_grant_by":     admin_email if granted else None,
-            "updated_at":       now_iso,
+            "is_pro_grant":         granted,
+            "pro_grant_reason":     reason         if granted else None,
+            "pro_grant_at":         now_iso        if granted else None,
+            "pro_grant_by":         admin_email    if granted else None,
+            "pro_grant_expires_at": expires_at_iso if granted else None,
+            "updated_at":           now_iso,
         }
 
         upd = supabase_admin.table("profiles") \
@@ -4077,14 +4101,15 @@ async def admin_set_pro_grant(
             raise HTTPException(status_code=500, detail="Profile update returned no rows")
 
         logger.warning(
-            "[admin/pro_grant] %s set granted=%s on user %s (reason=%r)",
-            admin_email, granted, user_id, reason,
+            "[admin/pro_grant] %s set granted=%s on user %s (reason=%r, expires_at=%r)",
+            admin_email, granted, user_id, reason, expires_at_iso,
         )
         return {
             "status": "ok",
             "user_id": user_id,
             "is_pro_grant": granted,
             "pro_grant_reason": reason,
+            "pro_grant_expires_at": expires_at_iso,
         }
     except HTTPException:
         raise

@@ -198,6 +198,28 @@
     font-size: 11px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.06em;
   }
+  /* Expiry option pills (7天 / 30天 / 永久 / 自訂) */
+  .subs-expiry-options { display: flex; gap: 6px; flex-wrap: wrap; }
+  .subs-expiry-pill {
+    padding: 5px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: var(--sans); font-size: 12px;
+    color: var(--muted); cursor: pointer;
+    transition: background 100ms ease, color 100ms ease, border-color 100ms ease;
+  }
+  .subs-expiry-pill:hover { color: var(--ink); border-color: var(--ink); }
+  .subs-expiry-pill.active {
+    background: var(--green); color: var(--gold); border-color: var(--green);
+  }
+  .subs-expiry-custom { display: none; }
+  .subs-expiry-custom.is-shown { display: block; }
+  /* "已到期" red badge replacing PRO when grant has expired */
+  .subs-status-badge--expired {
+    background: transparent; color: var(--red);
+    border: 1px solid var(--red);
+  }
   .subs-grant-form__input {
     padding: 9px 12px; border: 1px solid var(--border); border-radius: 3px;
     font-family: var(--sans); font-size: 13px; color: var(--ink);
@@ -1551,14 +1573,17 @@ Admin 觀測儀表板
     if (results) results.style.display = 'none';
   };
 
-  async function callProGrant(userId, granted, reason) {
+  async function callProGrant(userId, granted, reason, expiresAt) {
+    // expiresAt: ISO datetime string (e.g. "2026-06-15T00:00:00.000Z"),
+    // null/undefined means permanent. On revoke (granted=false), it's ignored
+    // server-side (backend always clears the expiry).
     const r = await fetch(`${API_BASE}/admin/user/${userId}/pro_grant`, {
         method: 'PATCH',
         headers: {
             'Authorization': `Bearer ${state.token}`,
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ granted, reason }),
+        body: JSON.stringify({ granted, reason, expires_at: expiresAt ?? null }),
     });
     if (!r.ok) {
         const j = await r.json().catch(() => ({}));
@@ -1722,17 +1747,25 @@ Admin 觀測儀表板
       return;
     }
 
-    // Field-name fallback chain — get_admin_users_full RPC has 2 historical
+    // Field-name fallback chain — get_admin_users_full RPC has 3 historical
     // versions (v1: is_pro/practice_count/last_practice, v2: is_pro_paid/
-    // is_pro_effective + grant audit columns). Try both so UI works on either.
+    // is_pro_effective + grant audit columns, v3: adds pro_grant_expires_at).
+    // Try the latest first so UI works against any deployed migration.
     const isPaid    = user.is_pro_paid ?? user.is_pro ?? false;
     const isGranted = user.is_pro_grant === true;
-    const isPro     = user.is_pro_effective ?? (isPaid || isGranted);
     const practices = user.practice_count ?? user.record_count ?? 0;
     const memberSince = user.created_at;
-    const grantAt     = user.pro_grant_at;
-    const grantReason = user.pro_grant_reason;
-    const grantBy     = user.pro_grant_by;
+    const grantAt      = user.pro_grant_at;
+    const grantReason  = user.pro_grant_reason;
+    const grantBy      = user.pro_grant_by;
+    const grantExpires = user.pro_grant_expires_at || null;
+
+    // Expiry-aware effective Pro: a granted+expired user is NOT effectively Pro.
+    // Trust server's is_pro_effective if available, else compute locally as fallback.
+    const grantExpired = isGranted && grantExpires
+      ? (new Date(grantExpires).getTime() <= Date.now())
+      : false;
+    const isPro = user.is_pro_effective ?? (isPaid || (isGranted && !grantExpired));
 
     // === Section 1: user info card ===
     const metaRows = [
@@ -1740,30 +1773,41 @@ Admin 觀測儀表板
       `<div><span class="subs-info__meta-label">Total practices:</span> ${escapeHtml(practices)}</div>`,
     ].filter(Boolean).join('');
 
-    const statusBadge = isPro
-      ? `<span class="subs-status-badge subs-status-badge--pro">✦ PRO</span>`
-      : `<span class="subs-status-badge subs-status-badge--free">FREE</span>`;
+    // Status badge: 3 states — PRO (active) / 已到期 (granted but past expiry) / FREE
+    let statusBadge;
+    if (isPro) {
+      statusBadge = `<span class="subs-status-badge subs-status-badge--pro">✦ PRO</span>`;
+    } else if (grantExpired) {
+      statusBadge = `<span class="subs-status-badge subs-status-badge--expired">已到期</span>`;
+    } else {
+      statusBadge = `<span class="subs-status-badge subs-status-badge--free">FREE</span>`;
+    }
 
-    // Pro grant-line summary (date + reason) below the badge for granted users
+    // Grant-line summary below badge: granted users see expiry + grant origin.
+    const expiryLabel = (e) => e ? `到期：${escapeHtml(fmtDateTime(e))}` : '永久';
     let proGrantLine = '';
-    if (isPro && isGranted) {
+    if (isGranted) {
       const bits = [];
+      bits.push(expiryLabel(grantExpires));
       if (grantAt) bits.push(`Granted ${escapeHtml(fmtDateTime(grantAt))}`);
       if (grantBy) bits.push(`by ${escapeHtml(grantBy)}`);
-      if (bits.length) proGrantLine = `<div class="subs-info__grant-line">${bits.join(' · ')}${grantReason ? ` · "${escapeHtml(grantReason)}"` : ''}</div>`;
-    } else if (isPro && isPaid && !isGranted) {
+      proGrantLine = `<div class="subs-info__grant-line">${bits.join(' · ')}${grantReason ? ` · "${escapeHtml(grantReason)}"` : ''}</div>`;
+    } else if (isPro && isPaid) {
       proGrantLine = `<div class="subs-info__grant-line">Active paid subscription</div>`;
     }
 
     // === Section 2: action area ===
     let actionHTML = '';
-    if (isPro) {
-      // PRO user: audit info box (only meaningful when manually granted) + revoke button
+    // Show revoke flow whenever the row carries a manual grant (active OR expired)
+    // so admin can still tidy up. Show grant flow only for truly Free users.
+    if (isPro || isGranted) {
+      // PRO user OR expired grant: audit info box + revoke button
       const auditBox = isGranted ? `
         <div class="subs-pro-info">
-          ${grantAt     ? `<div class="subs-pro-info__row"><span class="subs-pro-info__row-label">Granted</span> <span class="subs-pro-info__row-value">${escapeHtml(fmtDateTime(grantAt))}</span></div>` : ''}
-          ${grantBy     ? `<div class="subs-pro-info__row"><span class="subs-pro-info__row-label">By</span> <span class="subs-pro-info__row-value">${escapeHtml(grantBy)}</span></div>` : ''}
-          ${grantReason ? `<div class="subs-pro-info__row"><span class="subs-pro-info__row-label">Reason</span> <span class="subs-pro-info__row-value">${escapeHtml(grantReason)}</span></div>` : ''}
+          ${grantAt      ? `<div class="subs-pro-info__row"><span class="subs-pro-info__row-label">Granted</span> <span class="subs-pro-info__row-value">${escapeHtml(fmtDateTime(grantAt))}</span></div>` : ''}
+          ${grantBy      ? `<div class="subs-pro-info__row"><span class="subs-pro-info__row-label">By</span> <span class="subs-pro-info__row-value">${escapeHtml(grantBy)}</span></div>` : ''}
+          ${grantReason  ? `<div class="subs-pro-info__row"><span class="subs-pro-info__row-label">Reason</span> <span class="subs-pro-info__row-value">${escapeHtml(grantReason)}</span></div>` : ''}
+          <div class="subs-pro-info__row"><span class="subs-pro-info__row-label">Expiry</span> <span class="subs-pro-info__row-value">${expiryLabel(grantExpires)}${grantExpired ? ' (已過期)' : ''}</span></div>
         </div>
       ` : '';
       actionHTML = `
@@ -1777,6 +1821,14 @@ Admin 觀測儀表板
         <div class="subs-grant-form" id="subs-grant-form">
           <label class="subs-grant-form__label" for="subs-reason-input">Reason for grant (required)</label>
           <input class="subs-grant-form__input" type="text" id="subs-reason-input" placeholder="e.g. early access, content creator, refund">
+          <label class="subs-grant-form__label">Expiry</label>
+          <div class="subs-expiry-options" id="subs-expiry-options">
+            <button class="subs-expiry-pill" data-expiry="7"        type="button">7 天</button>
+            <button class="subs-expiry-pill" data-expiry="30"       type="button">30 天</button>
+            <button class="subs-expiry-pill active" data-expiry="0" type="button">永久</button>
+            <button class="subs-expiry-pill" data-expiry="custom"   type="button">自訂</button>
+          </div>
+          <input class="subs-grant-form__input subs-expiry-custom" type="date" id="subs-expiry-custom-input">
           <button class="subs-grant-form__confirm" id="subs-grant-btn" type="button">Grant Pro Access</button>
           <button class="subs-grant-form__cancel" id="subs-cancel-link" type="button">Cancel</button>
         </div>
@@ -1822,9 +1874,51 @@ Admin 觀測儀表板
         if (result) { result.textContent = ''; result.className = 'subs-result'; }
       });
     }
+    // Expiry pill toggle — exactly one .active at a time. "自訂" reveals the
+    // date input; the others hide it. Default "永久" (data-expiry="0") starts active.
+    const expiryOpts   = document.getElementById('subs-expiry-options');
+    const expiryCustom = document.getElementById('subs-expiry-custom-input');
+    if (expiryOpts) {
+      expiryOpts.querySelectorAll('.subs-expiry-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+          expiryOpts.querySelectorAll('.subs-expiry-pill').forEach(p =>
+            p.classList.toggle('active', p === pill));
+          if (expiryCustom) {
+            expiryCustom.classList.toggle('is-shown', pill.dataset.expiry === 'custom');
+            if (pill.dataset.expiry === 'custom') expiryCustom.focus();
+          }
+        });
+      });
+    }
     if (grantBtn) grantBtn.addEventListener('click', subsGrantPro);
     if (revokeBtn) revokeBtn.addEventListener('click', subsRevokePro);
   };
+
+  // Read selected expiry option and translate to ISO datetime (or null).
+  // 0      → null (permanent)
+  // 7/30   → now + N days, ISO UTC
+  // custom → date picker value at 00:00 local → ISO UTC
+  // Returns { expiresAt: string|null, error: string|null }.
+  function subsComputeExpiresAt() {
+    const active = document.querySelector('#subs-expiry-options .subs-expiry-pill.active');
+    if (!active) return { expiresAt: null, error: null };
+    const opt = active.dataset.expiry;
+    if (opt === '0') return { expiresAt: null, error: null };
+    if (opt === '7' || opt === '30') {
+      const days = parseInt(opt, 10);
+      const dt = new Date(Date.now() + days * 86400 * 1000);
+      return { expiresAt: dt.toISOString(), error: null };
+    }
+    if (opt === 'custom') {
+      const v = document.getElementById('subs-expiry-custom-input')?.value;
+      if (!v) return { expiresAt: null, error: '請選擇自訂到期日' };
+      const dt = new Date(v + 'T00:00:00');
+      if (isNaN(dt.getTime())) return { expiresAt: null, error: '無效日期格式' };
+      if (dt.getTime() <= Date.now()) return { expiresAt: null, error: '到期日必須在未來' };
+      return { expiresAt: dt.toISOString(), error: null };
+    }
+    return { expiresAt: null, error: null };
+  }
 
   function subsAppendLog(verb, email, reason) {
     _subsActionLog.unshift({
@@ -1859,20 +1953,25 @@ Admin 觀測儀表板
     const btn         = document.getElementById('subs-grant-btn');
     const reason      = (reasonInput?.value || '').trim();
     if (!reason) {
-      if (result) { result.textContent = 'Reason is required.'; result.className = 'subs-detail__result err'; }
+      if (result) { result.textContent = 'Reason is required.'; result.className = 'subs-result err'; }
+      return;
+    }
+    const { expiresAt, error: expiryError } = subsComputeExpiresAt();
+    if (expiryError) {
+      if (result) { result.textContent = expiryError; result.className = 'subs-result err'; }
       return;
     }
     if (btn) { btn.disabled = true; btn.textContent = 'Granting…'; }
     try {
       const user = (state.users || []).find(u => u.user_id === _subsSelectedUserId);
-      await callProGrant(_subsSelectedUserId, true, reason);
-      window.analytics?.track('admin_pro_granted', { user_id: _subsSelectedUserId });
+      await callProGrant(_subsSelectedUserId, true, reason, expiresAt);
+      window.analytics?.track('admin_pro_granted', { user_id: _subsSelectedUserId, expires_at: expiresAt });
       subsAppendLog('grant', user?.email || _subsSelectedUserId, reason);
-      if (result) { result.textContent = '✓ Pro access granted.'; result.className = 'subs-detail__result ok'; }
+      if (result) { result.textContent = '✓ Pro access granted.'; result.className = 'subs-result ok'; }
       await loadUsers();
       await loadSubsTab();
     } catch (err) {
-      if (result) { result.textContent = `Failed: ${err.message}`; result.className = 'subs-detail__result err'; }
+      if (result) { result.textContent = `Failed: ${err.message}`; result.className = 'subs-result err'; }
       if (btn) { btn.disabled = false; btn.textContent = 'Grant Pro Access'; }
     }
   }
