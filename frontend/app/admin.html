@@ -69,7 +69,107 @@
   .tab-panel.active { display: block; }
   .tab-panel.active.layout { display: grid; }
 
-  /* === Subscriptions panel === */
+  /* === Pro grant management (訂閱管理 tab) — 3-col layout === */
+  .subs-search {
+    padding: 8px 14px; border-bottom: 1px solid var(--line);
+    background: var(--surface); position: sticky; top: 41px; z-index: 1;
+  }
+  .subs-search input {
+    width: 100%; padding: 6px 10px;
+    border: 1px solid var(--border); border-radius: 3px;
+    font-family: var(--sans); font-size: 12px; color: var(--ink);
+    background: var(--bg);
+  }
+  .subs-search input:focus { outline: none; border-color: var(--gold); }
+  .subs-user-row {
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    cursor: pointer; transition: background 100ms ease;
+  }
+  .subs-user-row:hover { background: rgba(201,168,76,0.06); }
+  .subs-user-row.active {
+    background: rgba(201,168,76,0.16);
+    border-left: 3px solid var(--gold);
+    padding-left: 11px;
+  }
+  .subs-user-row__email {
+    font-size: 12px; color: var(--ink); font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .subs-user-row__status {
+    font-size: 10px; font-family: var(--sans); margin-top: 4px;
+    letter-spacing: 0.04em;
+  }
+  .subs-user-row__status.pro { color: var(--green); font-weight: 700; }
+  .subs-user-row__status.free { color: var(--muted); }
+  .subs-user-row__status .manual { color: var(--gold); margin-left: 6px; font-style: italic; }
+
+  /* Middle: detail */
+  .subs-detail { padding: 20px 24px; }
+  .subs-detail__email {
+    font-family: var(--serif); font-size: 18px; color: var(--navy);
+    margin-bottom: 4px; word-break: break-all;
+  }
+  .subs-detail__meta { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+  .subs-detail__status-box {
+    background: var(--cream); border-left: 2px solid var(--gold);
+    padding: 14px 16px; margin-bottom: 16px;
+  }
+  .subs-detail__status-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  .subs-detail__status-value {
+    font-family: var(--serif); font-size: 20px;
+    margin-bottom: 4px;
+  }
+  .subs-detail__status-value.pro  { color: var(--green); }
+  .subs-detail__status-value.free { color: var(--muted); }
+  .subs-detail__status-note { font-size: 12px; color: var(--muted); }
+  .subs-detail__form { display: flex; flex-direction: column; gap: 10px; max-width: 460px; }
+  .subs-detail__form label {
+    font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .subs-detail__form input {
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: 3px;
+    font-family: var(--sans); font-size: 13px; color: var(--ink);
+    background: var(--bg);
+  }
+  .subs-detail__form input:focus { outline: none; border-color: var(--gold); }
+  .subs-detail__btn {
+    width: 100%; padding: 10px;
+    font-family: var(--serif); font-size: 14px; letter-spacing: 0.03em;
+    border-radius: 3px; cursor: pointer;
+  }
+  .subs-detail__btn--grant {
+    background: var(--green); color: var(--gold); border: 1px solid var(--green);
+  }
+  .subs-detail__btn--grant:hover:not(:disabled) { background: #244112; }
+  .subs-detail__btn--revoke {
+    background: transparent; color: var(--red); border: 1px solid var(--red);
+  }
+  .subs-detail__btn--revoke:hover:not(:disabled) { background: rgba(107,26,26,0.06); }
+  .subs-detail__btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .subs-detail__result { font-size: 13px; min-height: 18px; margin-top: 4px; }
+  .subs-detail__result.ok   { color: var(--green); }
+  .subs-detail__result.err  { color: var(--red); }
+
+  /* Right: action log */
+  .subs-action-item {
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+    font-size: 12px;
+  }
+  .subs-action-item__when {
+    font-family: monospace; font-size: 11px; color: var(--muted); margin-bottom: 4px;
+  }
+  .subs-action-item__what { color: var(--ink); }
+  .subs-action-item__what .verb-grant  { color: var(--green); font-weight: 700; }
+  .subs-action-item__what .verb-revoke { color: var(--red); font-weight: 700; }
+  .subs-action-item__reason {
+    font-style: italic; color: var(--muted); font-size: 11px; margin-top: 4px;
+  }
+
+  /* === Legacy subscriptions panel (dead — kept to avoid surgical drift) === */
   .subs-wrap { padding: 16px 20px; overflow-y: auto; height: 100%; }
   .subs-wrap h2 {
     font-family: var(--serif); font-size: 16px; color: var(--navy);
@@ -466,24 +566,29 @@
   </aside>
 </div>
 
-<div id="subs-tab" class="tab-panel">
-    <div style="display:flex;height:calc(100vh - 100px);overflow:hidden;">
-        <!-- Left: user list -->
-        <div style="width:220px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;background:var(--surface);">
-            <div style="padding:12px 16px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid var(--border);">
-                使用者
-            </div>
-            <div id="subs-user-list"></div>
-        </div>
-        <!-- Right: Pro management -->
-        <div style="flex:1;overflow-y:auto;padding:28px 32px;">
-            <div id="subs-right-panel">
-                <div style="font-size:14px;color:var(--muted);font-style:italic;margin-top:40px;text-align:center;">
-                    Select a user to manage Pro access.
-                </div>
-            </div>
-        </div>
+<div class="tab-panel layout" id="subs-tab">
+  <aside class="col col--users" id="subs-col-users">
+    <div class="col__title">使用者 (Pro / Free)</div>
+    <div class="subs-search">
+      <input type="text" id="subs-search-input" placeholder="Search by email…" autocomplete="off">
     </div>
+    <div class="col__body" id="subs-user-list">
+      <div class="col__empty">Loading…</div>
+    </div>
+  </aside>
+
+  <main class="col col--records" id="subs-col-detail">
+    <div id="subs-middle-content">
+      <div class="col__empty">Select a user to manage Pro access.</div>
+    </div>
+  </main>
+
+  <aside class="col col--detail" id="subs-col-log">
+    <div class="col__title">Recent action</div>
+    <div id="subs-action-log">
+      <div class="col__empty">No actions yet.</div>
+    </div>
+  </aside>
 </div>
 
 <div class="tab-panel" id="changelog-tab">
@@ -1435,106 +1540,179 @@ Admin 觀測儀表板
         `).join('');
   }
 
+  // === 訂閱管理 tab — 3-column Pro grant management ===
+  // Mirrors the 用戶管理 tab pattern: left=user list, middle=selected user detail
+  // (with grant/revoke form), right=action log (session-scoped, no persistence).
+  let _subsSelectedUserId = null;
+  let _subsSearchQuery    = '';
+  const _subsActionLog    = []; // [{when:ISO, verb:'grant'|'revoke', email, reason}]
+
   async function loadSubsTab() {
-    const listEl = document.getElementById('subs-user-list');
-    if (!listEl) return;
     if (!state.users || state.users.length === 0) await loadUsers();
-    listEl.innerHTML = state.users.map(u => {
-        const isPro = u.is_pro || u.is_pro_grant;
-        return `
-            <div onclick="selectSubsUser('${u.user_id}')" id="subs-user-${u.user_id}"
-                style="padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s;"
-                onmouseover="this.style.background='#f5f0e8'" onmouseout="this.style.background=''">
-                <div style="font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                    ${escapeHtml(u.email || u.user_id)}
-                </div>
-                <div style="font-size:11px;margin-top:2px;color:${isPro ? 'var(--green)' : 'var(--muted)'};">
-                    ${isPro ? '✦ Pro' : 'Free'}
-                    ${u.is_pro_grant ? '<span style="color:var(--gold)"> · manual</span>' : ''}
-                </div>
-            </div>
-        `;
-    }).join('');
+    subsRenderUserList();
+    subsRenderActionLog();
+    // Bind search input once. Re-bind safe because the input is in static HTML.
+    const search = document.getElementById('subs-search-input');
+    if (search && !search.dataset.bound) {
+      search.dataset.bound = '1';
+      search.addEventListener('input', (e) => {
+        _subsSearchQuery = (e.target.value || '').trim().toLowerCase();
+        subsRenderUserList();
+      });
+    }
+    // If we had a previously-selected user, re-render the middle detail with
+    // fresh Pro status from the reloaded state.users.
+    if (_subsSelectedUserId) selectSubsUser(_subsSelectedUserId);
   }
 
-  let _subsSelectedUserId = null;
+  function subsRenderUserList() {
+    const listEl = document.getElementById('subs-user-list');
+    if (!listEl) return;
+    const q = _subsSearchQuery;
+    const filtered = (state.users || []).filter(u => {
+      if (!q) return true;
+      return (u.email || '').toLowerCase().includes(q);
+    });
+    if (filtered.length === 0) {
+      listEl.innerHTML = '<div class="col__empty">No matches.</div>';
+      return;
+    }
+    listEl.innerHTML = filtered.map(u => {
+      const isPro = u.is_pro || u.is_pro_grant;
+      const active = u.user_id === _subsSelectedUserId ? ' active' : '';
+      return `
+        <div class="subs-user-row${active}" data-user-id="${escapeHtml(u.user_id)}">
+          <div class="subs-user-row__email">${escapeHtml(u.email || u.user_id)}</div>
+          <div class="subs-user-row__status ${isPro ? 'pro' : 'free'}">
+            ${isPro ? '✦ PRO' : 'FREE'}${u.is_pro_grant ? '<span class="manual">manual</span>' : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+    listEl.querySelectorAll('.subs-user-row').forEach(el => {
+      el.addEventListener('click', () => selectSubsUser(el.dataset.userId));
+    });
+  }
 
   window.selectSubsUser = function(userId) {
     _subsSelectedUserId = userId;
-    document.querySelectorAll('[id^="subs-user-"]').forEach(el => el.style.background = '');
-    const selected = document.getElementById(`subs-user-${userId}`);
-    if (selected) selected.style.background = '#f0e9d6';
-
-    const user = state.users?.find(u => u.user_id === userId);
-    if (!user) return;
+    subsRenderUserList();  // refresh active highlight
+    const user = (state.users || []).find(u => u.user_id === userId);
+    const middle = document.getElementById('subs-middle-content');
+    if (!middle) return;
+    if (!user) {
+      middle.innerHTML = '<div class="col__empty">User not found.</div>';
+      return;
+    }
     const isPro = user.is_pro || user.is_pro_grant;
-    const panel = document.getElementById('subs-right-panel');
-    if (!panel) return;
-
-    panel.innerHTML = `
-        <div style="margin-bottom:4px;font-size:18px;font-family:var(--serif);color:var(--ink);">
-            ${escapeHtml(user.email || userId)}
+    const statusLines = [
+      user.is_pro       ? '✓ Active subscription'    : '',
+      user.is_pro_grant ? '✓ Manually granted'       : '',
+      !isPro            ? 'No Pro access.'           : '',
+    ].filter(Boolean).join(' · ');
+    const formHTML = isPro
+      ? `
+        <button class="subs-detail__btn subs-detail__btn--revoke" id="subs-revoke-btn" type="button">
+          Revoke Pro Access
+        </button>
+      `
+      : `
+        <label for="subs-reason-input">Reason for grant (required)</label>
+        <input type="text" id="subs-reason-input" placeholder="e.g. early access, content creator, refund">
+        <button class="subs-detail__btn subs-detail__btn--grant" id="subs-grant-btn" type="button">
+          Grant Pro Access
+        </button>
+      `;
+    middle.innerHTML = `
+      <div class="subs-detail">
+        <div class="subs-detail__email">${escapeHtml(user.email || userId)}</div>
+        <div class="subs-detail__meta">${user.record_count || 0} practices · last ${escapeHtml(fmtDateTime(user.last_seen))}</div>
+        <div class="subs-detail__status-box">
+          <div class="subs-detail__status-label">Pro Access</div>
+          <div class="subs-detail__status-value ${isPro ? 'pro' : 'free'}">${isPro ? '✦ Pro' : 'Free'}</div>
+          <div class="subs-detail__status-note">${statusLines}</div>
         </div>
-        <div style="font-size:13px;color:var(--muted);margin-bottom:24px;">
-            ${user.record_count || 0} practices
+        <div class="subs-detail__form">
+          ${formHTML}
+          <div class="subs-detail__result" id="subs-pro-result"></div>
         </div>
-        <div style="padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-width:400px;">
-            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Pro Access</div>
-            <div style="font-size:22px;font-family:var(--serif);color:${isPro ? 'var(--green)' : 'var(--muted)'};margin-bottom:6px;">
-                ${isPro ? '✦ Pro' : 'Free'}
-            </div>
-            <div style="font-size:12px;color:var(--muted);margin-bottom:20px;">
-                ${user.is_pro ? '✓ Active subscription' : ''}
-                ${user.is_pro_grant ? '✓ Manually granted' : ''}
-                ${!isPro ? 'No Pro access.' : ''}
-            </div>
-            ${!isPro ? `
-                <input type="text" id="subs-reason-input" placeholder="Reason for grant (required)"
-                    style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:4px;font-size:13px;margin-bottom:10px;background:var(--bg);">
-                <button onclick="subsGrantPro()"
-                    style="width:100%;padding:11px;background:var(--green);color:var(--gold);border:none;border-radius:4px;font-size:14px;font-family:var(--serif);cursor:pointer;letter-spacing:0.03em;">
-                    Grant Pro Access
-                </button>
-            ` : `
-                <button onclick="subsRevokePro()"
-                    style="width:100%;padding:11px;background:transparent;border:1px solid var(--wine);color:var(--wine);border-radius:4px;font-size:14px;font-family:var(--serif);cursor:pointer;letter-spacing:0.03em;">
-                    Revoke Pro Access
-                </button>
-            `}
-            <div id="subs-pro-result" style="font-size:13px;margin-top:12px;min-height:20px;text-align:center;"></div>
-        </div>
+      </div>
     `;
+    const grantBtn = document.getElementById('subs-grant-btn');
+    if (grantBtn) grantBtn.addEventListener('click', subsGrantPro);
+    const revokeBtn = document.getElementById('subs-revoke-btn');
+    if (revokeBtn) revokeBtn.addEventListener('click', subsRevokePro);
   };
 
-  window.subsGrantPro = async function() {
-    const reason = document.getElementById('subs-reason-input')?.value?.trim();
-    const result = document.getElementById('subs-pro-result');
-    if (!reason) { if(result) { result.textContent = 'Reason is required.'; result.style.color = 'var(--wine)'; } return; }
-    try {
-        await callProGrant(_subsSelectedUserId, true, reason);
-        if(result) { result.textContent = '✓ Pro access granted.'; result.style.color = 'var(--green)'; }
-        window.analytics?.track('admin_pro_granted', { user_id: _subsSelectedUserId });
-        await loadUsers();
-        await loadSubsTab();
-        selectSubsUser(_subsSelectedUserId);
-    } catch(e) {
-        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
-    }
-  };
+  function subsAppendLog(verb, email, reason) {
+    _subsActionLog.unshift({
+      when: new Date().toISOString(),
+      verb, email, reason,
+    });
+    subsRenderActionLog();
+  }
 
-  window.subsRevokePro = async function() {
-    const result = document.getElementById('subs-pro-result');
-    try {
-        await callProGrant(_subsSelectedUserId, false, 'admin revoke');
-        if(result) { result.textContent = '✓ Pro access revoked.'; result.style.color = 'var(--muted)'; }
-        window.analytics?.track('admin_pro_revoked', { user_id: _subsSelectedUserId });
-        await loadUsers();
-        await loadSubsTab();
-        selectSubsUser(_subsSelectedUserId);
-    } catch(e) {
-        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
+  function subsRenderActionLog() {
+    const log = document.getElementById('subs-action-log');
+    if (!log) return;
+    if (_subsActionLog.length === 0) {
+      log.innerHTML = '<div class="col__empty">No actions yet.</div>';
+      return;
     }
-  };
+    log.innerHTML = _subsActionLog.map(e => `
+      <div class="subs-action-item">
+        <div class="subs-action-item__when">${escapeHtml(fmtDateTime(e.when))}</div>
+        <div class="subs-action-item__what">
+          <span class="verb-${e.verb}">${e.verb === 'grant' ? 'GRANTED' : 'REVOKED'}</span>
+          ${escapeHtml(e.email || '—')}
+        </div>
+        ${e.reason ? `<div class="subs-action-item__reason">"${escapeHtml(e.reason)}"</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  async function subsGrantPro() {
+    const reasonInput = document.getElementById('subs-reason-input');
+    const result      = document.getElementById('subs-pro-result');
+    const btn         = document.getElementById('subs-grant-btn');
+    const reason      = (reasonInput?.value || '').trim();
+    if (!reason) {
+      if (result) { result.textContent = 'Reason is required.'; result.className = 'subs-detail__result err'; }
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = 'Granting…'; }
+    try {
+      const user = (state.users || []).find(u => u.user_id === _subsSelectedUserId);
+      await callProGrant(_subsSelectedUserId, true, reason);
+      window.analytics?.track('admin_pro_granted', { user_id: _subsSelectedUserId });
+      subsAppendLog('grant', user?.email || _subsSelectedUserId, reason);
+      if (result) { result.textContent = '✓ Pro access granted.'; result.className = 'subs-detail__result ok'; }
+      await loadUsers();
+      await loadSubsTab();
+    } catch (err) {
+      if (result) { result.textContent = `Failed: ${err.message}`; result.className = 'subs-detail__result err'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Grant Pro Access'; }
+    }
+  }
+
+  async function subsRevokePro() {
+    if (!confirm('Revoke Pro access for this user?')) return;
+    const result = document.getElementById('subs-pro-result');
+    const btn    = document.getElementById('subs-revoke-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Revoking…'; }
+    try {
+      const user = (state.users || []).find(u => u.user_id === _subsSelectedUserId);
+      await callProGrant(_subsSelectedUserId, false, 'admin revoke');
+      window.analytics?.track('admin_pro_revoked', { user_id: _subsSelectedUserId });
+      subsAppendLog('revoke', user?.email || _subsSelectedUserId, null);
+      if (result) { result.textContent = '✓ Pro access revoked.'; result.className = 'subs-detail__result'; }
+      await loadUsers();
+      await loadSubsTab();
+    } catch (err) {
+      if (result) { result.textContent = `Failed: ${err.message}`; result.className = 'subs-detail__result err'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Revoke Pro Access'; }
+    }
+  }
 
   async function extendSub(subId, btn) {
     btn.disabled = true;
