@@ -239,6 +239,8 @@
      it's visually distinct from the --surface triage-bar above. */
   .part-filter-tabs {
     display: flex; gap: 4px;
+    position: relative;        /* own stacking context */
+    z-index: 2;                 /* paint above sticky .triage-bar (z-index:1) */
     margin-top: 8px;
     padding: 10px 14px;
     background: var(--cream);
