@@ -239,9 +239,13 @@
      it's visually distinct from the --surface triage-bar above. */
   .part-filter-tabs {
     display: flex; gap: 4px;
-    position: relative;        /* own stacking context */
-    z-index: 2;                 /* paint above sticky .triage-bar (z-index:1) */
-    margin-top: 8px;
+    /* Middle column has no .col__title above triage-bar, so triage-bar's
+       sticky top:41px pulls it DOWN by 41px from its natural y=0 at scroll=0.
+       Tabs in normal flow start at (triage natural height) and would overlap
+       the sticky-shifted triage-bar. margin-top = 41 (clear the shift) + 8
+       (visual gap) pushes tabs below the sticky pin zone. Independent of
+       triage-bar height since the shift amount is what matters. */
+    margin-top: 49px;
     padding: 10px 14px;
     background: var(--cream);
     border-top: 1px solid var(--line);
