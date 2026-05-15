@@ -65,7 +65,7 @@
     color: var(--navy); border-bottom-color: var(--gold);
     font-weight: 600;
   }
-  .tab-panel { display: none; height: calc(100vh - 47px - 41px); overflow: hidden; }
+  .tab-panel:not(.active) { display: none; height: calc(100vh - 47px - 41px); overflow: hidden; }
   .tab-panel.active { display: block; }
   .tab-panel.active.layout { display: grid; }
 
