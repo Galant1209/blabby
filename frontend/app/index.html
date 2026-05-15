@@ -1336,6 +1336,97 @@
             flex-direction: column;
             gap: 14px;
         }
+        /* Part 1 / Part 2 filter tabs above the records list */
+        .admin-filter-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .admin-filter-tab {
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            padding: 6px 14px;
+            font-family: 'Libre Baskerville', serif;
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .admin-filter-tab:hover { color: var(--ink); }
+        .admin-filter-tab--active {
+            color: var(--green);
+            border-bottom-color: var(--green);
+        }
+        /* Part tag pill on each record row */
+        .admin-part-tag {
+            display: inline-block;
+            padding: 2px 7px;
+            margin-left: 8px;
+            font-family: var(--sans);
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            vertical-align: 2px;
+        }
+        .admin-part-tag--p1 {
+            background: rgba(45, 80, 22, 0.08);
+            color: var(--green);
+            border: 1px solid rgba(45, 80, 22, 0.3);
+        }
+        .admin-part-tag--p2 {
+            background: rgba(201, 168, 76, 0.12);
+            color: #8a6e1a;
+            border: 1px solid rgba(201, 168, 76, 0.5);
+        }
+        /* Part 2 inline detail (band scores + strengths/improvements) */
+        .admin-p2-detail {
+            margin: 8px 0 6px;
+            padding: 10px 12px;
+            background: var(--paper);
+            border-left: 2px solid var(--gold);
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 13px;
+            color: var(--ink-soft);
+        }
+        .admin-p2-detail__overall {
+            font-family: var(--sans);
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--ink);
+            margin-bottom: 6px;
+        }
+        .admin-p2-detail__row {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+        }
+        .admin-p2-detail__band {
+            font-family: var(--sans);
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            color: var(--ink);
+        }
+        .admin-p2-detail__section-label {
+            font-family: 'Libre Baskerville', serif;
+            font-style: italic;
+            font-size: 10px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-top: 8px;
+        }
+        .admin-p2-detail__list {
+            list-style: none;
+            padding: 0;
+            margin: 4px 0 0;
+        }
+        .admin-p2-detail__list li {
+            padding: 2px 0;
+            line-height: 1.5;
+        }
         .admin-item {
             padding: 14px 0;
             border-bottom: 1px dashed var(--border);
@@ -2856,6 +2947,11 @@
                 </div>
                 <div class="admin-panel">
                     <h2>最近練習</h2>
+                    <div id="admin-filter-tabs" class="admin-filter-tabs">
+                        <button class="admin-filter-tab admin-filter-tab--active" data-filter="all">全部</button>
+                        <button class="admin-filter-tab" data-filter="part1">Part 1</button>
+                        <button class="admin-filter-tab" data-filter="part2">Part 2</button>
+                    </div>
                     <div id="admin-list"></div>
                     <button id="admin-refresh-btn">Refresh</button>
                 </div>
@@ -4895,6 +4991,66 @@
         const adminList = document.getElementById('admin-list');
         const adminRefreshBtn = document.getElementById('admin-refresh-btn');
 
+        // Records-panel client-side Part 1 / Part 2 filter.
+        let adminCurrentFilter = 'all';
+        let adminLastRecords   = [];
+        function adminApplyFilter(records, filter) {
+            if (!Array.isArray(records)) return [];
+            if (filter === 'part2') return records.filter(r => r.mode === 'part2');
+            if (filter === 'part1') return records.filter(r => r.mode !== 'part2');
+            return records;
+        }
+
+        function renderAdminPart2Detail(record) {
+            const detail = document.createElement('div');
+            detail.className = 'admin-p2-detail';
+            let parsed = null;
+            try {
+                const raw = record.coach_response;
+                if (typeof raw === 'string' && raw.trim().startsWith('{')) {
+                    parsed = JSON.parse(raw);
+                }
+            } catch (e) { /* not valid JSON — fall through */ }
+            if (!parsed) {
+                detail.textContent = '評分未完成或評分失敗（無結構化資料）';
+                return detail;
+            }
+            const overall = document.createElement('div');
+            overall.className = 'admin-p2-detail__overall';
+            overall.textContent = `Overall band: ${parsed.band_score ?? '—'}`;
+            detail.appendChild(overall);
+            (parsed.criteria || []).forEach(c => {
+                const row = document.createElement('div');
+                row.className = 'admin-p2-detail__row';
+                const name = document.createElement('span');
+                name.textContent = c.name || '';
+                const band = document.createElement('span');
+                band.className = 'admin-p2-detail__band';
+                band.textContent = c.band ?? '—';
+                row.appendChild(name);
+                row.appendChild(band);
+                detail.appendChild(row);
+            });
+            const renderList = (label, items) => {
+                if (!Array.isArray(items) || items.length === 0) return;
+                const lbl = document.createElement('div');
+                lbl.className = 'admin-p2-detail__section-label';
+                lbl.textContent = label;
+                const ul = document.createElement('ul');
+                ul.className = 'admin-p2-detail__list';
+                items.forEach(t => {
+                    const li = document.createElement('li');
+                    li.textContent = t;
+                    ul.appendChild(li);
+                });
+                detail.appendChild(lbl);
+                detail.appendChild(ul);
+            };
+            renderList('STRENGTHS', parsed.strengths);
+            renderList('IMPROVEMENTS', parsed.improvements);
+            return detail;
+        }
+
         function truncateAdminText(value, maxLength) {
             const text = (value || '').trim();
             if (!text) return '-';
@@ -5001,8 +5157,10 @@
         }
 
         function renderAdminRecords(records) {
+            adminLastRecords = Array.isArray(records) ? records : [];
+            const filtered = adminApplyFilter(adminLastRecords, adminCurrentFilter);
             adminList.innerHTML = '';
-            if (!Array.isArray(records) || records.length === 0) {
+            if (filtered.length === 0) {
                 const empty = document.createElement('div');
                 empty.className = 'admin-snippet';
                 empty.textContent = '目前沒有資料';
@@ -5010,7 +5168,8 @@
                 return;
             }
 
-            records.forEach((record) => {
+            filtered.forEach((record) => {
+                const isPart2 = record.mode === 'part2';
                 const item = document.createElement('div');
                 item.className = 'admin-item';
 
@@ -5020,6 +5179,10 @@
                 const email = document.createElement('div');
                 email.className = 'admin-email';
                 email.textContent = record.email || 'unknown';
+                const partTag = document.createElement('span');
+                partTag.className = 'admin-part-tag ' + (isPart2 ? 'admin-part-tag--p2' : 'admin-part-tag--p1');
+                partTag.textContent = isPart2 ? 'P2' : 'P1';
+                email.appendChild(partTag);
 
                 const timestamp = document.createElement('div');
                 timestamp.textContent = formatAdminTimestamp(record.created_at);
@@ -5030,32 +5193,43 @@
                 const summary = document.createElement('div');
                 summary.className = 'admin-summary';
                 const topic = record.topic || '-';
-                const question = truncateAdminText(record.question, 60);
-                summary.textContent = `${topic} · ${question}`;
+                if (isPart2) {
+                    summary.textContent = topic;
+                } else {
+                    const question = truncateAdminText(record.question, 60);
+                    summary.textContent = `${topic} · ${question}`;
+                }
 
-                const said = document.createElement('div');
-                said.className = 'admin-snippet';
-                said.textContent = `Said: ${truncateAdminText(record.user_transcript, 80)}`;
+                item.appendChild(topLine);
+                item.appendChild(summary);
 
-                const coach = document.createElement('div');
-                coach.className = 'admin-snippet';
-                coach.textContent = `Coach: ${truncateAdminText(record.coach_response, 80)}`;
-
-                const pill = document.createElement('div');
-                pill.className = 'admin-pill';
-                pill.textContent = formatWeaknessTag(record.weakness_tag);
+                if (isPart2) {
+                    item.appendChild(renderAdminPart2Detail(record));
+                    const said = document.createElement('div');
+                    said.className = 'admin-snippet';
+                    said.textContent = `Transcript: ${truncateAdminText(record.user_transcript, 200)}`;
+                    item.appendChild(said);
+                } else {
+                    const said = document.createElement('div');
+                    said.className = 'admin-snippet';
+                    said.textContent = `Said: ${truncateAdminText(record.user_transcript, 80)}`;
+                    item.appendChild(said);
+                    const coach = document.createElement('div');
+                    coach.className = 'admin-snippet';
+                    coach.textContent = `Coach: ${truncateAdminText(record.coach_response, 80)}`;
+                    item.appendChild(coach);
+                    const pill = document.createElement('div');
+                    pill.className = 'admin-pill';
+                    pill.textContent = formatWeaknessTag(record.weakness_tag);
+                    item.appendChild(pill);
+                }
 
                 const detailLink = document.createElement('a');
                 detailLink.className = 'admin-snippet';
                 detailLink.href = `?admin=1&user_id=${encodeURIComponent(record.user_id || '')}`;
                 detailLink.textContent = '看這個使用者全部';
-
-                item.appendChild(topLine);
-                item.appendChild(summary);
-                item.appendChild(said);
-                item.appendChild(coach);
-                item.appendChild(pill);
                 item.appendChild(detailLink);
+
                 adminList.appendChild(item);
             });
         }
@@ -5392,6 +5566,14 @@
 
         if (adminRefreshBtn) {
             adminRefreshBtn.addEventListener('click', loadAdminData);
+            document.querySelectorAll('.admin-filter-tab').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    adminCurrentFilter = btn.dataset.filter || 'all';
+                    document.querySelectorAll('.admin-filter-tab').forEach(b =>
+                        b.classList.toggle('admin-filter-tab--active', b === btn));
+                    renderAdminRecords(adminLastRecords);
+                });
+            });
         }
 
         // Hidden admin entry: three quick clicks on the Blabby crown logo
