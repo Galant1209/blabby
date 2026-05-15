@@ -3122,7 +3122,7 @@ def get_user_pro_status(user_id: str) -> bool:
     if supabase_admin is None:
         return False
     try:
-        resp = supabase_admin.rpc("is_user_pro", {"target_user_id": user_id}).execute()
+        resp = supabase_admin.rpc("is_user_pro", {"user_id": user_id}).execute()
         return bool(resp.data)
     except Exception:
         logger.exception("get_user_pro_status failed", extra={"user_id": user_id})
@@ -3140,7 +3140,7 @@ async def is_user_pro(user_id: str) -> bool:
     if supabase_admin is None:
         return False
     try:
-        resp = supabase_admin.rpc("is_user_pro", {"target_user_id": user_id}).execute()
+        resp = supabase_admin.rpc("is_user_pro", {"user_id": user_id}).execute()
         return bool(resp.data)
     except Exception:
         logger.exception("is_user_pro failed", extra={"user_id": user_id})
