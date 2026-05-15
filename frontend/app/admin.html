@@ -232,6 +232,29 @@
     font-size: 11px; color: var(--muted); font-style: italic;
   }
 
+  /* Part 1 / Part 2 filter tabs — sits between triage-bar and practice rows */
+  .part-filter-tabs {
+    display: flex; gap: 4px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 81px; z-index: 1;
+  }
+  .part-filter-tab {
+    padding: 4px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: var(--sans); font-size: 12px;
+    color: var(--muted); cursor: pointer;
+    letter-spacing: 0.02em;
+    transition: background 100ms ease, color 100ms ease, border-color 100ms ease;
+  }
+  .part-filter-tab:hover { color: var(--ink); }
+  .part-filter-tab.active {
+    background: var(--green); color: var(--gold); border-color: var(--green);
+  }
+
   /* Practice row */
   .prow {
     display: grid;
@@ -334,6 +357,38 @@
   .detail-field__value.italic { font-style: italic; }
   .detail-field__value.empty { color: var(--muted); font-style: italic; }
   .detail-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+
+  /* Part 2 structured scoring inside record detail */
+  .p2-detail {
+    background: var(--cream);
+    border-left: 2px solid var(--gold);
+    padding: 10px 12px;
+    font-family: var(--serif);
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .p2-detail__overall {
+    font-family: var(--sans); font-size: 14px; font-weight: 700;
+    color: var(--ink); margin-bottom: 6px;
+  }
+  .p2-detail__row {
+    display: flex; justify-content: space-between;
+    padding: 3px 0; border-bottom: 1px solid rgba(0,0,0,0.05);
+  }
+  .p2-detail__row:last-of-type { border-bottom: none; }
+  .p2-detail__band {
+    font-family: var(--sans); font-weight: 600;
+    font-variant-numeric: tabular-nums; color: var(--ink);
+  }
+  .p2-detail__section {
+    font-family: var(--sans); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); margin-top: 8px; font-style: italic;
+  }
+  .p2-detail__list {
+    list-style: none; padding: 0; margin: 4px 0 0;
+  }
+  .p2-detail__list li { padding: 2px 0; line-height: 1.5; }
 
   /* === Mobile (single column with dropdown) === */
   .mobile-user-select { display: none; }
@@ -446,6 +501,7 @@
     detail: null,         // {user_id, email, total_records, records: [...]}
     selectedRecordId: null,
     showAll: false,
+    partFilter: 'all',    // 'all' | 'part1' | 'part2' — client-side filter, mode inferred from coach_response shape
     token: null,
   };
 
@@ -641,16 +697,30 @@
       </div>
     `;
 
+    // Part 1 / Part 2 filter tabs — sits between triage-bar and rows.
+    // mode field isn't returned by /admin/user/{id}, so infer from coach_response shape.
+    const tabs = `
+      <div class="part-filter-tabs" id="part-filter-tabs">
+        <button class="part-filter-tab ${state.partFilter === 'all' ? 'active' : ''}" data-filter="all">全部</button>
+        <button class="part-filter-tab ${state.partFilter === 'part1' ? 'active' : ''}" data-filter="part1">Part 1</button>
+        <button class="part-filter-tab ${state.partFilter === 'part2' ? 'active' : ''}" data-filter="part2">Part 2</button>
+      </div>
+    `;
+
+    const isP2 = (r) => typeof r.coach_response === 'string' && r.coach_response.trim().startsWith('{');
     const rows = records.map(r => {
       const grade = r.quality_grade || 'none';
       const badgeLabel = grade === 'none' ? 'unrated' : grade;
+      const part = isP2(r) ? 'part2' : 'part1';
+      const okQuality = state.showAll || grade === 'valid';
+      const okPart = state.partFilter === 'all' || state.partFilter === part;
       const cls = [
         'prow',
         r.id === state.selectedRecordId ? 'active' : '',
-        (state.showAll || grade === 'valid') ? '' : 'hidden',
+        (okQuality && okPart) ? '' : 'hidden',
       ].filter(Boolean).join(' ');
       return `
-        <div class="${cls}" data-record-id="${escapeHtml(r.id || '')}">
+        <div class="${cls}" data-record-id="${escapeHtml(r.id || '')}" data-part="${part}">
           <div class="prow__time">${escapeHtml(fmtTime(r.created_at))}</div>
           <div class="prow__main">
             <div class="prow__q">${escapeHtml(truncate(r.question || '—', 40))}</div>
@@ -663,13 +733,20 @@
       `;
     }).join('');
 
-    $('middle-content').innerHTML = bar + (rows || '<div class="col__empty">No records.</div>');
+    $('middle-content').innerHTML = bar + tabs + (rows || '<div class="col__empty">No records.</div>');
 
     $('show-all').addEventListener('change', (e) => {
       state.showAll = e.target.checked;
       renderMiddle();
     });
     $('reclassify-btn').addEventListener('click', runReclassify);
+
+    document.querySelectorAll('#part-filter-tabs .part-filter-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.partFilter = btn.dataset.filter || 'all';
+        renderMiddle();
+      });
+    });
 
     document.querySelectorAll('#middle-content .prow').forEach(el => {
       el.addEventListener('click', () => selectRecord(el.dataset.recordId));
@@ -821,6 +898,43 @@
     const better = (r.better_expression || '').trim();
     const betterZh = (r.better_expression_zh || '').trim();
     const reason = (r.quality_reason || '').trim();
+
+    // Part 2 detection + structured render: coach_response stores JSON
+    // ({band_score, criteria[], strengths[], improvements[]}) for Part 2.
+    let coachFieldHTML = `
+      <div class="detail-field">
+        <div class="detail-field__label">Coach response</div>
+        <div class="detail-field__value ${coach ? '' : 'empty'}">${escapeHtml(coach || '(empty)')}</div>
+      </div>`;
+    if (coach.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(coach);
+        if (parsed && (parsed.band_score !== undefined || Array.isArray(parsed.criteria))) {
+          const critRows = (parsed.criteria || []).map(cr => `
+            <div class="p2-detail__row">
+              <span>${escapeHtml(cr.name || '')}</span>
+              <span class="p2-detail__band">${escapeHtml(cr.band ?? '—')}</span>
+            </div>`).join('');
+          const liList = (arr) => (Array.isArray(arr) ? arr : [])
+            .map(s => `<li>${escapeHtml(s)}</li>`).join('');
+          coachFieldHTML = `
+            <div class="detail-field">
+              <div class="detail-field__label">Part 2 scoring</div>
+              <div class="p2-detail">
+                <div class="p2-detail__overall">Overall band: ${escapeHtml(parsed.band_score ?? '—')}</div>
+                ${critRows}
+                ${Array.isArray(parsed.strengths) && parsed.strengths.length ? `
+                  <div class="p2-detail__section">STRENGTHS</div>
+                  <ul class="p2-detail__list">${liList(parsed.strengths)}</ul>` : ''}
+                ${Array.isArray(parsed.improvements) && parsed.improvements.length ? `
+                  <div class="p2-detail__section">IMPROVEMENTS</div>
+                  <ul class="p2-detail__list">${liList(parsed.improvements)}</ul>` : ''}
+              </div>
+            </div>`;
+        }
+      } catch (e) { /* not valid JSON — keep plain text fallback */ }
+    }
+
     c.innerHTML = `
       <div class="detail-badges">
         <span class="badge ${escapeHtml(grade)}">${escapeHtml(grade === 'none' ? 'unrated' : grade)}</span>
@@ -839,10 +953,7 @@
         <div class="detail-field__label">Transcript</div>
         <div class="detail-field__value ${transcript ? '' : 'empty'}">${escapeHtml(transcript || '(empty)')}</div>
       </div>
-      <div class="detail-field">
-        <div class="detail-field__label">Coach response</div>
-        <div class="detail-field__value ${coach ? '' : 'empty'}">${escapeHtml(coach || '(empty)')}</div>
-      </div>
+      ${coachFieldHTML}
       ${better ? `
         <div class="detail-field">
           <div class="detail-field__label">Better expression</div>
