@@ -4970,12 +4970,13 @@ Return exactly this structure. Every field is required:
       "improvement": "<one actionable fix>"
     }}
   ],
-  "strengths": ["<specific observed behaviour with transcript evidence>", "<specific observed behaviour>"],
-  "improvements": ["<actionable language fix targeting a clear pattern>", "<actionable language fix>"]
+  "strengths": ["<Traditional Chinese 繁體中文 — specific observed behaviour with transcript evidence>", "<Traditional Chinese 繁體中文 — specific observed behaviour>"],
+  "improvements": ["<Traditional Chinese 繁體中文 — actionable language fix targeting a clear pattern>", "<Traditional Chinese 繁體中文 — actionable language fix>"]
 }}
 
 Computation rule: band_score = round(mean([fc, lr, gra, pron]) * 2) / 2
-Tone rule: factual, clinical — describe what was measured, not how the candidate felt."""
+Tone rule: factual, clinical — describe what was measured, not how the candidate felt.
+Language rule: the top-level "strengths" and "improvements" array items MUST be written in Traditional Chinese (繁體中文, zh-TW) — NOT Simplified Chinese, NOT English. English transcript quotes may be embedded inside the Chinese text as evidence (e.g. 引用「I think it's...」). All other fields (band_score, criteria[].name, criteria[].band, criteria[].description, criteria[].improvement) remain in English."""
 
 
 def _persist_part2(user_id: str, topic_title: str, transcript: str, result: Optional[dict]) -> None:
