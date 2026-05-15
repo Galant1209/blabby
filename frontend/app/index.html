@@ -2172,68 +2172,87 @@
             gap: 14px;
         }
         .p2-section[hidden] { display: none; }
-        .p2-card-wrap {
-            background: var(--surface);
-            border: 1.5px solid var(--border);
-            border-top: 3px solid var(--green);
-            padding: 22px 24px 20px;
+        /* Category filter — pill buttons under the Part switcher */
+        .p2-cat-filter {
+            display: flex; flex-wrap: wrap; gap: 8px;
+            padding: 12px 0 14px;
         }
-        .p2-part-label {
+        .p2-cat-btn {
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: transparent;
             font-family: 'Libre Baskerville', serif;
-            font-style: italic;
-            font-size: 11px;
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .p2-cat-btn:hover { color: var(--ink); border-color: var(--ink-soft); }
+        .p2-cat-btn--active {
+            background: var(--green);
+            border-color: var(--green);
             color: var(--gold);
-            letter-spacing: 0.08em;
-            margin-bottom: 8px;
+        }
+        /* Topic card — real card weight */
+        .p2-card-wrap {
+            position: relative;
+            background: #FFFFFF;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+            padding: 32px;
         }
         .p2-category-chip {
-            display: inline-block;
+            position: absolute;
+            top: 16px;
+            right: 20px;
             font-family: var(--sans);
-            font-size: 10px;
+            font-size: 11px;
             letter-spacing: 0.1em;
             text-transform: uppercase;
             color: var(--muted);
-            background: var(--paper);
-            border: 1px solid var(--border);
-            padding: 2px 8px;
-            margin-bottom: 10px;
         }
         .p2-title {
             font-family: 'Playfair Display', 'Noto Serif TC', serif;
-            font-weight: 500;
-            font-size: 20px;
+            font-weight: 600;
+            font-size: 26px;
             color: var(--ink);
-            line-height: 1.4;
-            margin-bottom: 14px;
+            line-height: 1.35;
+            padding-right: 90px;
+            margin-bottom: 22px;
         }
         .p2-bullets-header {
             font-family: 'Libre Baskerville', serif;
             font-style: italic;
             font-size: 12px;
             color: var(--muted);
-            margin-bottom: 6px;
+            margin: 18px 0 12px;
         }
         .p2-bullets {
             list-style: none;
             padding: 0;
-            margin: 0 0 18px 0;
+            margin: 0;
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 10px;
         }
         .p2-bullets li {
             font-family: 'EB Garamond', serif;
             font-size: 15px;
             color: var(--ink-soft);
-            padding-left: 14px;
-            position: relative;
+            border-left: 2px solid #e0ddd8;
+            padding-left: 12px;
+            line-height: 1.5;
         }
-        .p2-bullets li::before {
-            content: '—';
-            position: absolute;
-            left: 0;
-            color: var(--border);
-        }
+        /* Recording-state card: same card, scaled down */
+        #p2-card.p2-card-wrap--shrunk .p2-card-wrap { padding: 20px 24px; }
+        #p2-card.p2-card-wrap--shrunk .p2-title { font-size: 18px; margin-bottom: 14px; padding-right: 70px; }
+        #p2-card.p2-card-wrap--shrunk .p2-bullets-header { margin: 10px 0 8px; font-size: 11px; }
+        #p2-card.p2-card-wrap--shrunk .p2-bullets li { font-size: 13px; }
+        #p2-card.p2-card-wrap--shrunk .p2-bullets { gap: 6px; }
+        #p2-card.p2-card-wrap--shrunk .p2-category-chip { font-size: 10px; top: 12px; right: 16px; }
+        /* Primary / secondary buttons */
         .p2-action-btn {
             width: 100%;
             padding: 13px 20px;
@@ -2249,20 +2268,26 @@
         }
         .p2-action-btn:hover { background: var(--green-dark); color: var(--gold-warm); }
         .p2-action-btn--secondary {
+            width: auto;
+            margin: 0 auto;
+            padding: 8px 16px;
             background: transparent;
             color: var(--muted);
-            border-color: var(--border);
+            border: none;
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: 0.04em;
         }
-        .p2-action-btn--secondary:hover { background: var(--paper); color: var(--ink); }
+        .p2-action-btn--secondary:hover { background: transparent; color: var(--ink); }
         .p2-timer-card {
             background: var(--surface);
             border: 1.5px solid var(--border);
-            padding: 36px 24px 32px;
+            padding: 28px 24px 24px;
             text-align: center;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
         }
         .p2-phase-label {
             font-family: 'Libre Baskerville', serif;
@@ -2270,14 +2295,6 @@
             font-size: 11px;
             color: var(--gold);
             letter-spacing: 0.08em;
-        }
-        .p2-countdown {
-            font-family: var(--sans);
-            font-size: 3.8rem;
-            font-weight: 700;
-            font-variant-numeric: tabular-nums;
-            color: var(--ink);
-            line-height: 1;
         }
         .p2-hint {
             font-family: 'EB Garamond', serif;
@@ -2321,69 +2338,75 @@
             letter-spacing: 0.08em;
             margin-bottom: 8px;
         }
+        /* Score card — diagnostic, no colored cards, no celebration */
         .p2-score-card {
-            background: var(--surface);
-            border: 1.5px solid var(--border);
-            border-top: 3px solid var(--gold);
-            padding: 22px 24px 20px;
+            background: #FFFFFF;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+            padding: 28px 32px;
             display: flex;
             flex-direction: column;
-            gap: 18px;
+            gap: 20px;
         }
         .p2-overall {
             display: flex;
-            align-items: baseline;
-            gap: 10px;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
         }
         .p2-overall-label {
             font-family: 'Libre Baskerville', serif;
             font-style: italic;
             font-size: 11px;
-            color: var(--gold);
+            color: var(--muted);
             letter-spacing: 0.08em;
+            text-transform: uppercase;
         }
         .p2-overall-band {
             font-family: var(--sans);
-            font-size: 2.6rem;
-            font-weight: 800;
+            font-size: 3.6rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
             color: var(--ink);
             line-height: 1;
         }
         .p2-criteria-list {
             display: flex;
             flex-direction: column;
-            gap: 10px;
         }
-        .p2-criterion {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
+        .p2-crit-row {
+            display: grid;
+            grid-template-columns: 140px 1fr 40px;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0ece4;
         }
-        .p2-criterion-band {
-            flex-shrink: 0;
-            min-width: 36px;
-            padding: 2px 6px;
-            background: var(--paper);
-            border: 1px solid var(--border);
-            font-family: var(--sans);
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--ink);
-            text-align: center;
-        }
-        .p2-criterion-body { flex: 1; }
-        .p2-criterion-name {
+        .p2-crit-row:last-child { border-bottom: none; }
+        .p2-crit-row__name {
             font-family: 'Libre Baskerville', serif;
             font-size: 12px;
-            font-weight: 700;
             color: var(--ink);
-            margin-bottom: 2px;
+            letter-spacing: 0.02em;
         }
-        .p2-criterion-desc {
-            font-family: 'EB Garamond', serif;
+        .p2-crit-row__bar {
+            height: 4px;
+            background: #f0ece4;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .p2-crit-row__fill {
+            height: 100%;
+            background: var(--green);
+            transition: width 0.4s ease;
+        }
+        .p2-crit-row__band {
+            font-family: var(--sans);
             font-size: 14px;
-            color: var(--ink-soft);
-            line-height: 1.5;
+            font-weight: 600;
+            color: var(--ink);
+            text-align: right;
+            font-variant-numeric: tabular-nums;
         }
         .p2-feedback-section { display: flex; flex-direction: column; gap: 8px; }
         .p2-feedback-label {
@@ -2392,6 +2415,7 @@
             font-size: 11px;
             color: var(--muted);
             letter-spacing: 0.06em;
+            text-transform: uppercase;
         }
         .p2-feedback-list {
             list-style: none;
@@ -2400,47 +2424,9 @@
         }
         .p2-feedback-list li {
             font-family: 'EB Garamond', serif;
-            font-size: 15px;
+            font-size: 14px;
             color: var(--ink-soft);
-            padding-left: 14px;
-            position: relative;
-            line-height: 1.5;
-        }
-        .p2-feedback-list li::before {
-            content: '·';
-            position: absolute; left: 2px;
-            color: var(--gold);
-            font-size: 18px; line-height: 1.2;
-        }
-        .p2-criterion-improvement {
-            font-family: 'EB Garamond', serif;
-            font-style: italic;
-            font-size: 13px;
-            color: var(--muted);
-            margin-top: 3px;
-        }
-        /* Category filter */
-        .p2-cat-filter {
-            display: flex; flex-wrap: wrap; gap: 6px;
-            padding: 14px 0 4px;
-        }
-        .p2-cat-btn {
-            padding: 4px 10px;
-            border: 1px solid var(--border);
-            background: transparent;
-            font-family: 'Libre Baskerville', serif;
-            font-style: italic;
-            font-size: 11px;
-            letter-spacing: 0.05em;
-            color: var(--muted);
-            cursor: pointer;
-            transition: background 0.15s, color 0.15s;
-        }
-        .p2-cat-btn:hover { background: var(--paper); color: var(--ink); }
-        .p2-cat-btn--active {
-            background: var(--paper);
-            border-color: var(--gold);
-            color: var(--ink);
+            line-height: 1.55;
         }
         /* Generic Part 2 modal */
         .p2-modal-overlay {
@@ -2595,6 +2581,16 @@
             <button id="part2-tab" class="part-tab">Part 2</button>
         </div>
 
+        <!-- Part 2 category filter — shown only when Part 2 is active -->
+        <div id="p2-cat-filter" class="p2-cat-filter" style="display:none">
+            <button class="p2-cat-btn p2-cat-btn--active" data-cat="">All</button>
+            <button class="p2-cat-btn" data-cat="People">People</button>
+            <button class="p2-cat-btn" data-cat="Places">Places</button>
+            <button class="p2-cat-btn" data-cat="Objects">Objects</button>
+            <button class="p2-cat-btn" data-cat="Events">Events</button>
+            <button class="p2-cat-btn" data-cat="Experiences">Experiences</button>
+        </div>
+
         <!-- Diagnosis entry card — sits ABOVE Scenario A. Owned by feature/student-diagnosis. -->
         <section id="speaking-practice" class="speaking-practice">
             <section class="question-card">
@@ -2700,34 +2696,16 @@
             <!-- Phase 1: Topic card -->
             <section id="p2-card" class="p2-section" hidden>
                 <div class="p2-card-wrap">
-                    <div class="p2-part-label">Part 2 · 你的題目</div>
                     <div id="p2-category" class="p2-category-chip"></div>
                     <div id="p2-title" class="p2-title"></div>
                     <div class="p2-bullets-header">You should say:</div>
                     <ul id="p2-bullets" class="p2-bullets"></ul>
                 </div>
-                <div id="p2-cat-filter" class="p2-cat-filter">
-                    <button class="p2-cat-btn p2-cat-btn--active" data-cat="">All</button>
-                    <button class="p2-cat-btn" data-cat="People">People</button>
-                    <button class="p2-cat-btn" data-cat="Places">Places</button>
-                    <button class="p2-cat-btn" data-cat="Objects">Objects</button>
-                    <button class="p2-cat-btn" data-cat="Events">Events</button>
-                    <button class="p2-cat-btn" data-cat="Experiences">Experiences</button>
-                </div>
-                <button id="p2-prep-btn" class="p2-action-btn">開始備考 (1:00)</button>
+                <button id="p2-start-btn" class="p2-action-btn">開始作答</button>
                 <button id="p2-new-topic-btn-card" class="p2-action-btn p2-action-btn--secondary">換一題</button>
             </section>
 
-            <!-- Phase 2: Prep countdown -->
-            <section id="p2-prep" class="p2-section" hidden>
-                <div class="p2-timer-card">
-                    <div class="p2-phase-label">備考中</div>
-                    <div id="p2-countdown" class="p2-countdown">1:00</div>
-                    <p class="p2-hint">時間到後自動開始錄音</p>
-                </div>
-            </section>
-
-            <!-- Phase 3: Recording -->
+            <!-- Phase 2: Recording (card above stays visible in shrunk form) -->
             <section id="p2-record" class="p2-section" hidden>
                 <div class="p2-timer-card">
                     <div class="p2-phase-label">錄音中</div>
@@ -3531,6 +3509,8 @@
             if (speakingPractice) speakingPractice.classList.remove('visible');
             const switcher = p2El('part-switcher');
             if (switcher) switcher.style.display = 'none';
+            const catFilterHub = p2El('p2-cat-filter');
+            if (catFilterHub) catFilterHub.style.display = 'none';
             // Reset Part 2 to Part 1 default when returning to hub
             if (currentPart === 2) {
                 currentPart = 1;
@@ -3834,9 +3814,7 @@
         // Part 2 state
         let currentPart      = 1;
         let part2Topic       = null;
-        let p2PrepTimer      = null;
         let p2RecordTimer    = null;
-        let p2SecondsLeft    = 60;
         let p2RecordSeconds  = 0;
         let p2MediaRecorder  = null;
         let p2Chunks         = [];
@@ -3998,10 +3976,22 @@
         function p2El(id) { return document.getElementById(id); }
 
         function p2ShowOnly(sectionId) {
-            ['p2-card', 'p2-prep', 'p2-record', 'p2-score'].forEach(id => {
-                const el = p2El(id);
-                if (el) el.hidden = id !== sectionId;
-            });
+            const card = p2El('p2-card');
+            const rec  = p2El('p2-record');
+            const score = p2El('p2-score');
+            if (card)  card.hidden  = true;
+            if (rec)   rec.hidden   = true;
+            if (score) score.hidden = true;
+            if (card) card.classList.remove('p2-card-wrap--shrunk');
+            if (sectionId === 'p2-card' && card) {
+                card.hidden = false;
+            } else if (sectionId === 'p2-record' && rec) {
+                // Card stays visible (shrunk) above the recording panel.
+                if (card) { card.hidden = false; card.classList.add('p2-card-wrap--shrunk'); }
+                rec.hidden = false;
+            } else if (sectionId === 'p2-score' && score) {
+                score.hidden = false;
+            }
         }
 
         function switchToPart(n) {
@@ -4013,25 +4003,26 @@
 
             const questionCard = document.querySelector('.question-card');
             const recorderCard = document.querySelector('.recorder-card');
+            const catFilter    = p2El('p2-cat-filter');
             if (n === 1) {
                 if (questionCard) questionCard.hidden = false;
                 if (recorderCard) recorderCard.hidden = false;
                 if (feedbackSection) feedbackSection.classList.remove('visible');
+                if (catFilter) catFilter.style.display = 'none';
                 p2ShowOnly(null);
                 p2StopAll();
             } else {
                 if (questionCard) questionCard.hidden = true;
                 if (recorderCard) recorderCard.hidden = true;
                 if (feedbackSection) feedbackSection.classList.remove('visible');
+                if (catFilter) catFilter.style.display = '';
                 p2ShowOnly(null);
                 loadPart2Topic(p2CurrentCategory);
             }
         }
 
         function p2StopAll() {
-            clearInterval(p2PrepTimer);
             clearInterval(p2RecordTimer);
-            p2PrepTimer = null;
             p2RecordTimer = null;
             if (p2MediaRecorder && p2MediaRecorder.state !== 'inactive') {
                 p2MediaRecorder.stop();
@@ -4092,23 +4083,6 @@
             const m = Math.floor(secs / 60);
             const s = String(secs % 60).padStart(2, '0');
             return `${m}:${s}`;
-        }
-
-        function startPart2Prep() {
-            p2SecondsLeft = 60;
-            p2ShowOnly('p2-prep');
-            const countdownEl = p2El('p2-countdown');
-            if (countdownEl) countdownEl.textContent = '1:00';
-
-            p2PrepTimer = setInterval(() => {
-                p2SecondsLeft--;
-                if (countdownEl) countdownEl.textContent = p2FmtTime(p2SecondsLeft);
-                if (p2SecondsLeft <= 0) {
-                    clearInterval(p2PrepTimer);
-                    p2PrepTimer = null;
-                    startPart2Recording();
-                }
-            }, 1000);
         }
 
         async function startPart2Recording() {
@@ -4263,14 +4237,12 @@
                 return;
             }
 
+            const pct = b => Math.max(0, Math.min(100, (Number(b) / 9) * 100));
             const criteriaHtml = (data.criteria || []).map(c =>
-                `<div class="p2-criterion">
-                    <div class="p2-criterion-band">${c.band}</div>
-                    <div class="p2-criterion-body">
-                        <div class="p2-criterion-name">${c.name}</div>
-                        <div class="p2-criterion-desc">${c.description}</div>
-                        ${c.improvement ? `<div class="p2-criterion-improvement">→ ${c.improvement}</div>` : ''}
-                    </div>
+                `<div class="p2-crit-row">
+                    <div class="p2-crit-row__name">${c.name}</div>
+                    <div class="p2-crit-row__bar"><div class="p2-crit-row__fill" style="width:${pct(c.band)}%"></div></div>
+                    <div class="p2-crit-row__band">${c.band}</div>
                 </div>`
             ).join('');
 
@@ -4278,8 +4250,8 @@
 
             cardEl.innerHTML =
                 `<div class="p2-overall">
-                    <div class="p2-overall-label">Overall Band</div>
                     <div class="p2-overall-band">${data.band_score}</div>
+                    <div class="p2-overall-label">Overall Band</div>
                 </div>
                 <div class="p2-criteria-list">${criteriaHtml}</div>
                 <div class="p2-feedback-section">
@@ -4834,7 +4806,7 @@
         // ── Part 2 event listeners ────────────────────────────────────
         p2El('part1-tab').addEventListener('click', () => switchToPart(1));
         p2El('part2-tab').addEventListener('click', () => switchToPart(2));
-        p2El('p2-prep-btn').addEventListener('click', startPart2Prep);
+        p2El('p2-start-btn').addEventListener('click', startPart2Recording);
         p2El('p2-stop-btn').addEventListener('click', stopPart2Recording);
         p2El('p2-new-topic-btn').addEventListener('click', () => loadPart2Topic(p2CurrentCategory));
         p2El('p2-new-topic-btn-card').addEventListener('click', () => loadPart2Topic(p2CurrentCategory));
