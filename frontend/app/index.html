@@ -5298,6 +5298,8 @@
             if (!adminSection || !adminList) return;
             adminSection.style.display = '';
             adminRefreshBtn.style.display = '';
+            const staticTabsForList = document.getElementById('admin-filter-tabs');
+            if (staticTabsForList) staticTabsForList.style.display = '';
             adminList.textContent = '載入中...';
             const usersContainer = document.getElementById('admin-users');
             if (usersContainer) {
@@ -5321,7 +5323,7 @@
                 const authHeaders = { 'Authorization': `Bearer ${accessToken}` };
                 const [usersResult, recentResult] = await Promise.allSettled([
                     fetch(`${API_BASE}/admin/users`, { headers: authHeaders }).then(async (r) => ({ status: r.status, body: await r.json() })),
-                    fetch(`${API_BASE}/admin/recent`, { headers: authHeaders }).then(async (r) => ({ status: r.status, body: await r.json() })),
+                    fetch(`${API_BASE}/admin/recent?limit=100`, { headers: authHeaders }).then(async (r) => ({ status: r.status, body: await r.json() })),
                 ]);
 
                 // Users list (non-blocking — only writes into #admin-users).
@@ -5431,7 +5433,7 @@
                     ? '<span class="admin-part-tag admin-part-tag--p2">P2</span>'
                     : '<span class="admin-part-tag admin-part-tag--p1">P1</span>';
                 return `
-                    <div class="qrow" data-grade="${escapeHtml(grade)}">
+                    <div class="qrow" data-grade="${escapeHtml(grade)}" data-part="${isPart2 ? 'part2' : 'part1'}">
                         <div class="qrow__time">${escapeHtml(formatAdminTableTimestamp(record.created_at))}</div>
                         <div class="qrow__main">
                             <div class="qrow__question">${partTag} ${escapeHtml(record.question || '—')}</div>
@@ -5468,25 +5470,41 @@
                                 Show all (default: valid only)
                             </label>
                         </div>
+                        <div id="qrow-filter-tabs" class="admin-filter-tabs">
+                            <button class="admin-filter-tab admin-filter-tab--active" data-filter="all">全部</button>
+                            <button class="admin-filter-tab" data-filter="part1">Part 1</button>
+                            <button class="admin-filter-tab" data-filter="part2">Part 2</button>
+                        </div>
                         <div id="qrow-list">${qrowHtml}</div>
                     </section>
                 </div>
             `;
             attachDiagnosisHandler();
 
-            // Default = valid only. Toggle flips to all.
-            const applyFilter = (showAll) => {
+            // Combined filter: quality grade (show-all toggle) + part (P1/P2 tabs).
+            let qrowShowAll = false;
+            let qrowPartFilter = 'all';
+            const applyQrowFilters = () => {
                 document.querySelectorAll('#qrow-list .qrow').forEach((el) => {
-                    if (showAll || el.dataset.grade === 'valid') {
-                        el.classList.remove('hidden');
-                    } else {
-                        el.classList.add('hidden');
-                    }
+                    const okQuality = qrowShowAll || el.dataset.grade === 'valid';
+                    const part = el.dataset.part;
+                    const okPart = qrowPartFilter === 'all'
+                        || (qrowPartFilter === 'part2' && part === 'part2')
+                        || (qrowPartFilter === 'part1' && part !== 'part2');
+                    el.classList.toggle('hidden', !(okQuality && okPart));
                 });
             };
-            applyFilter(false);
+            applyQrowFilters();
             const toggle = document.getElementById('show-all-toggle');
-            if (toggle) toggle.addEventListener('change', (e) => applyFilter(e.target.checked));
+            if (toggle) toggle.addEventListener('change', (e) => { qrowShowAll = e.target.checked; applyQrowFilters(); });
+            document.querySelectorAll('#qrow-filter-tabs .admin-filter-tab').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    qrowPartFilter = btn.dataset.filter || 'all';
+                    document.querySelectorAll('#qrow-filter-tabs .admin-filter-tab').forEach((b) =>
+                        b.classList.toggle('admin-filter-tab--active', b === btn));
+                    applyQrowFilters();
+                });
+            });
 
             const btn = document.getElementById('reclassify-btn');
             const status = document.getElementById('reclassify-status');
@@ -5525,6 +5543,8 @@
             if (!adminSection || !adminList) return;
             adminSection.style.display = '';
             adminRefreshBtn.style.display = 'none';
+            const staticTabsForDetail = document.getElementById('admin-filter-tabs');
+            if (staticTabsForDetail) staticTabsForDetail.style.display = 'none';
             adminList.textContent = '載入中...';
 
             try {
