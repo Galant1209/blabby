@@ -4921,14 +4921,24 @@ async def get_part2_topic(category: Optional[str] = None):
 # Part 2 evaluation
 # ---------------------------------------------------------------------------
 
-def _build_part2_scoring_prompt(topic_title: str, bullets: list[str]) -> str:
+def _build_part2_scoring_prompt(topic_title: str, bullets: list[str], notes: Optional[str] = None) -> str:
     bullets_text = "\n".join(f"- {b}" for b in bullets)
+    notes_block = ""
+    if notes and notes.strip():
+        notes_block = (
+            "\n\n--- STUDENT'S PREPARATION NOTES ---\n"
+            f"{notes.strip()}\n\n"
+            "Use these notes to diagnose gaps between preparation and actual speech "
+            "(e.g. planned vocabulary not used, missing structural points). "
+            "Do NOT use notes to inflate band scores — scoring is based on the spoken "
+            "transcript only."
+        )
     return f"""You are a trained IELTS Speaking examiner. Score the Part 2 monologue below against all four official criteria. Return ONLY a valid JSON object — no markdown fences, no commentary before or after.
 
 CUE CARD given to candidate:
 Topic: {topic_title}
 You should say:
-{bullets_text}
+{bullets_text}{notes_block}
 
 --- OFFICIAL IELTS BAND DESCRIPTOR ANCHORS ---
 
@@ -5015,7 +5025,13 @@ Language rule: the top-level "strengths" and "improvements" array items MUST be 
 Accuracy over encouragement. These rules are non-negotiable."""
 
 
-def _persist_part2(user_id: str, topic_title: str, transcript: str, result: Optional[dict]) -> None:
+def _persist_part2(
+    user_id: str,
+    topic_title: str,
+    transcript: str,
+    result: Optional[dict],
+    notes: Optional[str] = None,
+) -> None:
     if supabase_admin is None:
         return
     try:
@@ -5025,6 +5041,7 @@ def _persist_part2(user_id: str, topic_title: str, transcript: str, result: Opti
             "question":         topic_title,
             "user_transcript":  transcript,
             "coach_response":   json.dumps(result) if result is not None else None,
+            "notes":            (notes or "").strip() or None,
             "mode":             "part2",
         }).execute()
     except Exception:
@@ -5038,6 +5055,7 @@ async def part2_evaluate(
     audio: UploadFile = File(...),
     topic_title: str = Form(...),
     bullet_points: str = Form(...),
+    notes: str = Form(""),
     authorization: Optional[str] = Header(None),
 ):
     user_id = verify_token(authorization)
@@ -5046,6 +5064,8 @@ async def part2_evaluate(
         bullets: list[str] = json.loads(bullet_points)
     except (json.JSONDecodeError, TypeError):
         raise HTTPException(status_code=422, detail="bullet_points must be a JSON array string")
+
+    notes_clean: Optional[str] = (notes or "").strip() or None
 
     # Step 1: transcribe via Groq Whisper
     audio_bytes = await audio.read()
@@ -5066,22 +5086,22 @@ async def part2_evaluate(
     if not transcript:
         raise HTTPException(status_code=422, detail="Could not transcribe audio — no speech detected")
 
-    # Step 2: Claude scoring
+    # Step 2: Claude scoring (prep notes inform diagnosis only — see prompt rules)
     try:
-        system_prompt = _build_part2_scoring_prompt(topic_title, bullets)
+        system_prompt = _build_part2_scoring_prompt(topic_title, bullets, notes_clean)
         result = run_claude([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": transcript},
         ])
     except Exception:
         logger.exception("part2 claude scoring failed", extra={"user_id": user_id})
-        _persist_part2(user_id, topic_title, transcript, None)
-        return {"transcript": transcript, "scoring_failed": True}
+        _persist_part2(user_id, topic_title, transcript, None, notes_clean)
+        return {"transcript": transcript, "notes": notes_clean, "scoring_failed": True}
 
     # Step 3: persist to practice_records
-    _persist_part2(user_id, topic_title, transcript, result)
+    _persist_part2(user_id, topic_title, transcript, result, notes_clean)
 
-    return {**result, "transcript": transcript}
+    return {**result, "transcript": transcript, "notes": notes_clean}
 
 
 if __name__ == "__main__":
