@@ -2408,19 +2408,24 @@
         /* Hide topic-card action buttons during recording — keep only the cue card itself */
         #p2-card.p2-card-wrap--shrunk #p2-start-btn,
         #p2-card.p2-card-wrap--shrunk #p2-new-topic-btn-card { display: none; }
-        /* Prep notes — notepad-feel, no boxy border, readable in shrunk state */
+        /* Prep notes — own block visually attached below the topic card.
+           Cream bg + gold left border (like .brief-block) make it read as a
+           separate notepad, not a region of the white card above. */
         .p2-notes-wrap {
-            margin-top: 22px;
-            padding-top: 14px;
-            border-top: 1px dashed var(--border);
+            background: var(--cream);
+            border-left: 3px solid var(--gold);
+            border-radius: 6px;
+            padding: 18px 22px;
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
         }
         .p2-notes-label {
             display: block;
             font-family: 'Libre Baskerville', serif;
-            font-style: italic;
-            font-size: 12px;
-            color: var(--muted);
-            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--gold);
+            letter-spacing: 0.04em;
+            margin-bottom: 10px;
         }
         .p2-notes {
             display: block;
@@ -2447,8 +2452,8 @@
         .p2-notes::placeholder { color: var(--muted); font-style: italic; }
         .p2-notes:focus { background-color: rgba(201, 168, 76, 0.04); }
         /* Shrunk: smaller but still readable, no scroll-jacking during recording */
-        #p2-card.p2-card-wrap--shrunk .p2-notes-wrap { margin-top: 14px; padding-top: 10px; }
-        #p2-card.p2-card-wrap--shrunk .p2-notes-label { font-size: 11px; margin-bottom: 4px; }
+        #p2-card.p2-card-wrap--shrunk .p2-notes-wrap { padding: 12px 16px; }
+        #p2-card.p2-card-wrap--shrunk .p2-notes-label { font-size: 12px; margin-bottom: 6px; }
         #p2-card.p2-card-wrap--shrunk .p2-notes { font-size: 13px; line-height: 20px;
             background:
                 transparent
@@ -2482,6 +2487,13 @@
             color: var(--muted);
             white-space: pre-wrap;
             word-break: break-word;
+        }
+        /* notes_analysis — score-page diagnostic comparison block */
+        .p2-notes-analysis {
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 15px;
+            line-height: 1.55;
+            color: var(--ink-soft);
         }
         /* Primary / secondary buttons */
         .p2-action-btn {
@@ -2960,12 +2972,12 @@
                     <div id="p2-title" class="p2-title"></div>
                     <div class="p2-bullets-header">You should say:</div>
                     <ul id="p2-bullets" class="p2-bullets"></ul>
-                    <div class="p2-notes-wrap">
-                        <label class="p2-notes-label" for="p2-notes">備考筆記（選填）</label>
-                        <textarea id="p2-notes" class="p2-notes" rows="5"
-                                  placeholder="寫下你的思路、關鍵字、句子架構..."
-                                  autocomplete="off" spellcheck="false"></textarea>
-                    </div>
+                </div>
+                <div class="p2-notes-wrap">
+                    <label class="p2-notes-label" for="p2-notes">備考筆記</label>
+                    <textarea id="p2-notes" class="p2-notes" rows="5"
+                              placeholder="寫下你的思路、關鍵字、句子架構..."
+                              autocomplete="off" spellcheck="false"></textarea>
                 </div>
                 <button id="p2-start-btn" class="p2-action-btn">開始作答</button>
                 <button id="p2-new-topic-btn-card" class="p2-action-btn p2-action-btn--secondary">換一題</button>
@@ -4576,6 +4588,16 @@
                    </div>`
                 : '';
 
+            // notes_analysis: LLM-produced "notes vs speech" diagnostic. Render between
+            // Improvements and the raw notes memo. null/empty → omit the whole section.
+            const notesAnalysis = (data.notes_analysis || '').trim();
+            const notesAnalysisHtml = notesAnalysis
+                ? `<div class="p2-feedback-section">
+                       <div class="p2-feedback-label">筆記 vs 實際表現</div>
+                       <div class="p2-notes-analysis">${escapeHtml(notesAnalysis)}</div>
+                   </div>`
+                : '';
+
             cardEl.innerHTML =
                 `${proHeader}<div class="p2-overall">
                     <div class="p2-overall-band">${data.band_score}</div>
@@ -4590,6 +4612,7 @@
                     <div class="p2-feedback-label">Improvements</div>
                     <ul class="p2-feedback-list">${liHtml(data.improvements)}</ul>
                 </div>
+                ${notesAnalysisHtml}
                 ${notesHtml}`;
         }
 

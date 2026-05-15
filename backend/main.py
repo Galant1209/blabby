@@ -4928,11 +4928,22 @@ def _build_part2_scoring_prompt(topic_title: str, bullets: list[str], notes: Opt
         notes_block = (
             "\n\n--- STUDENT'S PREPARATION NOTES ---\n"
             f"{notes.strip()}\n\n"
-            "Use these notes to diagnose gaps between preparation and actual speech "
-            "(e.g. planned vocabulary not used, missing structural points). "
-            "Do NOT use notes to inflate band scores — scoring is based on the spoken "
-            "transcript only."
+            "These notes are the candidate's plan. After your strengths and improvements, "
+            "you MUST populate the top-level \"notes_analysis\" field in the JSON output with:\n"
+            "  - A concrete comparison of what was written in the notes versus what was actually said.\n"
+            "  - Point out specific items from the notes that were NOT mentioned in the speech.\n"
+            "  - Point out things in the speech that were NOT in the notes (improvised content).\n"
+            "  - Be specific: quote actual words from the notes and the transcript.\n"
+            "  - Maximum 2 sentences. Direct, diagnostic tone in Traditional Chinese (繁體中文).\n"
+            "Scoring rule: Do NOT use notes to inflate band scores — bands are based on the spoken transcript only."
         )
+    # Schema fragment — notes_analysis is required when notes_block is non-empty,
+    # null when the student submitted no notes (also reflected in the JSON sample below).
+    notes_schema_line = (
+        '  "notes_analysis": "<Traditional Chinese 繁體中文 — ≤2-sentence diagnostic comparison of notes vs speech>"'
+        if notes and notes.strip()
+        else '  "notes_analysis": null'
+    )
     return f"""You are a trained IELTS Speaking examiner. Score the Part 2 monologue below against all four official criteria. Return ONLY a valid JSON object — no markdown fences, no commentary before or after.
 
 CUE CARD given to candidate:
@@ -5006,12 +5017,13 @@ Return exactly this structure. Every field is required:
     }}
   ],
   "strengths": ["<Traditional Chinese 繁體中文 — specific observed behaviour with transcript evidence>", "<Traditional Chinese 繁體中文 — specific observed behaviour>"],
-  "improvements": ["<Traditional Chinese 繁體中文 — actionable language fix targeting a clear pattern>", "<Traditional Chinese 繁體中文 — actionable language fix>"]
+  "improvements": ["<Traditional Chinese 繁體中文 — actionable language fix targeting a clear pattern>", "<Traditional Chinese 繁體中文 — actionable language fix>"],
+{notes_schema_line}
 }}
 
 Computation rule: band_score = round(mean([fc, lr, gra, pron]) * 2) / 2
 Tone rule: factual, clinical — describe what was measured, not how the candidate felt.
-Language rule: the top-level "strengths" and "improvements" array items MUST be written in Traditional Chinese (繁體中文, zh-TW) — NOT Simplified Chinese, NOT English. English transcript quotes may be embedded inside the Chinese text as evidence (e.g. 引用「I think it's...」). All other fields (band_score, criteria[].name, criteria[].band, criteria[].description, criteria[].improvement) remain in English.
+Language rule: the top-level "strengths", "improvements", and (when non-null) "notes_analysis" MUST be written in Traditional Chinese (繁體中文, zh-TW) — NOT Simplified Chinese, NOT English. English transcript quotes may be embedded inside the Chinese text as evidence (e.g. 引用「I think it's...」). All other fields (band_score, criteria[].name, criteria[].band, criteria[].description, criteria[].improvement) remain in English.
 
 --- BAND SCORE CALIBRATION RULES (non-negotiable, override the computation rule when in conflict) ---
 
