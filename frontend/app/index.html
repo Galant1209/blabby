@@ -2252,6 +2252,9 @@
         #p2-card.p2-card-wrap--shrunk .p2-bullets li { font-size: 13px; }
         #p2-card.p2-card-wrap--shrunk .p2-bullets { gap: 6px; }
         #p2-card.p2-card-wrap--shrunk .p2-category-chip { font-size: 10px; top: 12px; right: 16px; }
+        /* Hide topic-card action buttons during recording — keep only the cue card itself */
+        #p2-card.p2-card-wrap--shrunk #p2-start-btn,
+        #p2-card.p2-card-wrap--shrunk #p2-new-topic-btn-card { display: none; }
         /* Primary / secondary buttons */
         .p2-action-btn {
             width: 100%;
@@ -4086,6 +4089,13 @@
         }
 
         async function startPart2Recording() {
+            // Re-entry guard: claim the slot synchronously before any await so a
+            // rapid second click can't run through and register a second timer
+            // (which would double-increment p2RecordSeconds → 2s/sec).
+            if (p2IsRecording) return;
+            p2IsRecording = true;
+            // Defensive: clear any orphan interval from a prior aborted run.
+            if (p2RecordTimer) { clearInterval(p2RecordTimer); p2RecordTimer = null; }
             p2ShowOnly('p2-record');
             p2RecordSeconds = 0;
             const timeEl = p2El('p2-time');
@@ -4097,6 +4107,7 @@
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             } catch (err) {
+                p2IsRecording = false;
                 const isPermission = err.name === 'NotAllowedError' || err.name === 'NotFoundError';
                 const msg = isPermission
                     ? '麥克風存取被拒絕。請到瀏覽器設定 → 網站設定 → 麥克風，允許此網站存取後重新整理頁面。'
