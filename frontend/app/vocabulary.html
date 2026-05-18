@@ -662,6 +662,31 @@ header.brand .subtitle {
     line-height: 1.65;
 }
 
+/* Source tag — plain text in the journal-entry top-right corner.
+   --ink = #2C2416 → rgb(44, 36, 22); rendered at 50% opacity per the
+   "faded ink" brief. No background, no border, no icon. */
+.journal-entry__source {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    font-family: 'EB Garamond', Georgia, serif;
+    font-size: 0.7rem;
+    font-style: italic;
+    letter-spacing: 0.05em;
+    color: rgba(44, 36, 22, 0.5);
+    pointer-events: none;
+}
+
+/* Mobile: tighten the corner inset and shrink slightly so the tag never
+   collides with the entry word at narrow viewports. */
+@media (max-width: 380px) {
+    .journal-entry__source {
+        top: 10px;
+        right: 12px;
+        font-size: 0.65rem;
+    }
+}
+
 /* Footer — review CTA */
 .journal-footer {
     border-top: 1px dashed rgba(180,150,80,0.4);
@@ -1286,7 +1311,21 @@ header.brand .subtitle {
                 if (empty) empty.style.display = 'none';
                 if (entry) {
                     entry.style.display = 'block';
+                    // Source tag mapping. All four Speaking-context writers
+                    // (practice_suggestion / recommended_added / manual_added /
+                    // legacy drill) collapse to "Speaking" so UI is consistent
+                    // regardless of which Speaking surface saved the word.
+                    // Unknown / null / empty values render no tag (spec E).
+                    const sourceMap = {
+                        reading: 'Reading',
+                        practice_suggestion: 'Speaking',
+                        recommended_added: 'Speaking',
+                        manual_added: 'Speaking',
+                        drill: 'Speaking',
+                    };
+                    const sourceLabel = sourceMap[r.source] || '';
                     entry.innerHTML = `
+                        ${sourceLabel ? `<span class="journal-entry__source">${escapeHtml(sourceLabel)}</span>` : ''}
                         <div class="journal-entry__word">${escapeHtml(item.word || '')}</div>
                         <div class="journal-entry__pos">${escapeHtml(item.part_of_speech || '')}</div>
                         <hr class="journal-entry__divider">
