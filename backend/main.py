@@ -40,6 +40,12 @@ groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 import anthropic
 anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
+# Reading module — kept in dedicated files because the prompts and validators
+# are large and orthogonal to the Speaking pipeline. Imported here so the
+# /reading endpoints below can call them.
+from reading_prompts import build_passage_prompt, build_questions_prompt
+from reading_validator import validate_passage, validate_questions
+
 app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -5114,6 +5120,1215 @@ async def part2_evaluate(
     _persist_part2(user_id, topic_title, transcript, result, notes_clean)
 
     return {**result, "transcript": transcript, "notes": notes_clean}
+
+
+# =============================================================================
+# Reading module — Sprint Reading-1
+# =============================================================================
+#
+# Schema lives in supabase/migrations/20260518_reading_module.sql:
+#   - public.reading_passages   (id, title, body, difficulty_band, topic,
+#                                source, word_count, created_at)
+#   - public.reading_questions  (id, passage_id, question_type, question_text,
+#                                options jsonb, correct_answer, explanation,
+#                                evidence_quote, order_idx, created_at)
+#   - public.reading_attempts   (id, user_id, passage_id, started_at,
+#                                submitted_at, score, total, band_estimate,
+#                                status)
+#   - public.reading_answers    (id, attempt_id, question_id, user_answer,
+#                                is_correct, answered_at)
+#   - profiles.user_band_reading (numeric(3,1) nullable)
+#
+# Quota: 1 new attempt per UTC calendar day for free users. Enforced inline in
+# Python (no daily_usage table exists; Speaking uses the same inline pattern).
+
+FREE_READING_DAILY_QUOTA = 1
+READING_TOTAL_QUESTIONS = 9
+READING_PASSAGE_MAX_TOKENS = 6000
+READING_QUESTIONS_MAX_TOKENS = 4000
+READING_LLM_RETRIES = 2  # so 1 initial + 2 retries = 3 total attempts
+
+# IELTS Reading raw-to-band mapping for the 9-question Blabby format. Scales
+# proportionally from the standard 40-question Academic Reading band table.
+_READING_BAND_BY_SCORE: dict[int, float] = {
+    9: 9.0, 8: 8.5, 7: 7.5, 6: 6.5,
+    5: 6.0, 4: 5.5, 3: 5.0, 2: 4.5,
+    1: 4.0, 0: 4.0,
+}
+
+
+def _reading_band_from_score(score: int) -> float:
+    clamped = max(0, min(READING_TOTAL_QUESTIONS, int(score)))
+    return _READING_BAND_BY_SCORE[clamped]
+
+
+def _run_claude_json(system_prompt: str, user_msg: str, max_tokens: int) -> dict:
+    """
+    Thin Claude wrapper for Reading-module structured-output calls.
+
+    Mirrors run_claude()'s parsing rules (strip ```json fences, require dict),
+    but lets the caller set max_tokens — passage generation needs more than
+    the 2048-token cap baked into run_claude(). Does NOT loop on JSON errors;
+    the calling endpoint owns retry policy because retries here are coupled
+    with validator failures, which run_claude() can't see.
+    """
+    response = anthropic_client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=max_tokens,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    content = (response.content[0].text or "").strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*", "", content)
+        content = re.sub(r"\s*```$", "", content)
+    parsed = json.loads(content)
+    if not isinstance(parsed, dict):
+        raise ValueError("Claude returned non-object JSON")
+    return parsed
+
+
+def _get_user_band_reading(user_id: str) -> Optional[float]:
+    """Read profiles.user_band_reading. Returns None on any error."""
+    if supabase_admin is None:
+        return None
+    try:
+        resp = (
+            supabase_admin.table("profiles")
+            .select("user_band_reading")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        val = (resp.data or {}).get("user_band_reading")
+        return float(val) if val is not None else None
+    except Exception:
+        logger.exception("_get_user_band_reading failed", extra={"user_id": user_id})
+        return None
+
+
+def _update_user_band_reading(user_id: str, new_estimate: float) -> float:
+    """
+    Weighted moving average: existing 80%, new 20%. If user_band_reading is
+    null, sets directly. Mirrors update_user_band() for the Speaking band.
+    Fails safe — caller catches exceptions.
+    """
+    if supabase_admin is None:
+        return new_estimate
+    resp = (
+        supabase_admin.table("profiles")
+        .select("user_band_reading")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    current = (resp.data or {}).get("user_band_reading")
+    updated = (
+        round(float(current) * 0.8 + new_estimate * 0.2, 2)
+        if current is not None
+        else float(new_estimate)
+    )
+    supabase_admin.table("profiles").update({
+        "user_band_reading":       updated,
+        "reading_band_updated_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", user_id).execute()
+    return updated
+
+
+def _reading_daily_count(user_id: str) -> int:
+    """
+    Count this user's non-abandoned reading_attempts since UTC midnight today.
+    Used by both /reading/passage/generate (pre-emptive guard) and
+    /reading/attempt/start (authoritative quota gate).
+    """
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).isoformat()
+    resp = (
+        supabase_admin.table("reading_attempts")
+        .select("id")
+        .eq("user_id", user_id)
+        .gte("started_at", today_start)
+        .neq("status", "abandoned")
+        .execute()
+    )
+    return len(resp.data or [])
+
+
+def _reading_quota_block_response() -> HTTPException:
+    """
+    Paywall error shape — identical to the Speaking module's drill quota
+    response at main.py:1659 so the frontend can use one handler.
+    """
+    return HTTPException(
+        status_code=403,
+        detail={
+            "error": "quota_exceeded",
+            "redirect": "/upgrade",
+        },
+    )
+
+
+def _enforce_reading_quota(user_id: str) -> None:
+    """Raise the paywall HTTPException if the free quota is consumed."""
+    try:
+        daily = _reading_daily_count(user_id)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "reading quota lookup failed; failing closed",
+            extra={"user_id": user_id},
+        )
+        raise HTTPException(status_code=503, detail="Failed to verify reading quota")
+    if daily >= FREE_READING_DAILY_QUOTA and not get_user_pro_status(user_id):
+        logger.info(
+            "[READING_QUOTA_BLOCKED] user_id=%s daily=%d",
+            user_id, daily,
+        )
+        raise _reading_quota_block_response()
+
+
+@app.get("/reading/quota")
+@limiter.limit("30/minute")
+async def reading_quota(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Display-only quota probe for the Reading page. Mirrors Speaking's
+    /api/drill/check_quota shape so the frontend can render an allowance
+    line and gate the "Summon" button without relying on a 403 round-trip.
+
+    The authoritative quota gate is still on /reading/passage/generate and
+    /reading/attempt/start — this endpoint must not be trusted by the
+    server for enforcement.
+    """
+    user_id = verify_token(authorization)
+    try:
+        used_today = _reading_daily_count(user_id)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("reading_quota lookup failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=500, detail="Failed to load quota")
+    is_pro = get_user_pro_status(user_id)
+    # For Pro users, limit is null per spec (unlimited).
+    limit = None if is_pro else FREE_READING_DAILY_QUOTA
+    remaining = None if is_pro else max(0, FREE_READING_DAILY_QUOTA - used_today)
+    should_upgrade = (not is_pro) and (used_today >= FREE_READING_DAILY_QUOTA)
+    return {
+        "used_today":     used_today,
+        "limit":          limit,
+        "remaining":      remaining,
+        "is_pro":         is_pro,
+        "should_upgrade": should_upgrade,
+    }
+
+
+@app.post("/reading/attempt/abandon")
+@limiter.limit("30/minute")
+async def reading_attempt_abandon(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Mark an in_progress attempt as abandoned. Verifies ownership; only
+    in_progress attempts can be abandoned (submitted attempts return 409).
+
+    Abandoned attempts do NOT count toward the daily quota — _reading_daily_count
+    filters them out. This is the difference between client-side leave (the row
+    stays in_progress and counts) and explicit abandon (free).
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+    attempt_id = body.get("attempt_id")
+    if not isinstance(attempt_id, str) or not attempt_id.strip():
+        raise HTTPException(status_code=400, detail="attempt_id required")
+
+    try:
+        attempt_resp = (
+            supabase_admin.table("reading_attempts")
+            .select("id, user_id, status")
+            .eq("id", attempt_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "reading abandon lookup failed",
+            extra={"user_id": user_id, "attempt_id": attempt_id},
+        )
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    attempt = attempt_resp.data or {}
+    if attempt.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    if attempt.get("status") != "in_progress":
+        raise HTTPException(status_code=409, detail="Attempt is not in_progress")
+
+    try:
+        supabase_admin.table("reading_attempts").update({
+            "status": "abandoned",
+        }).eq("id", attempt_id).execute()
+    except Exception:
+        logger.exception(
+            "reading abandon update failed",
+            extra={"user_id": user_id, "attempt_id": attempt_id},
+        )
+        raise HTTPException(status_code=500, detail="Failed to abandon attempt")
+    logger.info(
+        "[READING_ATTEMPT_ABANDONED] user_id=%s attempt_id=%s",
+        user_id, attempt_id,
+    )
+    return {"status": "abandoned", "attempt_id": attempt_id}
+
+
+# In-memory LRU cache for /vocab/lookup. Keyed by lowercased word only —
+# context-aware definitions would balloon the cache, and the v1 popover
+# uses the word alone for display. The cache is process-local and resets on
+# every deploy. functools.lru_cache wraps the LLM call; the FastAPI handler
+# below normalises input and dispatches.
+import functools as _vocab_functools
+
+
+@_vocab_functools.lru_cache(maxsize=500)
+def _vocab_definition_cached(word: str) -> dict:
+    """
+    Lookup a definition + example via Claude. Caches up to 500 unique words
+    per process. Raises on LLM failure — the caller wraps in HTTPException.
+    """
+    system_prompt = (
+        "You are a concise English dictionary. Given a single word, return "
+        "STRICT JSON with three keys and nothing else: "
+        '{"definition": str, "example": str, "part_of_speech": str}. '
+        "Constraints: definition must be at most 25 words and use formal "
+        "British English; example is one short natural sentence using the "
+        "word; part_of_speech is one of 'noun', 'verb', 'adjective', "
+        "'adverb', 'preposition', 'conjunction', 'pronoun', 'determiner', "
+        "or 'other'. No preamble, no markdown fences."
+    )
+    user_msg = f"Word: {word}"
+    response = anthropic_client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=300,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    content = (response.content[0].text or "").strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*", "", content)
+        content = re.sub(r"\s*```$", "", content)
+    parsed = json.loads(content)
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM returned non-object JSON")
+    defn = (parsed.get("definition") or "").strip()
+    example = (parsed.get("example") or "").strip()
+    pos = (parsed.get("part_of_speech") or "").strip().lower()
+    if not defn or not example:
+        raise ValueError("LLM omitted required fields")
+    return {
+        "definition":     defn,
+        "example":        example,
+        "part_of_speech": pos,
+    }
+
+
+@app.post("/vocab/lookup")
+@limiter.limit("30/minute")
+async def vocab_lookup(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Concise dictionary lookup for a single word, used by the Reading
+    passage's word popover. Authenticated to discourage scraping; results
+    are cached process-locally (LRU 500). The optional context_sentence
+    is accepted for forward-compat but not used in the cache key — v1
+    definitions are context-free.
+
+    Body: {"word": str, "context_sentence": str | None}
+    Returns: {"word", "definition", "example", "part_of_speech", "cached"}
+    """
+    verify_token(authorization)
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    raw = body.get("word")
+    if not isinstance(raw, str):
+        raise HTTPException(status_code=400, detail="word required")
+    word = re.sub(r"[^A-Za-z\-']", "", raw).strip().lower()
+    if not word or len(word) > 60:
+        raise HTTPException(status_code=400, detail="word invalid")
+
+    info = _vocab_definition_cached.cache_info()
+    hits_before = info.hits
+    try:
+        result = _vocab_definition_cached(word)
+    except (json.JSONDecodeError, ValueError):
+        logger.exception("vocab_lookup LLM output invalid", extra={"word": word})
+        raise HTTPException(status_code=502, detail="Definition unavailable")
+    except Exception:
+        logger.exception("vocab_lookup failed", extra={"word": word})
+        raise HTTPException(status_code=503, detail="Definition unavailable")
+    cached = _vocab_definition_cached.cache_info().hits > hits_before
+    return {"word": word, "cached": cached, **result}
+
+
+import hashlib as _vocab_hashlib
+
+
+def _zh_context_hash(context_sentence: Optional[str]) -> str:
+    """
+    Stable cache key fragment derived from the surrounding context. Only the
+    first 80 lowercased characters are hashed — fine-grained context-aware
+    translation isn't a v1 goal; this exists so that genuinely different
+    contexts don't collide while keeping the cache key space bounded.
+    Returns "_" when there is no context.
+    """
+    if not isinstance(context_sentence, str) or not context_sentence.strip():
+        return "_"
+    head = context_sentence.strip().lower()[:80]
+    return _vocab_hashlib.sha1(head.encode("utf-8")).hexdigest()[:12]
+
+
+@_vocab_functools.lru_cache(maxsize=500)
+def _translate_to_zh(word: str, context_hash: str, english_definition: str) -> dict:
+    """
+    Translate a single English word to Traditional Chinese via Claude.
+
+    context_hash is the cache-key fragment from _zh_context_hash(); it isn't
+    used inside the LLM prompt directly (we pass the raw context separately
+    when the endpoint calls this), so the hash exists purely for cache-key
+    stability. english_definition is passed through to the prompt to anchor
+    the translation when the bare word would be ambiguous.
+
+    Raises on LLM/JSON failure — the calling endpoint wraps in HTTPException.
+    """
+    # context_hash is captured by the closure for cache-key purposes; we
+    # rebuild the human-readable context inside the endpoint, which calls
+    # this function with the same hash. Including it as a parameter keeps
+    # lru_cache aware of context variation without inflating prompt size.
+    _ = context_hash  # silence linters; the value influences the cache key only
+
+    system_prompt = (
+        "You are a concise English→Traditional Chinese (繁體中文) "
+        "dictionary. Return STRICT JSON with one key and nothing else: "
+        '{"zh_meaning": "..."}. Constraints: zh_meaning must be at most '
+        "15 Traditional Chinese characters, in dictionary style (a short "
+        "noun phrase or one-or-two-word gloss), not a full sentence. Do "
+        "not include the English word, parentheses, pinyin, or simplified "
+        "characters. No preamble, no markdown fences."
+    )
+    user_msg = (
+        f"Word: {word}\n"
+        f"English definition: {english_definition}"
+    )
+    response = anthropic_client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=120,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    content = (response.content[0].text or "").strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*", "", content)
+        content = re.sub(r"\s*```$", "", content)
+    parsed = json.loads(content)
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM returned non-object JSON")
+    zh = (parsed.get("zh_meaning") or "").strip()
+    if not zh:
+        raise ValueError("LLM omitted zh_meaning")
+    # Clip to the same 15-character limit the prompt enforces, in case the
+    # model overshoots.
+    return {"zh_meaning": zh[:15]}
+
+
+@app.post("/vocab/translate_zh")
+@limiter.limit("30/minute")
+async def vocab_translate_zh(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Translate a single English word to Traditional Chinese. Used by the
+    Reading page's two-step save flow so newly-saved words land in the
+    vocabulary catalog with a real zh_meaning rather than an empty string.
+
+    Body: {"word": str, "context_sentence": str | None, "english_definition": str | None}
+    Returns: {"word", "zh_meaning", "cached"}
+    """
+    verify_token(authorization)
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    raw = body.get("word")
+    if not isinstance(raw, str):
+        raise HTTPException(status_code=400, detail="word required")
+    word = re.sub(r"[^A-Za-z\-']", "", raw).strip().lower()
+    if not word or len(word) > 60:
+        raise HTTPException(status_code=400, detail="word invalid")
+    context_sentence = body.get("context_sentence")
+    english_definition = body.get("english_definition")
+    if not isinstance(english_definition, str):
+        english_definition = ""
+    english_definition = english_definition.strip()[:300]
+    context_hash = _zh_context_hash(context_sentence)
+
+    info = _translate_to_zh.cache_info()
+    hits_before = info.hits
+    try:
+        result = _translate_to_zh(word, context_hash, english_definition)
+    except (json.JSONDecodeError, ValueError):
+        logger.exception("vocab_translate_zh LLM output invalid", extra={"word": word})
+        raise HTTPException(status_code=502, detail="Translation unavailable")
+    except Exception:
+        logger.exception("vocab_translate_zh failed", extra={"word": word})
+        raise HTTPException(status_code=503, detail="Translation unavailable")
+    cached = _translate_to_zh.cache_info().hits > hits_before
+    logger.info(
+        "[VOCAB_TRANSLATE_ZH] word=%r cached=%s zh=%r",
+        word, cached, result["zh_meaning"],
+    )
+    return {"word": word, "cached": cached, **result}
+
+
+@app.post("/api/vocabulary/save_word")
+@limiter.limit("30/minute")
+async def vocabulary_save_word(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Free-form word save — used by the Reading passage's click-to-save flow.
+
+    The existing /api/vocabulary/my endpoint requires a vocabulary_item_id
+    (UUID into the curated catalog). Reading users click arbitrary words that
+    may not be in the catalog, so we resolve the word lazily here:
+      1. Find vocabulary_items row WHERE word = <lowercased input>
+      2. If absent, insert a sparse catalog row (word + optional zh_meaning)
+      3. Upsert user_vocabulary linking to that catalog row
+
+    The Reading frontend supplies zh_meaning via /vocab/translate_zh before
+    calling this endpoint, so newly-inserted catalog rows now ship with a
+    real translation. Speaking-tier callers that omit the field continue to
+    work — the fallback is '' (matches the pre-enrichment behaviour).
+
+    Existing catalog rows are NOT overwritten — the catalog is shared, and
+    silently mutating another caller's translation is the wrong default.
+    Enriching a previously-empty existing row is a deliberate follow-up.
+
+    Body: {"word": str, "source": str, "zh_meaning": str | None}
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    raw = body.get("word")
+    if not isinstance(raw, str):
+        raise HTTPException(status_code=400, detail="word required")
+    # Strip everything that isn't a letter, hyphen, or apostrophe. Lowercase
+    # for catalog idempotency (the catalog is treated as case-insensitive).
+    word = re.sub(r"[^A-Za-z\-']", "", raw).strip().lower()
+    if not word or len(word) > 60:
+        raise HTTPException(status_code=400, detail="word invalid")
+    source = (body.get("source") or "reading").strip() or "reading"
+
+    # Optional zh_meaning — sent by Reading's two-step save flow. Clipped to
+    # 30 characters to keep dictionary cards consistent with the curated
+    # catalog's natural length.
+    zh_raw = body.get("zh_meaning")
+    if zh_raw is None:
+        zh_meaning = ""
+    elif isinstance(zh_raw, str):
+        zh_meaning = zh_raw.strip()[:30]
+    else:
+        zh_meaning = ""
+
+    try:
+        existing_item = (
+            supabase_admin.table("vocabulary_items")
+            .select("id")
+            .eq("word", word)
+            .limit(1)
+            .execute()
+        )
+        if existing_item.data:
+            item_id = existing_item.data[0]["id"]
+        else:
+            inserted_item = (
+                supabase_admin.table("vocabulary_items")
+                .insert({"word": word, "zh_meaning": zh_meaning})
+                .execute()
+            )
+            if not inserted_item.data:
+                raise HTTPException(status_code=500, detail="Failed to create catalog entry")
+            item_id = inserted_item.data[0]["id"]
+
+        existing_uv = (
+            supabase_admin.table("user_vocabulary")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("vocabulary_item_id", item_id)
+            .limit(1)
+            .execute()
+        )
+        if existing_uv.data:
+            logger.info(
+                "[VOCAB_SAVE_WORD_DUP] user_id=%s word=%r source=%s",
+                user_id, word, source,
+            )
+            return {
+                "status": "exists",
+                "vocabulary_item_id": item_id,
+                "word": word,
+            }
+
+        inserted_uv = (
+            supabase_admin.table("user_vocabulary")
+            .insert({
+                "user_id": user_id,
+                "vocabulary_item_id": item_id,
+                "source": source,
+            })
+            .execute()
+        )
+        if not inserted_uv.data:
+            raise HTTPException(status_code=500, detail="Failed to save word")
+        logger.info(
+            "[VOCAB_SAVE_WORD] user_id=%s word=%r source=%s item_id=%s",
+            user_id, word, source, item_id,
+        )
+        return {
+            "status": "added",
+            "vocabulary_item_id": item_id,
+            "word": word,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "vocabulary_save_word failed",
+            extra={"user_id": user_id, "word": word},
+        )
+        raise HTTPException(status_code=503, detail="Failed to save word")
+
+
+@app.post("/reading/passage/generate")
+@limiter.limit("6/minute")
+async def reading_generate_passage(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Generate a new IELTS Reading passage + 9 questions and persist them.
+    Does not itself consume quota — /reading/attempt/start is the hard gate —
+    but pre-emptively blocks free users who have already used today's slot, so
+    we don't spend Claude tokens on a passage they cannot attempt.
+    """
+    user_id = verify_token(authorization)
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+
+    band_raw = body.get("difficulty_band")
+    topic_raw = body.get("topic")
+    if band_raw is None:
+        difficulty_band = _get_user_band_reading(user_id) or 6.0
+    else:
+        try:
+            difficulty_band = float(band_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="difficulty_band must be numeric")
+        if difficulty_band < 4.0 or difficulty_band > 9.0:
+            raise HTTPException(status_code=400, detail="difficulty_band must be 4.0–9.0")
+    topic = topic_raw.strip() if isinstance(topic_raw, str) and topic_raw.strip() else None
+
+    _enforce_reading_quota(user_id)
+
+    # --- Passage generation with validator retries -------------------------
+    passage_prompt = build_passage_prompt(difficulty_band, topic)
+    passage_data: Optional[dict] = None
+    last_passage_reason: Optional[str] = None
+    for attempt in range(READING_LLM_RETRIES + 1):
+        try:
+            candidate = _run_claude_json(
+                passage_prompt,
+                "Generate the passage as specified.",
+                READING_PASSAGE_MAX_TOKENS,
+            )
+        except Exception:
+            logger.exception(
+                "reading passage LLM call failed",
+                extra={"user_id": user_id, "attempt": attempt},
+            )
+            last_passage_reason = "llm_call_failed"
+            continue
+        ok, reason = validate_passage(candidate)
+        if ok:
+            passage_data = candidate
+            break
+        last_passage_reason = reason
+        logger.warning(
+            "reading passage validator rejected output",
+            extra={"user_id": user_id, "attempt": attempt, "reason": reason},
+        )
+    if passage_data is None:
+        logger.error(
+            "reading passage generation failed after retries",
+            extra={"user_id": user_id, "reason": last_passage_reason},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "passage_generation_failed",
+                "reason": last_passage_reason or "unknown",
+            },
+        )
+
+    # --- Question generation with validator retries ------------------------
+    questions_prompt = build_questions_prompt(passage_data["body"], difficulty_band)
+    questions_data: Optional[dict] = None
+    last_question_reason: Optional[str] = None
+    for attempt in range(READING_LLM_RETRIES + 1):
+        try:
+            candidate = _run_claude_json(
+                questions_prompt,
+                passage_data["body"],
+                READING_QUESTIONS_MAX_TOKENS,
+            )
+        except Exception:
+            logger.exception(
+                "reading questions LLM call failed",
+                extra={"user_id": user_id, "attempt": attempt},
+            )
+            last_question_reason = "llm_call_failed"
+            continue
+        ok, reason = validate_questions(candidate, passage_data["body"])
+        if ok:
+            questions_data = candidate
+            break
+        last_question_reason = reason
+        logger.warning(
+            "reading questions validator rejected output",
+            extra={"user_id": user_id, "attempt": attempt, "reason": reason},
+        )
+    if questions_data is None:
+        # Do NOT persist a passage without valid questions — it would be
+        # unusable and would clutter the table.
+        logger.error(
+            "reading questions generation failed after retries",
+            extra={"user_id": user_id, "reason": last_question_reason},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "questions_generation_failed",
+                "reason": last_question_reason or "unknown",
+            },
+        )
+
+    # --- Persist ------------------------------------------------------------
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        passage_insert = supabase_admin.table("reading_passages").insert({
+            "title":           passage_data["title"],
+            "body":            passage_data["body"],
+            "difficulty_band": difficulty_band,
+            "topic":           passage_data.get("topic") or topic,
+            "source":          "ai_generated",
+            "word_count":      passage_data["word_count"],
+        }).execute()
+        passage_id = (passage_insert.data or [{}])[0].get("id")
+        if not passage_id:
+            raise RuntimeError("passage insert returned no id")
+    except Exception:
+        logger.exception("reading passage insert failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=500, detail="Failed to persist passage")
+
+    try:
+        question_rows = [
+            {
+                "passage_id":     passage_id,
+                "question_type":  q["question_type"],
+                "question_text":  q["question_text"],
+                "options":        q.get("options"),
+                "correct_answer": q["correct_answer"],
+                "explanation":    q["explanation"],
+                "evidence_quote": q.get("evidence_quote"),
+                "order_idx":      q["order_idx"],
+            }
+            for q in questions_data["questions"]
+        ]
+        questions_insert = (
+            supabase_admin.table("reading_questions").insert(question_rows).execute()
+        )
+        inserted_questions = questions_insert.data or []
+        if len(inserted_questions) != READING_TOTAL_QUESTIONS:
+            raise RuntimeError(
+                f"expected {READING_TOTAL_QUESTIONS} question rows, "
+                f"got {len(inserted_questions)}"
+            )
+    except Exception:
+        logger.exception("reading questions insert failed", extra={"user_id": user_id})
+        # Roll back the orphaned passage so we don't leak rows.
+        try:
+            supabase_admin.table("reading_passages").delete().eq("id", passage_id).execute()
+        except Exception:
+            logger.exception(
+                "rollback of orphan passage failed",
+                extra={"user_id": user_id, "passage_id": passage_id},
+            )
+        raise HTTPException(status_code=500, detail="Failed to persist questions")
+
+    logger.info(
+        "[READING_PASSAGE_GENERATED] user_id=%s passage_id=%s band=%s topic=%r words=%s",
+        user_id, passage_id, difficulty_band,
+        passage_data.get("topic"), passage_data.get("word_count"),
+    )
+
+    client_questions = sorted(
+        [
+            {
+                "id":            row["id"],
+                "question_type": row["question_type"],
+                "question_text": row["question_text"],
+                "options":       row.get("options"),
+                "order_idx":     row["order_idx"],
+            }
+            for row in inserted_questions
+        ],
+        key=lambda r: r["order_idx"],
+    )
+
+    return {
+        "passage_id": passage_id,
+        "title":      passage_data["title"],
+        "body":       passage_data["body"],
+        "questions":  client_questions,
+    }
+
+
+@app.post("/reading/attempt/start")
+@limiter.limit("12/minute")
+async def reading_start_attempt(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Open a reading_attempts row in `in_progress` state. This is the hard
+    quota-consuming action. If the user already has an in_progress attempt for
+    the same passage, return that one instead of creating a duplicate.
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+    passage_id = body.get("passage_id")
+    if not isinstance(passage_id, str) or not passage_id.strip():
+        raise HTTPException(status_code=400, detail="passage_id required")
+
+    try:
+        existing = (
+            supabase_admin.table("reading_attempts")
+            .select("id, started_at")
+            .eq("user_id", user_id)
+            .eq("passage_id", passage_id)
+            .eq("status", "in_progress")
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "reading existing-attempt lookup failed",
+            extra={"user_id": user_id, "passage_id": passage_id},
+        )
+        raise HTTPException(status_code=500, detail="Failed to load attempt state")
+
+    if existing.data:
+        row = existing.data[0]
+        return {"attempt_id": row["id"], "started_at": row["started_at"]}
+
+    _enforce_reading_quota(user_id)
+
+    try:
+        insert = supabase_admin.table("reading_attempts").insert({
+            "user_id":    user_id,
+            "passage_id": passage_id,
+            "status":     "in_progress",
+        }).execute()
+        row = (insert.data or [{}])[0]
+        attempt_id = row.get("id")
+        started_at = row.get("started_at")
+        if not attempt_id:
+            raise RuntimeError("attempt insert returned no id")
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "reading attempt insert failed",
+            extra={"user_id": user_id, "passage_id": passage_id},
+        )
+        raise HTTPException(status_code=500, detail="Failed to start attempt")
+
+    logger.info(
+        "[READING_ATTEMPT_STARTED] user_id=%s attempt_id=%s passage_id=%s",
+        user_id, attempt_id, passage_id,
+    )
+
+    return {"attempt_id": attempt_id, "started_at": started_at}
+
+
+def _reading_is_correct(user_answer: Optional[str], correct_answer: str) -> bool:
+    if user_answer is None:
+        return False
+    return (user_answer or "").strip().lower() == (correct_answer or "").strip().lower()
+
+
+@app.post("/reading/attempt/submit")
+@limiter.limit("12/minute")
+async def reading_submit_attempt(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Score a reading attempt, persist answers, update the user's reading band,
+    and reveal the correct answers + explanations.
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+    attempt_id = body.get("attempt_id")
+    answers_payload = body.get("answers")
+    if not isinstance(attempt_id, str) or not attempt_id.strip():
+        raise HTTPException(status_code=400, detail="attempt_id required")
+    if not isinstance(answers_payload, list):
+        raise HTTPException(status_code=400, detail="answers must be a list")
+
+    # 1. Verify attempt ownership + status
+    try:
+        attempt_resp = (
+            supabase_admin.table("reading_attempts")
+            .select("id, user_id, passage_id, status")
+            .eq("id", attempt_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "reading attempt lookup failed",
+            extra={"user_id": user_id, "attempt_id": attempt_id},
+        )
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    attempt = attempt_resp.data or {}
+    if attempt.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    if attempt.get("status") != "in_progress":
+        raise HTTPException(status_code=409, detail="Attempt is not in_progress")
+    passage_id = attempt.get("passage_id")
+
+    # 2. Fetch questions for this passage (incl. correct_answer)
+    try:
+        questions_resp = (
+            supabase_admin.table("reading_questions")
+            .select("id, correct_answer, explanation, evidence_quote, order_idx")
+            .eq("passage_id", passage_id)
+            .order("order_idx")
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "reading questions lookup failed",
+            extra={"user_id": user_id, "attempt_id": attempt_id},
+        )
+        raise HTTPException(status_code=500, detail="Failed to load questions")
+    questions = questions_resp.data or []
+    if not questions:
+        raise HTTPException(status_code=500, detail="Passage has no questions")
+    questions_by_id = {q["id"]: q for q in questions}
+
+    # 3. Normalise the submitted answers, compute is_correct
+    submitted_by_qid: dict[str, Optional[str]] = {}
+    for entry in answers_payload:
+        if not isinstance(entry, dict):
+            continue
+        qid = entry.get("question_id")
+        ua = entry.get("user_answer")
+        if isinstance(qid, str) and qid in questions_by_id:
+            submitted_by_qid[qid] = ua if isinstance(ua, str) else None
+
+    answer_rows = []
+    score = 0
+    results = []
+    for q in questions:
+        qid = q["id"]
+        user_answer = submitted_by_qid.get(qid)
+        is_correct = _reading_is_correct(user_answer, q["correct_answer"])
+        if is_correct:
+            score += 1
+        answer_rows.append({
+            "attempt_id":  attempt_id,
+            "question_id": qid,
+            "user_answer": user_answer,
+            "is_correct":  is_correct,
+        })
+        results.append({
+            "question_id":    qid,
+            "user_answer":    user_answer,
+            "correct_answer": q["correct_answer"],
+            "is_correct":     is_correct,
+            "explanation":    q["explanation"],
+            "evidence_quote": q.get("evidence_quote"),
+        })
+
+    total = len(questions)
+    band_estimate = _reading_band_from_score(score)
+
+    # 4. Persist answers (idempotency: the table has UNIQUE(attempt_id,
+    #    question_id) so a retried submit can't double-insert; we treat
+    #    re-submit as 409 above, so a clean insert is expected here).
+    try:
+        supabase_admin.table("reading_answers").insert(answer_rows).execute()
+    except Exception:
+        logger.exception(
+            "reading answers insert failed",
+            extra={"user_id": user_id, "attempt_id": attempt_id},
+        )
+        raise HTTPException(status_code=500, detail="Failed to save answers")
+
+    # 5. Mark the attempt submitted
+    try:
+        supabase_admin.table("reading_attempts").update({
+            "submitted_at":  datetime.now(timezone.utc).isoformat(),
+            "status":        "submitted",
+            "score":         score,
+            "total":         total,
+            "band_estimate": band_estimate,
+        }).eq("id", attempt_id).execute()
+    except Exception:
+        logger.exception(
+            "reading attempt update failed",
+            extra={"user_id": user_id, "attempt_id": attempt_id},
+        )
+        raise HTTPException(status_code=500, detail="Failed to finalise attempt")
+
+    # 6. Update user_band_reading — non-fatal on failure (mirrors the
+    #    Speaking-module posture; band is a derived stat, not core state).
+    try:
+        _update_user_band_reading(user_id, band_estimate)
+    except Exception:
+        logger.exception(
+            "update_user_band_reading failed (non-fatal)",
+            extra={"user_id": user_id, "attempt_id": attempt_id},
+        )
+
+    logger.info(
+        "[READING_ATTEMPT_SUBMITTED] user_id=%s attempt_id=%s score=%d/%d band=%s",
+        user_id, attempt_id, score, total, band_estimate,
+    )
+
+    return {
+        "score":         score,
+        "total":         total,
+        "band_estimate": band_estimate,
+        "results":       results,
+    }
+
+
+@app.get("/reading/attempt/{attempt_id}")
+@limiter.limit("30/minute")
+async def reading_get_attempt(
+    request: Request,
+    attempt_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Re-fetch the full reveal for a previously-submitted attempt."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        attempt_resp = (
+            supabase_admin.table("reading_attempts")
+            .select("id, user_id, passage_id, status, score, total, "
+                    "band_estimate, started_at, submitted_at")
+            .eq("id", attempt_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "reading attempt detail lookup failed",
+            extra={"user_id": user_id, "attempt_id": attempt_id},
+        )
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    attempt = attempt_resp.data or {}
+    if attempt.get("user_id") != user_id or attempt.get("status") != "submitted":
+        raise HTTPException(status_code=404, detail="Attempt not found")
+
+    try:
+        passage_resp = (
+            supabase_admin.table("reading_passages")
+            .select("title, body")
+            .eq("id", attempt["passage_id"])
+            .single()
+            .execute()
+        )
+        questions_resp = (
+            supabase_admin.table("reading_questions")
+            .select("id, question_type, question_text, options, "
+                    "correct_answer, explanation, evidence_quote, order_idx")
+            .eq("passage_id", attempt["passage_id"])
+            .order("order_idx")
+            .execute()
+        )
+        answers_resp = (
+            supabase_admin.table("reading_answers")
+            .select("question_id, user_answer, is_correct")
+            .eq("attempt_id", attempt_id)
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "reading attempt detail load failed",
+            extra={"user_id": user_id, "attempt_id": attempt_id},
+        )
+        raise HTTPException(status_code=500, detail="Failed to load attempt detail")
+
+    answers_by_qid = {a["question_id"]: a for a in (answers_resp.data or [])}
+    results = []
+    for q in (questions_resp.data or []):
+        a = answers_by_qid.get(q["id"], {})
+        results.append({
+            "question_id":    q["id"],
+            "question_type":  q["question_type"],
+            "question_text":  q["question_text"],
+            "options":        q.get("options"),
+            "order_idx":      q["order_idx"],
+            "user_answer":    a.get("user_answer"),
+            "correct_answer": q["correct_answer"],
+            "is_correct":     a.get("is_correct"),
+            "explanation":    q["explanation"],
+            "evidence_quote": q.get("evidence_quote"),
+        })
+
+    passage = passage_resp.data or {}
+    return {
+        "attempt_id":    attempt["id"],
+        "passage_title": passage.get("title"),
+        "passage_body":  passage.get("body"),
+        "started_at":    attempt.get("started_at"),
+        "submitted_at":  attempt.get("submitted_at"),
+        "score":         attempt.get("score"),
+        "total":         attempt.get("total"),
+        "band_estimate": attempt.get("band_estimate"),
+        "results":       results,
+    }
+
+
+@app.get("/reading/history")
+@limiter.limit("30/minute")
+async def reading_history(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    authorization: Optional[str] = Header(None),
+):
+    """Caller's most recent submitted attempts, newest first."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        attempts_resp = (
+            supabase_admin.table("reading_attempts")
+            .select("id, passage_id, score, total, band_estimate, submitted_at")
+            .eq("user_id", user_id)
+            .eq("status", "submitted")
+            .order("submitted_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception:
+        logger.exception("reading history lookup failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=500, detail="Failed to load history")
+    attempts = attempts_resp.data or []
+    if not attempts:
+        return {"attempts": []}
+
+    passage_ids = list({a["passage_id"] for a in attempts if a.get("passage_id")})
+    title_by_passage: dict[str, str] = {}
+    if passage_ids:
+        try:
+            passages_resp = (
+                supabase_admin.table("reading_passages")
+                .select("id, title")
+                .in_("id", passage_ids)
+                .execute()
+            )
+            for p in (passages_resp.data or []):
+                title_by_passage[p["id"]] = p.get("title", "")
+        except Exception:
+            logger.exception(
+                "reading history passage-title lookup failed",
+                extra={"user_id": user_id},
+            )
+            # Non-fatal — return rows without titles rather than 500.
+
+    return {
+        "attempts": [
+            {
+                "attempt_id":    a["id"],
+                "passage_title": title_by_passage.get(a.get("passage_id"), ""),
+                "score":         a.get("score"),
+                "total":         a.get("total"),
+                "band_estimate": a.get("band_estimate"),
+                "submitted_at":  a.get("submitted_at"),
+            }
+            for a in attempts
+        ],
+    }
 
 
 if __name__ == "__main__":
