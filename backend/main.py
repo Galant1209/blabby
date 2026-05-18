@@ -5814,7 +5814,15 @@ async def reading_generate_passage(
         )
 
     # --- Question generation with validator retries ------------------------
-    questions_prompt = build_questions_prompt(passage_data["body"], difficulty_band)
+    # vocab_targets are calibrated against the user's own band, not just the
+    # requested passage difficulty. Falls back to difficulty_band (which itself
+    # falls back to 6.0 above) for first-time Reading users with no prior band.
+    user_band_for_targets = _get_user_band_reading(user_id)
+    if user_band_for_targets is None:
+        user_band_for_targets = difficulty_band
+    questions_prompt = build_questions_prompt(
+        passage_data["body"], difficulty_band, user_band_for_targets,
+    )
     questions_data: Optional[dict] = None
     last_question_reason: Optional[str] = None
     for attempt in range(READING_LLM_RETRIES + 1):
@@ -5859,6 +5867,10 @@ async def reading_generate_passage(
     if supabase_admin is None:
         raise HTTPException(status_code=503, detail="Database not configured")
 
+    # vocab_targets is generation-time-fixed: never recomputed when an
+    # existing passage is fetched. Stored as JSONB on reading_passages so
+    # the frontend can drive the dotted-underline affordance.
+    vocab_targets_for_persist = questions_data.get("vocab_targets") or []
     try:
         passage_insert = supabase_admin.table("reading_passages").insert({
             "title":           passage_data["title"],
@@ -5867,6 +5879,7 @@ async def reading_generate_passage(
             "topic":           passage_data.get("topic") or topic,
             "source":          "ai_generated",
             "word_count":      passage_data["word_count"],
+            "vocab_targets":   vocab_targets_for_persist,
         }).execute()
         passage_id = (passage_insert.data or [{}])[0].get("id")
         if not passage_id:
@@ -5931,10 +5944,11 @@ async def reading_generate_passage(
     )
 
     return {
-        "passage_id": passage_id,
-        "title":      passage_data["title"],
-        "body":       passage_data["body"],
-        "questions":  client_questions,
+        "passage_id":    passage_id,
+        "title":         passage_data["title"],
+        "body":          passage_data["body"],
+        "vocab_targets": vocab_targets_for_persist,
+        "questions":     client_questions,
     }
 
 

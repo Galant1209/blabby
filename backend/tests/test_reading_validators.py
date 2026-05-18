@@ -52,6 +52,8 @@ def _q(qtype, idx, **overrides):
 
 
 def _happy_pack():
+    # vocab_targets must all be lowercased alphabetic words that appear as
+    # whole words in PASSAGE_BODY. 7 satisfies the 6–10 range.
     return {
         "questions": [
             _q("mcq",     1, options=MCQ_OPTIONS, correct_answer="A"),
@@ -63,7 +65,11 @@ def _happy_pack():
             _q("heading", 7, options=HEADING_OPTIONS, correct_answer="First idea"),
             _q("heading", 8, options=HEADING_OPTIONS, correct_answer="Second idea"),
             _q("heading", 9, options=HEADING_OPTIONS, correct_answer="Third idea"),
-        ]
+        ],
+        "vocab_targets": [
+            "establishes", "outlines", "principal",
+            "examines", "antecedents", "considers", "methodologies",
+        ],
     }
 
 
@@ -164,3 +170,108 @@ def test_questions_rejects_duplicate_order_idx():
     ok, reason = validate_questions(pack, PASSAGE_BODY)
     assert ok is False
     assert "duplicate order_idx" in reason
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  vocab_targets (Sprint Reading-2)
+# ────────────────────────────────────────────────────────────────────────────
+def test_questions_happy_path_includes_vocab_targets():
+    pack = _happy_pack()
+    assert isinstance(pack.get("vocab_targets"), list)
+    assert 6 <= len(pack["vocab_targets"]) <= 10
+    ok, reason = validate_questions(pack, PASSAGE_BODY)
+    assert ok is True
+    assert reason is None
+
+
+def test_questions_rejects_vocab_targets_too_few():
+    pack = _happy_pack()
+    pack["vocab_targets"] = pack["vocab_targets"][:5]
+    ok, reason = validate_questions(pack, PASSAGE_BODY)
+    assert ok is False
+    assert "vocab_targets count 5" in reason
+
+
+def test_questions_rejects_vocab_targets_too_many():
+    pack = _happy_pack()
+    # 11 distinct whole-word matches present in PASSAGE_BODY.
+    pack["vocab_targets"] = [
+        "establishes", "outlines", "principal", "examines", "antecedents",
+        "considers", "methodologies", "historical", "competing", "topic",
+        "claims",
+    ]
+    ok, reason = validate_questions(pack, PASSAGE_BODY)
+    assert ok is False
+    assert "vocab_targets count 11" in reason
+
+
+def test_questions_rejects_vocab_target_not_in_passage():
+    pack = _happy_pack()
+    pack["vocab_targets"][0] = "unicorn"  # not in PASSAGE_BODY
+    ok, reason = validate_questions(pack, PASSAGE_BODY)
+    assert ok is False
+    assert "'unicorn'" in reason
+    assert "not a whole word" in reason
+
+
+def test_questions_rejects_vocab_target_substring_match():
+    # Build a passage where "artisan" appears but "art" does not stand alone.
+    # Prepend the happy-pack's evidence quote so the earlier evidence check
+    # passes and the failure is genuinely from the vocab_targets rule.
+    custom_body = (
+        "Paragraph one establishes the topic and outlines the principal "
+        "claims. "
+        + "The artisan worked the loom. " * 30
+        + "The methodologies described here illustrate the principle."
+        + " ".join(f"Sentence {i}." for i in range(60))
+    )
+    pack = _happy_pack()
+    pack["vocab_targets"] = [
+        "art",              # ← only appears inside "artisan", not as whole word
+        "artisan", "methodologies", "principle", "loom", "sentence",
+    ]
+    ok, reason = validate_questions(pack, custom_body)
+    assert ok is False
+    assert "'art'" in reason
+    assert "not a whole word" in reason
+
+
+def test_questions_rejects_vocab_target_duplicate():
+    pack = _happy_pack()
+    pack["vocab_targets"][1] = pack["vocab_targets"][0]  # duplicate
+    ok, reason = validate_questions(pack, PASSAGE_BODY)
+    assert ok is False
+    assert "duplicate" in reason
+
+
+def test_questions_rejects_vocab_target_with_punctuation():
+    pack = _happy_pack()
+    pack["vocab_targets"][0] = "aristocracy,"  # trailing comma
+    ok, reason = validate_questions(pack, PASSAGE_BODY)
+    assert ok is False
+    assert "not lowercase alphabetic" in reason
+
+
+def test_questions_rejects_vocab_target_with_apostrophe():
+    # Apostrophes are explicitly disallowed by the alphabetic-only rule.
+    pack = _happy_pack()
+    pack["vocab_targets"][0] = "don't"
+    ok, reason = validate_questions(pack, PASSAGE_BODY)
+    assert ok is False
+    assert "not lowercase alphabetic" in reason
+
+
+def test_questions_rejects_vocab_target_uppercase():
+    pack = _happy_pack()
+    pack["vocab_targets"][0] = "Aristocracy"
+    ok, reason = validate_questions(pack, PASSAGE_BODY)
+    assert ok is False
+    assert "not lowercase alphabetic" in reason
+
+
+def test_questions_rejects_missing_vocab_targets():
+    pack = _happy_pack()
+    del pack["vocab_targets"]
+    ok, reason = validate_questions(pack, PASSAGE_BODY)
+    assert ok is False
+    assert "vocab_targets" in reason

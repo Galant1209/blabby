@@ -272,21 +272,21 @@
             letter-spacing: 0.04em;
         }
 
-        /* Clickable words — non-intrusive hover affordance. */
-        .word {
+        /* Curated vocab targets — 6–10 words per passage flagged by the
+           generator as worth looking up at the reader's band. Subtle dotted
+           underline using a 35%-opacity ink colour so it hints without
+           pulling the eye away from the prose. Body text is --ink
+           (#2C2416 → rgb(44, 36, 22)). */
+        .vocab-target {
             cursor: pointer;
-            border-bottom: 1px dotted transparent;
-            transition: border-color 0.12s, background 0.12s;
-            border-radius: 1px;
-            padding: 0 1px;
+            border-bottom: 1px dotted rgba(44, 36, 22, 0.35);
+            transition: border-bottom-color 120ms ease;
         }
-        .word:hover {
-            border-bottom-color: var(--gold);
-            background: rgba(232, 200, 102, 0.12);
+        .vocab-target:hover {
+            border-bottom-color: rgba(44, 36, 22, 0.75);
         }
-        .word.is-saved {
+        .vocab-target.is-saved {
             border-bottom: 1px solid var(--gold);
-            background: rgba(232, 200, 102, 0.18);
         }
         /* Evidence highlight, used in "Review the Passage" mode. */
         .evidence-span {
@@ -897,14 +897,28 @@
         // ────────────────────────────────────────────────────────────────
         //  Passage rendering (with clickable words + paragraph numbers)
         // ────────────────────────────────────────────────────────────────
+        // Render the passage, wrapping ONLY curated vocab-target words in
+        // <span class="vocab-target">. Non-target words are emitted as plain
+        // text nodes — no per-word DOM bloat, no hover affordance on common
+        // words. Backward compat: a passage with vocab_targets == null
+        // (legacy rows pre-dating the Sprint Reading-2 migration) or an
+        // empty list renders as plain text only, no clickable words.
         function renderPassage(passage) {
             $('passage-title').textContent = passage.title || '';
             const bodyEl = $('passage-body');
             bodyEl.innerHTML = '';
+
+            const targetsSet = new Set(
+                Array.isArray(passage.vocab_targets)
+                    ? passage.vocab_targets.map(w => String(w).toLowerCase())
+                    : []
+            );
+
             const paragraphs = String(passage.body || '')
                 .split(/\n\s*\n/)
                 .map(s => s.trim())
                 .filter(Boolean);
+
             paragraphs.forEach((para, idx) => {
                 const p = document.createElement('p');
                 p.className = 'passage-paragraph';
@@ -913,12 +927,14 @@
                 num.className = 'passage-paragraph__num';
                 num.textContent = String(idx + 1);
                 p.appendChild(num);
-                // Split on whitespace, preserving punctuation glued to words.
-                // Each .word span is clickable.
+
+                // Tokenise preserving whitespace and punctuation. Words that
+                // are in targetsSet become <span class="vocab-target">;
+                // everything else is a plain text node.
                 const tokens = para.split(/(\s+)/);
                 tokens.forEach(tok => {
-                    if (/^\s+$/.test(tok)) {
-                        p.appendChild(document.createTextNode(tok));
+                    if (/^\s+$/.test(tok) || tok === '') {
+                        if (tok) p.appendChild(document.createTextNode(tok));
                         return;
                     }
                     const match = tok.match(/^([\W_]*)([A-Za-z][A-Za-z\-']*)?([\W_]*)$/);
@@ -926,16 +942,25 @@
                         p.appendChild(document.createTextNode(tok));
                         return;
                     }
-                    if (match[1]) p.appendChild(document.createTextNode(match[1]));
+                    const leading = match[1] || '';
+                    const word = match[2];
+                    const trailing = match[3] || '';
+                    const lower = word.toLowerCase();
+                    if (!targetsSet.has(lower)) {
+                        // Not a target — render the whole token as plain text.
+                        p.appendChild(document.createTextNode(tok));
+                        return;
+                    }
+                    if (leading) p.appendChild(document.createTextNode(leading));
                     const span = document.createElement('span');
-                    span.className = 'word';
-                    span.textContent = match[2];
-                    span.dataset.word = match[2].toLowerCase();
-                    if (state.savedWords.has(match[2].toLowerCase())) {
+                    span.className = 'vocab-target';
+                    span.textContent = word;
+                    span.dataset.word = lower;
+                    if (state.savedWords.has(lower)) {
                         span.classList.add('is-saved');
                     }
                     p.appendChild(span);
-                    if (match[3]) p.appendChild(document.createTextNode(match[3]));
+                    if (trailing) p.appendChild(document.createTextNode(trailing));
                 });
                 bodyEl.appendChild(p);
             });
@@ -1040,14 +1065,14 @@
         document.addEventListener('click', (e) => {
             if (popover.hidden) return;
             if (popover.contains(e.target)) return;
-            if (e.target.classList && e.target.classList.contains('word')) return;
+            if (e.target.classList && e.target.classList.contains('vocab-target')) return;
             hideVocabPopover();
         });
 
         // Word-click delegation on the passage body
         $('passage-body').addEventListener('click', (e) => {
             const target = e.target;
-            if (!target || !target.classList || !target.classList.contains('word')) return;
+            if (!target || !target.classList || !target.classList.contains('vocab-target')) return;
             const word = target.dataset.word;
             window.analytics.track('reading_word_clicked', { word });
             showVocabPopover(target);
@@ -1129,7 +1154,7 @@
                     return;
                 }
                 state.savedWords.add(word);
-                document.querySelectorAll(`.word[data-word="${CSS.escape(word)}"]`)
+                document.querySelectorAll(`.vocab-target[data-word="${CSS.escape(word)}"]`)
                     .forEach(el => el.classList.add('is-saved'));
                 btn.textContent = body.status === 'added' ? 'Inscribed' : 'Already in lexicon';
                 // Quiet enrichment notice — surfaces the partial failure

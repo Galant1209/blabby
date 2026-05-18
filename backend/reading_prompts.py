@@ -102,21 +102,30 @@ Return the JSON object only.
 def build_questions_prompt(
     passage_body: str,
     difficulty_band: float,
+    user_band: float,
 ) -> str:
     """
-    System prompt that instructs Claude to generate exactly 9 questions for a
-    supplied passage: 3 MCQ + 3 TFNG + 3 Heading Matching.
+    System prompt that instructs Claude to generate exactly 9 questions plus
+    a curated vocab-targets list for a supplied passage.
 
     The passage body is supplied as the user-turn message; this function only
     builds the system prompt.
 
+    user_band is the reader's own band (from profiles.user_band_reading,
+    falling back to difficulty_band for first-time Reading users). It drives
+    the vocab-targets selection: at lower bands more words feel hard, at
+    higher bands fewer do.
+
     Output contract — strict JSON, no preamble, no markdown fences:
-        {"questions": [ {question_type, question_text, options, correct_answer,
-                         explanation, evidence_quote, order_idx}, ... ]}
+        {
+          "questions": [ {question_type, question_text, options, correct_answer,
+                          explanation, evidence_quote, order_idx}, ... ],
+          "vocab_targets": [str, ...]
+        }
     """
     difficulty_clause = _band_difficulty_clause(difficulty_band)
 
-    return f"""You are an IELTS Academic Reading question writer. The user message contains the passage. Produce exactly 9 questions in formal British English.
+    return f"""You are an IELTS Academic Reading question writer. The user message contains the passage. Produce exactly 9 questions and a curated vocabulary-targets list, all in formal British English.
 
 Output a single JSON object — no preamble, no markdown fences:
 {{
@@ -130,7 +139,8 @@ Output a single JSON object — no preamble, no markdown fences:
       "evidence_quote": str,
       "order_idx": int
     }}
-  ]
+  ],
+  "vocab_targets": [str, ...]
 }}
 
 Composition — exactly:
@@ -159,6 +169,18 @@ Heading Matching rules:
 - "options" is a list of exactly 5 candidate headings (short noun phrases). Three of them correctly match three different paragraphs in the passage; the remaining two are plausible distractors that do not match any paragraph.
 - The three heading questions share the SAME "options" list (the same 5 candidate headings). Each question asks which heading matches a specific paragraph; reference the paragraph by ordinal number in "question_text" (e.g. "Which heading best matches paragraph 2?").
 - "correct_answer" is the exact heading text from "options" (not the index).
+
+Vocab-targets rules:
+- Identify between 6 and 10 words in the passage that an IELTS Reading candidate at band {user_band} would likely need to look up.
+- Words must actually appear in the passage body.
+- Lowercase, alphabetic only, single tokens only (no multi-word phrases, no hyphenated compounds, no apostrophes, no digits).
+- Skip proper nouns (place names, person names, organisation names).
+- Skip test-strategy vocabulary that refers to the exam itself (e.g. "paragraph", "passage", "question").
+- Skip words within the most common 2000 English words UNLESS they are used in an unusually specialised sense in this passage.
+- Return them in the order they first appear in the passage.
+- No duplicates.
+
+Critical: choose words a band-{user_band} student would actually struggle with — not words that are merely long. "internationally" is long but easy; "disenfranchise" is harder. "industrial" is too common; "aristocracy" or "disturbances" is the right register. Err towards fewer, harder words rather than more, easier ones.
 
 Return the JSON object only.
 """

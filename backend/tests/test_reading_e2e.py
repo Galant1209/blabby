@@ -126,6 +126,13 @@ def test_generate_returns_well_shaped_passage(generated_passage):
     assert isinstance(body.get("title"), str) and body["title"].strip()
     assert isinstance(body.get("body"), str) and len(body["body"]) > 200
 
+    # Sprint Reading-2: vocab_targets must be present, 6–10 strings.
+    assert "vocab_targets" in body
+    assert isinstance(body["vocab_targets"], list)
+    assert 6 <= len(body["vocab_targets"]) <= 10
+    for t in body["vocab_targets"]:
+        assert isinstance(t, str) and t
+
     questions = body.get("questions")
     assert isinstance(questions, list)
     assert len(questions) == 9

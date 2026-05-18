@@ -193,4 +193,34 @@ def validate_questions(
     if len(tfng_answers) < 2:
         return False, f"tfng answers lack variety: {sorted(tfng_answers)}"
 
+    # ---- vocab_targets validation ------------------------------------
+    if "vocab_targets" not in data:
+        return False, "missing key: vocab_targets"
+    targets = data.get("vocab_targets")
+    if not isinstance(targets, list):
+        return False, "vocab_targets is not a list"
+    if not (6 <= len(targets) <= 10):
+        return False, f"vocab_targets count {len(targets)} outside 6–10"
+
+    seen: set[str] = set()
+    # Pre-compute a lowercased copy of the passage for word-boundary checks.
+    passage_lower = (passage_body or "").lower()
+    for i, w in enumerate(targets):
+        if not isinstance(w, str):
+            return False, f"vocab_targets[{i}] is not a string"
+        if not w:
+            return False, f"vocab_targets[{i}] is empty"
+        # Must be lowercase alphabetic only (no digits, no punctuation,
+        # no whitespace, no hyphens or apostrophes). The prompt enforces
+        # single-token English; the validator enforces it strictly.
+        if not re.fullmatch(r"[a-z]+", w):
+            return False, f"vocab_targets[{i}] {w!r} not lowercase alphabetic"
+        if w in seen:
+            return False, f"vocab_targets[{i}] duplicate: {w!r}"
+        seen.add(w)
+        # Whole-word match against the passage. \b anchors prevent
+        # "art" matching inside "artisan".
+        if not re.search(r"\b" + re.escape(w) + r"\b", passage_lower):
+            return False, f"vocab_targets[{i}] {w!r} not a whole word in passage"
+
     return True, None
