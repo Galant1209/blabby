@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<!--
+  Reading Examination — Sprint Reading-1.
+
+  Single-file page (inline CSS + inline JS) to match the project's existing
+  convention (index.html, vocabulary.html, diagnosis.html, history.html).
+
+  Hub-page wording proposed for the Reading skill-entry:
+    - "The Reading Examination"   (in keeping with the page's own heading)
+    - "Comprehension"             (austere single word — Felix's call)
+    - "Reading · 閱讀考驗"          (bilingual)
+  The skill-entry in index.html is left as "Reading" for now, matching the
+  Speaking entry's single-word label.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blabby · The Reading Examination</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z' fill='none' stroke='%23C9A84C' stroke-width='2' stroke-linejoin='round'/><line x1='4' y1='26' x2='28' y2='26' stroke='%23C9A84C' stroke-width='2'/><circle cx='16' cy='7' r='2' fill='%23C9A84C'/><circle cx='4' cy='13' r='2' fill='%23C9A84C'/><circle cx='28' cy='13' r='2' fill='%23C9A84C'/></svg>">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500;600&display=swap" rel="stylesheet" />
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./config.js"></script>
+
+    <!-- PostHog tracking — initialised identically to index.html so events
+         land on the same analytics surface. -->
+    <script>
+        !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys getNextSurveyStep onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+        posthog.init('phc_yx3H55CAUHfsKFabX4ZQ5JHxTijKzHdyCiKzxvddaLTt', {
+            api_host: 'https://us.i.posthog.com',
+            person_profiles: 'identified_only',
+        });
+        window.analytics = {
+            track: function(event, props) {
+                try { posthog.capture(event, props || {}); } catch(_) {}
+            },
+            identify: function(userId, traits) {
+                try { posthog.identify(userId, traits || {}); } catch(_) {}
+            }
+        };
+    </script>
+
+    <style>
+        :root {
+            --bg:         #F5F0E8;
+            --surface:    #FDFAF4;
+            --paper:      #F1E9D6;
+            --ink:        #2C2416;
+            --ink-soft:   #3a3022;
+            --navy:       #1A3550;
+            --green:      #2D5016;
+            --green-dark: #1f3810;
+            --gold:       #C9A84C;
+            --gold-warm:  #E8C866;
+            --wine:       #6B1A1A;
+            --border:     #C4B89A;
+            --muted:      #8A7E6E;
+            --serif:      'EB Garamond', 'Cormorant Garamond', Georgia, serif;
+            --sans:       'Inter Tight', 'Inter', -apple-system, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            background: var(--bg);
+            color: var(--ink);
+            font-family: var(--sans);
+            font-size: 16px;
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.45;
+            z-index: 0;
+            background-image:
+                radial-gradient(circle at 22% 18%, rgba(196, 184, 154, 0.18) 0%, transparent 38%),
+                radial-gradient(circle at 78% 72%, rgba(201, 168, 76, 0.07) 0%, transparent 36%);
+        }
+
+        .page-shell {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 32px 24px 120px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 14px;
+            margin-bottom: 28px;
+        }
+        .topbar__crest {
+            font-family: var(--serif);
+            font-size: 22px;
+            letter-spacing: 0.04em;
+            color: var(--green-dark);
+            font-weight: 500;
+        }
+        .topbar__return {
+            font-family: var(--serif);
+            font-style: italic;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 15px;
+        }
+        .topbar__return:hover { color: var(--ink); }
+
+        h1.heading {
+            font-family: var(--serif);
+            font-weight: 500;
+            font-size: 38px;
+            letter-spacing: 0.005em;
+            color: var(--ink);
+            line-height: 1.2;
+        }
+        h2.subheading {
+            font-family: var(--serif);
+            font-weight: 500;
+            font-size: 24px;
+            color: var(--ink);
+            margin-bottom: 12px;
+            letter-spacing: 0.02em;
+        }
+        h3.section-label {
+            font-family: var(--serif);
+            font-weight: 500;
+            font-style: italic;
+            font-size: 17px;
+            color: var(--green-dark);
+            letter-spacing: 0.04em;
+            margin: 28px 0 10px;
+            text-transform: none;
+            border-bottom: 1px solid rgba(196, 184, 154, 0.6);
+            padding-bottom: 6px;
+        }
+
+        .austere-prose {
+            font-family: var(--serif);
+            font-size: 18px;
+            line-height: 1.75;
+            color: var(--ink-soft);
+        }
+
+        /* ─── Buttons ───────────────────────────────────────────── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-family: var(--serif);
+            font-size: 17px;
+            letter-spacing: 0.02em;
+            padding: 12px 26px;
+            border-radius: 2px;
+            border: 1.5px solid var(--green-dark);
+            background: var(--green-dark);
+            color: var(--surface);
+            cursor: pointer;
+            transition: background 0.18s, color 0.18s, transform 0.04s;
+        }
+        .btn:hover { background: var(--green); }
+        .btn:active { transform: translateY(1px); }
+        .btn[disabled],
+        .btn[aria-disabled="true"] {
+            opacity: 0.45;
+            cursor: not-allowed;
+            background: var(--green-dark);
+        }
+        .btn--ghost {
+            background: transparent;
+            color: var(--green-dark);
+        }
+        .btn--ghost:hover { background: rgba(45, 80, 22, 0.06); color: var(--green-dark); }
+        .btn--quiet {
+            background: transparent;
+            color: var(--muted);
+            border: none;
+            padding: 6px 12px;
+            font-size: 15px;
+            font-style: italic;
+        }
+        .btn--quiet:hover { color: var(--wine); }
+
+        /* ─── Landing ────────────────────────────────────────────── */
+        .landing {
+            max-width: 640px;
+            margin: 64px auto 0;
+            text-align: center;
+        }
+        .landing__rule {
+            width: 80px;
+            height: 1px;
+            background: var(--gold);
+            margin: 18px auto 22px;
+        }
+        .landing__description {
+            margin: 16px 0 32px;
+            color: var(--ink-soft);
+        }
+        .allowance {
+            margin-top: 22px;
+            font-family: var(--serif);
+            font-style: italic;
+            color: var(--muted);
+            font-size: 15px;
+            letter-spacing: 0.03em;
+        }
+        .allowance--spent { color: var(--wine); }
+
+        /* ─── Examination layout ─────────────────────────────────── */
+        .exam {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 36px;
+            align-items: start;
+        }
+        @media (max-width: 900px) {
+            .exam { grid-template-columns: 1fr; gap: 28px; }
+        }
+
+        .passage-card,
+        .questions-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 28px 30px;
+            position: relative;
+        }
+
+        .passage-card__title {
+            font-family: var(--serif);
+            font-weight: 500;
+            font-size: 26px;
+            color: var(--ink);
+            line-height: 1.25;
+            margin-bottom: 18px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(196, 184, 154, 0.5);
+        }
+
+        .passage-body {
+            font-family: var(--serif);
+            font-size: 18px;
+            line-height: 1.85;
+            color: var(--ink);
+        }
+        .passage-paragraph {
+            position: relative;
+            padding-left: 38px;
+            margin-bottom: 16px;
+        }
+        .passage-paragraph__num {
+            position: absolute;
+            left: 0;
+            top: 6px;
+            font-family: var(--serif);
+            font-style: italic;
+            font-size: 13px;
+            color: var(--muted);
+            letter-spacing: 0.04em;
+        }
+
+        /* Clickable words — non-intrusive hover affordance. */
+        .word {
+            cursor: pointer;
+            border-bottom: 1px dotted transparent;
+            transition: border-color 0.12s, background 0.12s;
+            border-radius: 1px;
+            padding: 0 1px;
+        }
+        .word:hover {
+            border-bottom-color: var(--gold);
+            background: rgba(232, 200, 102, 0.12);
+        }
+        .word.is-saved {
+            border-bottom: 1px solid var(--gold);
+            background: rgba(232, 200, 102, 0.18);
+        }
+        /* Evidence highlight, used in "Review the Passage" mode. */
+        .evidence-span {
+            background: rgba(45, 80, 22, 0.13);
+            border-bottom: 1px solid var(--green-dark);
+        }
+
+        /* ─── Question blocks ─────────────────────────────────────── */
+        .heading-bank {
+            background: var(--paper);
+            border: 1px solid var(--border);
+            padding: 14px 18px;
+            margin: 6px 0 18px;
+            font-family: var(--serif);
+        }
+        .heading-bank__label {
+            font-style: italic;
+            color: var(--muted);
+            font-size: 14px;
+            margin-bottom: 6px;
+        }
+        .heading-bank ol { list-style: none; padding-left: 0; counter-reset: roman; }
+        .heading-bank ol li {
+            counter-increment: roman;
+            padding: 4px 0 4px 32px;
+            position: relative;
+            font-size: 16px;
+            line-height: 1.5;
+        }
+        .heading-bank ol li::before {
+            content: counter(roman, lower-roman) ".";
+            position: absolute;
+            left: 8px;
+            top: 4px;
+            font-style: italic;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .question {
+            margin-bottom: 18px;
+            padding: 14px 16px;
+            background: rgba(241, 233, 214, 0.4);
+            border-left: 2px solid var(--border);
+        }
+        .question__stem {
+            font-family: var(--serif);
+            font-size: 17px;
+            line-height: 1.55;
+            color: var(--ink);
+            margin-bottom: 10px;
+        }
+        .question__stem .question__num {
+            font-style: italic;
+            color: var(--muted);
+            margin-right: 6px;
+        }
+
+        .option {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 6px 0;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .option input[type="radio"] {
+            margin-top: 6px;
+            accent-color: var(--green-dark);
+        }
+        .option__label {
+            flex: 1;
+            font-family: var(--serif);
+            line-height: 1.5;
+            color: var(--ink-soft);
+        }
+        .option:hover .option__label { color: var(--ink); }
+
+        .heading-select {
+            width: 100%;
+            padding: 7px 10px;
+            font-family: var(--serif);
+            font-size: 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--ink);
+            border-radius: 2px;
+        }
+
+        /* Sticky exam footer */
+        .exam-footer {
+            position: sticky;
+            bottom: 16px;
+            margin-top: 28px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            box-shadow: 0 6px 20px rgba(44, 36, 22, 0.06);
+        }
+        .exam-footer__progress {
+            font-family: var(--serif);
+            font-style: italic;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        /* ─── Vocab popover ────────────────────────────────────────── */
+        .vocab-popover {
+            position: absolute;
+            z-index: 30;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 14px 16px;
+            min-width: 220px;
+            max-width: 280px;
+            box-shadow: 0 8px 22px rgba(44, 36, 22, 0.12);
+            font-family: var(--serif);
+        }
+        .vocab-popover__word {
+            font-size: 19px;
+            color: var(--ink);
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        .vocab-popover__def {
+            font-size: 14px;
+            font-style: italic;
+            color: var(--muted);
+            margin-bottom: 12px;
+        }
+        .vocab-popover__btn {
+            font-family: var(--serif);
+            font-size: 14px;
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid var(--green-dark);
+            color: var(--green-dark);
+            cursor: pointer;
+            border-radius: 2px;
+        }
+        .vocab-popover__btn:hover { background: var(--green-dark); color: var(--surface); }
+        .vocab-popover__btn[disabled] {
+            opacity: 0.6;
+            cursor: default;
+            background: transparent;
+            color: var(--muted);
+            border-color: var(--border);
+        }
+        .vocab-popover__close {
+            position: absolute;
+            top: 6px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .vocab-popover__close:hover { color: var(--ink); }
+
+        /* ─── Loading overlay ──────────────────────────────────────── */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(245, 240, 232, 0.92);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            backdrop-filter: blur(2px);
+        }
+        .loading-overlay__panel {
+            text-align: center;
+            max-width: 480px;
+            padding: 32px;
+        }
+        .loading-overlay__phrase {
+            font-family: var(--serif);
+            font-style: italic;
+            font-size: 21px;
+            color: var(--ink-soft);
+            min-height: 64px;
+            transition: opacity 0.5s;
+        }
+        .loading-overlay__rule {
+            width: 60px;
+            height: 1px;
+            background: var(--gold);
+            margin: 18px auto;
+        }
+        .loading-overlay__dots {
+            font-family: var(--serif);
+            color: var(--gold);
+            letter-spacing: 0.8em;
+        }
+
+        /* ─── Error banner ─────────────────────────────────────────── */
+        .error-banner {
+            position: fixed;
+            left: 50%;
+            top: 24px;
+            transform: translateX(-50%);
+            background: var(--wine);
+            color: var(--surface);
+            padding: 12px 22px;
+            font-family: var(--serif);
+            font-size: 15px;
+            z-index: 200;
+            box-shadow: 0 6px 18px rgba(107, 26, 26, 0.25);
+        }
+        .error-banner button {
+            margin-left: 16px;
+            background: transparent;
+            border: 1px solid rgba(253, 250, 244, 0.6);
+            color: var(--surface);
+            padding: 4px 12px;
+            cursor: pointer;
+            font-family: var(--serif);
+            font-size: 14px;
+        }
+
+        /* ─── Reckoning ────────────────────────────────────────────── */
+        .reckoning__banner {
+            text-align: center;
+            padding: 28px 18px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            margin-bottom: 32px;
+        }
+        .reckoning__score {
+            font-family: var(--serif);
+            font-size: 36px;
+            color: var(--ink);
+            letter-spacing: 0.02em;
+            margin-bottom: 6px;
+        }
+        .reckoning__band {
+            font-family: var(--serif);
+            font-style: italic;
+            font-size: 20px;
+            color: var(--green-dark);
+        }
+        .reckoning__divider {
+            width: 90px;
+            height: 1px;
+            background: var(--gold);
+            margin: 18px auto 14px;
+        }
+
+        .reckoning-question {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 20px 22px;
+            margin-bottom: 18px;
+        }
+        .reckoning-question__head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 10px;
+        }
+        .reckoning-question__num {
+            font-family: var(--serif);
+            font-style: italic;
+            color: var(--muted);
+            font-size: 14px;
+        }
+        .reckoning-question__verdict {
+            font-family: var(--serif);
+            font-size: 15px;
+            letter-spacing: 0.04em;
+        }
+        .reckoning-question__verdict--correct {
+            color: var(--green-dark);
+        }
+        .reckoning-question__verdict--wrong {
+            color: var(--wine);
+        }
+        .reckoning-question__stem {
+            font-family: var(--serif);
+            font-size: 17px;
+            color: var(--ink);
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+        .reckoning-row {
+            font-family: var(--serif);
+            font-size: 15px;
+            line-height: 1.5;
+            margin: 4px 0;
+        }
+        .reckoning-row strong {
+            font-style: italic;
+            color: var(--muted);
+            font-weight: normal;
+            margin-right: 6px;
+        }
+        .reckoning-row .user-wrong {
+            text-decoration: line-through;
+            color: var(--wine);
+        }
+        .reckoning__explanation {
+            font-family: var(--serif);
+            font-size: 15px;
+            color: var(--ink-soft);
+            margin-top: 8px;
+            line-height: 1.55;
+        }
+        .reckoning__evidence {
+            font-family: var(--serif);
+            font-style: italic;
+            font-size: 14px;
+            color: var(--muted);
+            border-left: 2px solid var(--gold);
+            padding: 4px 14px;
+            margin-top: 10px;
+        }
+
+        .reckoning-actions {
+            display: flex;
+            gap: 14px;
+            justify-content: center;
+            margin: 32px 0 14px;
+            flex-wrap: wrap;
+        }
+        .reckoning__closing {
+            text-align: center;
+            font-family: var(--serif);
+            font-style: italic;
+            font-size: 16px;
+            color: var(--muted);
+            margin-top: 24px;
+            padding-top: 18px;
+            border-top: 1px dashed rgba(196, 184, 154, 0.7);
+        }
+
+        [hidden] { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="page-shell">
+        <header class="topbar">
+            <span class="topbar__crest">Blabby · The Reading Examination</span>
+            <a class="topbar__return" href="/index.html">Return to the Hall</a>
+        </header>
+
+        <!-- ============== STATE 1: Landing ============== -->
+        <section id="state-landing" class="state-view">
+            <div class="landing">
+                <h1 class="heading">The Reading Examination</h1>
+                <div class="landing__rule"></div>
+                <p class="austere-prose landing__description">
+                    A passage will be drawn from the archive. Nine questions will follow.
+                    Read with care; the answers reward attention and punish haste.
+                </p>
+                <button id="btn-summon" class="btn">Summon a Passage</button>
+                <p id="allowance-line" class="allowance" hidden></p>
+            </div>
+        </section>
+
+        <!-- ============== STATE 2: Examination ============== -->
+        <section id="state-exam" class="state-view" hidden>
+            <div class="exam">
+                <article class="passage-card" id="passage-card">
+                    <h2 id="passage-title" class="passage-card__title"></h2>
+                    <div id="passage-body" class="passage-body"></div>
+                </article>
+
+                <aside class="questions-card">
+                    <h3 class="section-label">Multiple Choice</h3>
+                    <div id="mcq-block"></div>
+
+                    <h3 class="section-label">True, False or Not Given</h3>
+                    <div id="tfng-block"></div>
+
+                    <h3 class="section-label">Matching Headings</h3>
+                    <div id="heading-bank-mount"></div>
+                    <div id="heading-block"></div>
+                </aside>
+            </div>
+
+            <div class="exam-footer">
+                <span class="exam-footer__progress" id="exam-progress">0 of 9 answered</span>
+                <div style="display:flex; gap:14px; align-items:center;">
+                    <button id="btn-abandon" class="btn--quiet" type="button">Abandon</button>
+                    <button id="btn-submit" class="btn" type="button" disabled>Submit for Assessment</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============== STATE 3: The Reckoning ============== -->
+        <section id="state-reckoning" class="state-view" hidden>
+            <div class="reckoning__banner">
+                <h1 class="heading" style="font-size:28px; margin-bottom:4px;">The Reckoning</h1>
+                <div class="reckoning__divider"></div>
+                <div class="reckoning__score" id="rec-score"></div>
+                <div class="reckoning__band" id="rec-band"></div>
+            </div>
+
+            <div id="rec-questions"></div>
+
+            <div class="reckoning-actions">
+                <button id="btn-review-passage" class="btn btn--ghost" type="button">Review the Passage</button>
+                <button id="btn-return-hall" class="btn" type="button">Return to the Hall</button>
+            </div>
+
+            <p class="reckoning__closing">
+                Tomorrow's passage will be set when the sun next rises.
+            </p>
+        </section>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay" hidden>
+        <div class="loading-overlay__panel">
+            <p id="loading-phrase" class="loading-overlay__phrase">Drawing forth a passage from the archive…</p>
+            <div class="loading-overlay__rule"></div>
+            <div class="loading-overlay__dots">· · ·</div>
+        </div>
+    </div>
+
+    <!-- Vocab popover -->
+    <div id="vocab-popover" class="vocab-popover" hidden>
+        <button class="vocab-popover__close" type="button" aria-label="Close">×</button>
+        <div id="vocab-popover-word" class="vocab-popover__word"></div>
+        <div id="vocab-popover-def" class="vocab-popover__def">Definition forthcoming.</div>
+        <button id="vocab-popover-save" class="vocab-popover__btn" type="button">Save to lexicon</button>
+    </div>
+
+    <!-- Error banner -->
+    <div id="error-banner" class="error-banner" hidden>
+        <span id="error-banner-text"></span>
+        <button id="error-banner-retry" type="button" hidden>Try again</button>
+        <button id="error-banner-dismiss" type="button">Dismiss</button>
+    </div>
+
+    <script>
+    (() => {
+        'use strict';
+
+        // ────────────────────────────────────────────────────────────────
+        //  Config
+        // ────────────────────────────────────────────────────────────────
+        const cfg = window.BLABBY_CONFIG || {};
+        const SUPABASE_URL = cfg.supabaseUrl;
+        const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
+        const API_BASE = window.BLABBY_API_BASE || 'https://blabby-backend.onrender.com';
+        const FREE_DAILY_QUOTA = 1;
+
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !window.supabase) {
+            document.body.innerHTML =
+                '<main class="page-shell"><p class="austere-prose">' +
+                'The examination chamber is currently unfurnished. Please return shortly.' +
+                '</p></main>';
+            return;
+        }
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // ────────────────────────────────────────────────────────────────
+        //  State
+        // ────────────────────────────────────────────────────────────────
+        const state = {
+            session:        null,
+            passageId:      null,
+            attemptId:      null,
+            passage:        null,
+            questions:      [],
+            answers:        Object.create(null),  // {question_id: user_answer}
+            headingOptions: [],
+            savedWords:     new Set(),
+            // Reckoning data, populated on submit.
+            results:        null,
+            isReviewing:    false,
+        };
+
+        // ────────────────────────────────────────────────────────────────
+        //  Helpers
+        // ────────────────────────────────────────────────────────────────
+        function $(id) { return document.getElementById(id); }
+
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => (
+                {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+            ));
+        }
+
+        async function getToken() {
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                state.session = session || null;
+                return session?.access_token || null;
+            } catch (_) {
+                state.session = null;
+                return null;
+            }
+        }
+
+        async function authFetch(method, path, body) {
+            const token = await getToken();
+            if (!token) {
+                window.location.href = '/index.html';
+                throw new Error('not_signed_in');
+            }
+            const res = await fetch(`${API_BASE}${path}`, {
+                method,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+                },
+                body: body !== undefined ? JSON.stringify(body) : undefined,
+            });
+            return res;
+        }
+
+        function showState(name) {
+            ['state-landing','state-exam','state-reckoning'].forEach(id => {
+                const el = $(id);
+                if (!el) return;
+                if (id === `state-${name}`) el.hidden = false;
+                else el.hidden = true;
+            });
+            window.scrollTo({ top: 0, behavior: 'instant' });
+        }
+
+        function showError(message, onRetry) {
+            const banner = $('error-banner');
+            $('error-banner-text').textContent = message;
+            const retryBtn = $('error-banner-retry');
+            retryBtn.hidden = !onRetry;
+            retryBtn.onclick = onRetry || null;
+            banner.hidden = false;
+        }
+        $('error-banner-dismiss').addEventListener('click', () => {
+            $('error-banner').hidden = true;
+        });
+
+        // ── Loading overlay with rotating phrases ──────────────────
+        const LOADING_PHRASES = [
+            'Drawing forth a passage from the archive…',
+            'The examiner sharpens his quill…',
+            'Composing questions worthy of your attention…',
+            'The candidates’ chamber is being prepared…',
+            'Inking the rubric, settling the wax…',
+        ];
+        let loadingInterval = null;
+        function startLoading() {
+            $('loading-overlay').hidden = false;
+            const phraseEl = $('loading-phrase');
+            let i = 0;
+            phraseEl.textContent = LOADING_PHRASES[0];
+            loadingInterval = setInterval(() => {
+                i = (i + 1) % LOADING_PHRASES.length;
+                phraseEl.style.opacity = '0';
+                setTimeout(() => {
+                    phraseEl.textContent = LOADING_PHRASES[i];
+                    phraseEl.style.opacity = '1';
+                }, 280);
+            }, 2400);
+        }
+        function stopLoading() {
+            $('loading-overlay').hidden = true;
+            if (loadingInterval) { clearInterval(loadingInterval); loadingInterval = null; }
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Quota / allowance display
+        // ────────────────────────────────────────────────────────────────
+        // Reads /reading/quota. The endpoint returns {used_today, limit,
+        // remaining, is_pro, should_upgrade}. For Pro users, limit is null
+        // (unlimited) and the allowance line is hidden.
+        async function refreshAllowance() {
+            const line = $('allowance-line');
+            try {
+                const res = await authFetch('GET', '/reading/quota');
+                if (!res.ok) throw new Error(`quota ${res.status}`);
+                const body = await res.json();
+                if (!body || typeof body.used_today !== 'number') {
+                    throw new Error('quota response malformed');
+                }
+                if (body.is_pro || body.limit === null) {
+                    line.hidden = true;
+                    return;
+                }
+                const remaining = typeof body.remaining === 'number'
+                    ? body.remaining
+                    : Math.max(0, body.limit - body.used_today);
+                line.hidden = false;
+                if (remaining <= 0) {
+                    line.classList.add('allowance--spent');
+                    line.textContent = `Today's allowance: 0 of ${body.limit} · the gates close until tomorrow.`;
+                } else {
+                    line.classList.remove('allowance--spent');
+                    line.textContent = `Today's allowance: ${remaining} of ${body.limit}.`;
+                }
+            } catch (err) {
+                // Allowance display is non-essential; fail silent. The 403
+                // path on summon is still authoritative.
+                console.warn('[reading] allowance refresh failed', err);
+                line.hidden = true;
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Passage rendering (with clickable words + paragraph numbers)
+        // ────────────────────────────────────────────────────────────────
+        function renderPassage(passage) {
+            $('passage-title').textContent = passage.title || '';
+            const bodyEl = $('passage-body');
+            bodyEl.innerHTML = '';
+            const paragraphs = String(passage.body || '')
+                .split(/\n\s*\n/)
+                .map(s => s.trim())
+                .filter(Boolean);
+            paragraphs.forEach((para, idx) => {
+                const p = document.createElement('p');
+                p.className = 'passage-paragraph';
+                p.dataset.paragraph = String(idx + 1);
+                const num = document.createElement('span');
+                num.className = 'passage-paragraph__num';
+                num.textContent = String(idx + 1);
+                p.appendChild(num);
+                // Split on whitespace, preserving punctuation glued to words.
+                // Each .word span is clickable.
+                const tokens = para.split(/(\s+)/);
+                tokens.forEach(tok => {
+                    if (/^\s+$/.test(tok)) {
+                        p.appendChild(document.createTextNode(tok));
+                        return;
+                    }
+                    const match = tok.match(/^([\W_]*)([A-Za-z][A-Za-z\-']*)?([\W_]*)$/);
+                    if (!match || !match[2]) {
+                        p.appendChild(document.createTextNode(tok));
+                        return;
+                    }
+                    if (match[1]) p.appendChild(document.createTextNode(match[1]));
+                    const span = document.createElement('span');
+                    span.className = 'word';
+                    span.textContent = match[2];
+                    span.dataset.word = match[2].toLowerCase();
+                    if (state.savedWords.has(match[2].toLowerCase())) {
+                        span.classList.add('is-saved');
+                    }
+                    p.appendChild(span);
+                    if (match[3]) p.appendChild(document.createTextNode(match[3]));
+                });
+                bodyEl.appendChild(p);
+            });
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Vocab popover
+        // ────────────────────────────────────────────────────────────────
+        const popover = $('vocab-popover');
+        let popoverAnchor = null;
+        // Session-scoped cache of raw lookup bodies (`{definition, example,
+        // part_of_speech}`). Backend has its own LRU; this exists so the
+        // popover doesn't refetch when reopened, AND so the save flow can
+        // hand the same definition string to /vocab/translate_zh without a
+        // second round trip.
+        const defnCache = new Map();
+
+        // Walk up from a clicked word span to find the surrounding sentence
+        // (best-effort — falls back to the whole paragraph if no terminal
+        // punctuation is found). Used as context_sentence for translation.
+        function sentenceContaining(wordSpan) {
+            const para = wordSpan.closest('.passage-paragraph');
+            if (!para) return '';
+            // Strip the leading paragraph-number span so it doesn't end up
+            // glued to the first sentence.
+            const text = Array.from(para.childNodes)
+                .filter(n => !(n.nodeType === 1 && n.classList.contains('passage-paragraph__num')))
+                .map(n => n.textContent || '')
+                .join('')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const wl = (wordSpan.dataset.word || '').toLowerCase();
+            const sentences = text.split(/(?<=[.!?])\s+/);
+            return sentences.find(s => s.toLowerCase().includes(wl)) || text.slice(0, 200);
+        }
+
+        function showVocabPopover(wordSpan) {
+            popoverAnchor = wordSpan;
+            const word = wordSpan.dataset.word;
+            $('vocab-popover-word').textContent = word;
+            const saveBtn = $('vocab-popover-save');
+            const alreadySaved = state.savedWords.has(word);
+            saveBtn.disabled = alreadySaved;
+            saveBtn.textContent = alreadySaved ? 'Already in lexicon' : 'Save to lexicon';
+
+            const defEl = $('vocab-popover-def');
+            const cached = defnCache.get(word);
+            if (cached) {
+                defEl.textContent = formatDefinition(cached);
+            } else {
+                defEl.textContent = 'Consulting the lexicon…';
+                fetchDefinition(word, defEl);
+            }
+
+            popover.hidden = false;
+            // Position the popover near the word, but clamp to viewport.
+            const rect = wordSpan.getBoundingClientRect();
+            const popRect = popover.getBoundingClientRect();
+            const top = window.scrollY + rect.bottom + 6;
+            let left = window.scrollX + rect.left;
+            const maxLeft = window.scrollX + window.innerWidth - popRect.width - 16;
+            if (left > maxLeft) left = maxLeft;
+            if (left < 8) left = 8;
+            popover.style.top = `${top}px`;
+            popover.style.left = `${left}px`;
+        }
+
+        function formatDefinition(body) {
+            const pos = body.part_of_speech ? ` (${body.part_of_speech})` : '';
+            return `${body.definition}${pos}`;
+        }
+
+        async function fetchDefinition(word, defEl) {
+            try {
+                const res = await authFetch('POST', '/vocab/lookup', { word });
+                if (!res.ok) {
+                    defEl.textContent = 'Definition unavailable.';
+                    return;
+                }
+                const body = await res.json();
+                if (!body || typeof body.definition !== 'string') {
+                    defEl.textContent = 'Definition unavailable.';
+                    return;
+                }
+                defnCache.set(word, body);
+                // Only update the popover if the user is still on the same word.
+                if (popoverAnchor && popoverAnchor.dataset.word === word) {
+                    defEl.textContent = formatDefinition(body);
+                }
+            } catch (err) {
+                console.warn('[reading] vocab lookup failed', err);
+                if (popoverAnchor && popoverAnchor.dataset.word === word) {
+                    defEl.textContent = 'Definition unavailable.';
+                }
+            }
+        }
+        function hideVocabPopover() {
+            popover.hidden = true;
+            popoverAnchor = null;
+        }
+        popover.querySelector('.vocab-popover__close').addEventListener('click', hideVocabPopover);
+        document.addEventListener('click', (e) => {
+            if (popover.hidden) return;
+            if (popover.contains(e.target)) return;
+            if (e.target.classList && e.target.classList.contains('word')) return;
+            hideVocabPopover();
+        });
+
+        // Word-click delegation on the passage body
+        $('passage-body').addEventListener('click', (e) => {
+            const target = e.target;
+            if (!target || !target.classList || !target.classList.contains('word')) return;
+            const word = target.dataset.word;
+            window.analytics.track('reading_word_clicked', { word });
+            showVocabPopover(target);
+        });
+
+        $('vocab-popover-save').addEventListener('click', async () => {
+            if (!popoverAnchor) return;
+            const word = popoverAnchor.dataset.word;
+            const anchorSnapshot = popoverAnchor;
+            const context_sentence = sentenceContaining(anchorSnapshot);
+            const btn = $('vocab-popover-save');
+            const defEl = $('vocab-popover-def');
+            btn.disabled = true;
+            btn.textContent = 'Recording the word in your lexicon…';
+
+            // Two-step enrichment: (1) ensure we have an English definition
+            // (re-use the lookup cache where possible), (2) translate to
+            // 繁體中文. Translation failure must NOT block the save — the
+            // user's intent is to save the word.
+            let englishDefinition = '';
+            try {
+                let lookup = defnCache.get(word);
+                if (!lookup) {
+                    const lookupRes = await authFetch('POST', '/vocab/lookup', {
+                        word, context_sentence,
+                    });
+                    if (lookupRes.ok) {
+                        const body = await lookupRes.json();
+                        if (body && typeof body.definition === 'string') {
+                            defnCache.set(word, body);
+                            lookup = body;
+                        }
+                    }
+                }
+                if (lookup) englishDefinition = lookup.definition || '';
+            } catch (err) {
+                console.warn('[reading] lookup during save failed', err);
+                // Non-fatal — translation step may still succeed without it.
+            }
+
+            let zhMeaning = '';
+            let translationFailed = false;
+            try {
+                const translateRes = await authFetch('POST', '/vocab/translate_zh', {
+                    word,
+                    context_sentence,
+                    english_definition: englishDefinition,
+                });
+                if (translateRes.ok) {
+                    const body = await translateRes.json();
+                    if (body && typeof body.zh_meaning === 'string' && body.zh_meaning.trim()) {
+                        zhMeaning = body.zh_meaning.trim();
+                    } else {
+                        translationFailed = true;
+                    }
+                } else {
+                    translationFailed = true;
+                }
+            } catch (err) {
+                console.warn('[reading] translate_zh failed', err);
+                translationFailed = true;
+            }
+
+            // Now the actual save. Send zh_meaning iff we have one — empty
+            // is the same fallback the backend uses when the field is omitted.
+            try {
+                const savePayload = { word, source: 'reading' };
+                if (zhMeaning) savePayload.zh_meaning = zhMeaning;
+                const res = await authFetch('POST', '/api/vocabulary/save_word', savePayload);
+                if (!res.ok) {
+                    btn.textContent = 'Failed — try again';
+                    btn.disabled = false;
+                    return;
+                }
+                const body = await res.json();
+                if (!body || (body.status !== 'added' && body.status !== 'exists')) {
+                    btn.textContent = 'Failed — try again';
+                    btn.disabled = false;
+                    return;
+                }
+                state.savedWords.add(word);
+                document.querySelectorAll(`.word[data-word="${CSS.escape(word)}"]`)
+                    .forEach(el => el.classList.add('is-saved'));
+                btn.textContent = body.status === 'added' ? 'Inscribed' : 'Already in lexicon';
+                // Quiet enrichment notice — surfaces the partial failure
+                // without alarming the user. Only shown when the user is
+                // still hovering on the same word.
+                if (translationFailed
+                    && popoverAnchor
+                    && popoverAnchor === anchorSnapshot) {
+                    defEl.textContent =
+                        'Saved without translation — definition will be enriched later.';
+                }
+                window.analytics.track('reading_word_saved', {
+                    word,
+                    status: body.status,
+                    translation_present: !!zhMeaning,
+                });
+            } catch (err) {
+                console.error('[reading] save_word failed', err);
+                btn.textContent = 'Failed — try again';
+                btn.disabled = false;
+            }
+        });
+
+        // ────────────────────────────────────────────────────────────────
+        //  Questions rendering
+        // ────────────────────────────────────────────────────────────────
+        function renderQuestions(questions) {
+            const mcqBlock = $('mcq-block');
+            const tfngBlock = $('tfng-block');
+            const headingBlock = $('heading-block');
+            const headingBankMount = $('heading-bank-mount');
+            mcqBlock.innerHTML = '';
+            tfngBlock.innerHTML = '';
+            headingBlock.innerHTML = '';
+            headingBankMount.innerHTML = '';
+
+            // Heading bank — show the 5 candidate headings once at the top
+            // of the section. All 3 heading questions share the same options.
+            const headingQuestions = questions.filter(q => q.question_type === 'heading');
+            const headingOpts = headingQuestions[0]?.options || [];
+            state.headingOptions = headingOpts;
+            if (headingOpts.length) {
+                const bank = document.createElement('div');
+                bank.className = 'heading-bank';
+                bank.innerHTML =
+                    '<div class="heading-bank__label">List of headings</div>' +
+                    '<ol>' +
+                    headingOpts.map(h => `<li>${escapeHtml(h)}</li>`).join('') +
+                    '</ol>';
+                headingBankMount.appendChild(bank);
+            }
+
+            questions.forEach(q => {
+                const card = document.createElement('div');
+                card.className = 'question';
+                card.dataset.questionId = q.id;
+                card.dataset.questionType = q.question_type;
+
+                const stem = document.createElement('div');
+                stem.className = 'question__stem';
+                stem.innerHTML =
+                    `<span class="question__num">Q${q.order_idx}.</span>` +
+                    escapeHtml(q.question_text);
+                card.appendChild(stem);
+
+                if (q.question_type === 'mcq') {
+                    (q.options || []).forEach((opt, optIdx) => {
+                        const letter = String.fromCharCode(65 + optIdx); // A,B,C,D
+                        const labelText = String(opt).replace(/^\s*[A-Da-d][.)]\s*/, '');
+                        const label = document.createElement('label');
+                        label.className = 'option';
+                        label.innerHTML =
+                            `<input type="radio" name="q-${q.id}" value="${letter}">` +
+                            `<span class="option__label"><strong style="font-style:italic;color:var(--muted);margin-right:6px;">${letter}.</strong>${escapeHtml(labelText)}</span>`;
+                        label.querySelector('input').addEventListener('change', (e) => {
+                            state.answers[q.id] = e.target.value;
+                            persistAnswers();
+                            updateProgress();
+                            window.analytics.track('reading_question_answered', {
+                                question_id: q.id, question_type: 'mcq',
+                            });
+                        });
+                        card.appendChild(label);
+                    });
+                    mcqBlock.appendChild(card);
+                } else if (q.question_type === 'tfng') {
+                    ['True','False','Not Given'].forEach(val => {
+                        const label = document.createElement('label');
+                        label.className = 'option';
+                        label.innerHTML =
+                            `<input type="radio" name="q-${q.id}" value="${val}">` +
+                            `<span class="option__label">${val}</span>`;
+                        label.querySelector('input').addEventListener('change', (e) => {
+                            state.answers[q.id] = e.target.value;
+                            persistAnswers();
+                            updateProgress();
+                            window.analytics.track('reading_question_answered', {
+                                question_id: q.id, question_type: 'tfng',
+                            });
+                        });
+                        card.appendChild(label);
+                    });
+                    tfngBlock.appendChild(card);
+                } else if (q.question_type === 'heading') {
+                    const sel = document.createElement('select');
+                    sel.className = 'heading-select';
+                    sel.innerHTML =
+                        '<option value="">— select a heading —</option>' +
+                        headingOpts.map(h => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`).join('');
+                    sel.addEventListener('change', (e) => {
+                        if (e.target.value) {
+                            state.answers[q.id] = e.target.value;
+                        } else {
+                            delete state.answers[q.id];
+                        }
+                        persistAnswers();
+                        updateProgress();
+                        window.analytics.track('reading_question_answered', {
+                            question_id: q.id, question_type: 'heading',
+                        });
+                    });
+                    card.appendChild(sel);
+                    headingBlock.appendChild(card);
+                }
+            });
+
+            // Restore any persisted answers (e.g. after a page reload).
+            restoreAnswers();
+            updateProgress();
+        }
+
+        function updateProgress() {
+            const answered = Object.keys(state.answers).length;
+            const total = state.questions.length;
+            $('exam-progress').textContent = `${answered} of ${total} answered`;
+            $('btn-submit').disabled = answered < total;
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  LocalStorage answer persistence
+        // ────────────────────────────────────────────────────────────────
+        function answersKey() {
+            return state.attemptId ? `reading_answers_${state.attemptId}` : null;
+        }
+        function persistAnswers() {
+            const k = answersKey();
+            if (!k) return;
+            try { localStorage.setItem(k, JSON.stringify(state.answers)); } catch (_) {}
+        }
+        function restoreAnswers() {
+            const k = answersKey();
+            if (!k) return;
+            let saved;
+            try { saved = JSON.parse(localStorage.getItem(k) || 'null'); }
+            catch (_) { saved = null; }
+            if (!saved || typeof saved !== 'object') return;
+            for (const [qid, val] of Object.entries(saved)) {
+                state.answers[qid] = val;
+                const card = document.querySelector(`.question[data-question-id="${CSS.escape(qid)}"]`);
+                if (!card) continue;
+                const type = card.dataset.questionType;
+                if (type === 'mcq' || type === 'tfng') {
+                    const radio = card.querySelector(`input[type="radio"][value="${CSS.escape(val)}"]`);
+                    if (radio) radio.checked = true;
+                } else if (type === 'heading') {
+                    const sel = card.querySelector('select');
+                    if (sel) sel.value = val;
+                }
+            }
+        }
+        function clearPersistedAnswers() {
+            const k = answersKey();
+            if (k) { try { localStorage.removeItem(k); } catch (_) {} }
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Summon flow — generate passage + start attempt
+        // ────────────────────────────────────────────────────────────────
+        async function summonPassage() {
+            window.analytics.track('reading_summon_clicked');
+            startLoading();
+            $('btn-summon').disabled = true;
+            try {
+                // 1. Generate the passage
+                const genRes = await authFetch('POST', '/reading/passage/generate', {});
+                if (genRes.status === 403) {
+                    window.analytics.track('reading_paywall_hit', { stage: 'generate' });
+                    window.location.href = '/upgrade.html?source=reading_quota';
+                    return;
+                }
+                if (!genRes.ok) {
+                    const detail = await safeBody(genRes);
+                    throw new Error(`generate ${genRes.status}: ${detail}`);
+                }
+                const genBody = await genRes.json();
+                if (!genBody || !genBody.passage_id || !Array.isArray(genBody.questions)) {
+                    throw new Error('generate response malformed');
+                }
+                state.passageId = genBody.passage_id;
+                state.passage = { title: genBody.title, body: genBody.body };
+                state.questions = genBody.questions;
+                window.analytics.track('reading_passage_rendered', {
+                    passage_id: genBody.passage_id,
+                    question_count: genBody.questions.length,
+                });
+
+                // 2. Start the attempt (this is the hard quota gate)
+                const startRes = await authFetch('POST', '/reading/attempt/start', {
+                    passage_id: genBody.passage_id,
+                });
+                if (startRes.status === 403) {
+                    window.analytics.track('reading_paywall_hit', { stage: 'start' });
+                    window.location.href = '/upgrade.html?source=reading_quota';
+                    return;
+                }
+                if (!startRes.ok) {
+                    const detail = await safeBody(startRes);
+                    throw new Error(`start ${startRes.status}: ${detail}`);
+                }
+                const startBody = await startRes.json();
+                if (!startBody || !startBody.attempt_id) {
+                    throw new Error('start response missing attempt_id');
+                }
+                state.attemptId = startBody.attempt_id;
+                window.analytics.track('reading_attempt_started', {
+                    attempt_id: startBody.attempt_id,
+                    passage_id: genBody.passage_id,
+                });
+
+                renderPassage(state.passage);
+                renderQuestions(state.questions);
+                stopLoading();
+                showState('exam');
+            } catch (err) {
+                stopLoading();
+                console.error('[reading] summon failed', err);
+                showError(
+                    'The archive could not be opened. The fault is recorded.',
+                    () => {
+                        $('error-banner').hidden = true;
+                        summonPassage();
+                    },
+                );
+            } finally {
+                $('btn-summon').disabled = false;
+            }
+        }
+
+        async function safeBody(res) {
+            try {
+                const t = await res.text();
+                return t.slice(0, 200);
+            } catch (_) { return ''; }
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Submit flow
+        // ────────────────────────────────────────────────────────────────
+        async function submitAttempt() {
+            if (!state.attemptId) return;
+            const submitBtn = $('btn-submit');
+            submitBtn.disabled = true;
+            const originalLabel = submitBtn.textContent;
+            submitBtn.textContent = 'Awaiting judgment…';
+            try {
+                const answersArray = state.questions.map(q => ({
+                    question_id: q.id,
+                    user_answer: state.answers[q.id] ?? null,
+                }));
+                const res = await authFetch('POST', '/reading/attempt/submit', {
+                    attempt_id: state.attemptId,
+                    answers: answersArray,
+                });
+                if (!res.ok) {
+                    const detail = await safeBody(res);
+                    throw new Error(`submit ${res.status}: ${detail}`);
+                }
+                const body = await res.json();
+                if (typeof body.score !== 'number' ||
+                    typeof body.total !== 'number' ||
+                    !Array.isArray(body.results)) {
+                    throw new Error('submit response malformed');
+                }
+                state.results = body;
+                clearPersistedAnswers();
+                window.analytics.track('reading_attempt_submitted', {
+                    attempt_id: state.attemptId,
+                    score: body.score, total: body.total,
+                    band_estimate: body.band_estimate,
+                });
+                renderReckoning(body);
+                showState('reckoning');
+                refreshAllowance();
+            } catch (err) {
+                console.error('[reading] submit failed', err);
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalLabel;
+                showError('Submission failed. Your answers are preserved.', submitAttempt);
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Reckoning rendering
+        // ────────────────────────────────────────────────────────────────
+        function renderReckoning(body) {
+            $('rec-score').textContent = `Score: ${body.score} / ${body.total}`;
+            $('rec-band').textContent =
+                `Estimated Band: ${Number(body.band_estimate).toFixed(1)}`;
+            const mount = $('rec-questions');
+            mount.innerHTML = '';
+
+            // Index questions for stem + type lookup.
+            const qById = Object.create(null);
+            state.questions.forEach(q => { qById[q.id] = q; });
+
+            body.results.forEach((r, idx) => {
+                const q = qById[r.question_id] || {};
+                const card = document.createElement('div');
+                card.className = 'reckoning-question';
+                const verdict = r.is_correct
+                    ? '<span class="reckoning-question__verdict reckoning-question__verdict--correct">✓ Correct.</span>'
+                    : '<span class="reckoning-question__verdict reckoning-question__verdict--wrong">✗ Mistaken.</span>';
+                const userWasWrong = !r.is_correct && r.user_answer;
+                const userDisplay = r.user_answer
+                    ? (userWasWrong
+                        ? `<span class="user-wrong">${escapeHtml(r.user_answer)}</span>`
+                        : escapeHtml(r.user_answer))
+                    : '<em>(no answer)</em>';
+                card.innerHTML =
+                    `<div class="reckoning-question__head">
+                        <span class="reckoning-question__num">Q${q.order_idx || idx + 1} · ${labelForType(q.question_type)}</span>
+                        ${verdict}
+                    </div>
+                    <div class="reckoning-question__stem">${escapeHtml(q.question_text || '')}</div>
+                    <div class="reckoning-row"><strong>Your answer:</strong> ${userDisplay}</div>
+                    <div class="reckoning-row"><strong>Correct answer:</strong> ${escapeHtml(r.correct_answer || '')}</div>
+                    <div class="reckoning__explanation">${escapeHtml(r.explanation || '')}</div>
+                    ${r.evidence_quote
+                        ? `<div class="reckoning__evidence">${escapeHtml(r.evidence_quote)}</div>`
+                        : ''}`;
+                mount.appendChild(card);
+            });
+        }
+
+        function labelForType(t) {
+            return ({
+                mcq: 'Multiple Choice',
+                tfng: 'True, False or Not Given',
+                heading: 'Matching Headings',
+            }[t]) || '';
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Review the Passage — collapse results, show passage with
+        //  evidence_quote spans highlighted.
+        // ────────────────────────────────────────────────────────────────
+        function enterReviewMode() {
+            state.isReviewing = true;
+            window.analytics.track('reading_review_passage_clicked');
+
+            // Build a review view inline; reuse passage rendering then overlay
+            // evidence highlights. We construct a transient container above
+            // the reckoning content rather than swapping states, so the user
+            // can scroll back to results.
+            let container = document.getElementById('review-passage-container');
+            if (container) {
+                container.scrollIntoView({ behavior: 'smooth' });
+                return;
+            }
+            container = document.createElement('div');
+            container.id = 'review-passage-container';
+            container.style.marginBottom = '32px';
+            container.style.background = 'var(--surface)';
+            container.style.border = '1px solid var(--border)';
+            container.style.padding = '24px 26px';
+            container.innerHTML =
+                `<h2 class="passage-card__title">${escapeHtml(state.passage.title || '')}</h2>
+                 <div id="review-passage-body" class="passage-body"></div>`;
+            const reckoning = $('state-reckoning');
+            reckoning.insertBefore(container, reckoning.firstChild);
+
+            // Render paragraphs with evidence spans highlighted.
+            const bodyEl = document.getElementById('review-passage-body');
+            const evidences = (state.results?.results || [])
+                .map(r => r.evidence_quote)
+                .filter(Boolean);
+            const paragraphs = String(state.passage.body || '')
+                .split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+            paragraphs.forEach((para, idx) => {
+                const p = document.createElement('p');
+                p.className = 'passage-paragraph';
+                const num = document.createElement('span');
+                num.className = 'passage-paragraph__num';
+                num.textContent = String(idx + 1);
+                p.appendChild(num);
+                p.appendChild(highlightEvidence(para, evidences));
+                bodyEl.appendChild(p);
+            });
+            container.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Given paragraph text and a list of evidence quotes, return a
+        // DocumentFragment with the quoted spans wrapped in .evidence-span.
+        // Case-insensitive substring match, longest-first to avoid partial
+        // overlaps mangling each other.
+        function highlightEvidence(paragraph, evidences) {
+            const frag = document.createDocumentFragment();
+            if (!evidences.length) {
+                frag.appendChild(document.createTextNode(paragraph));
+                return frag;
+            }
+            const lower = paragraph.toLowerCase();
+            const spans = [];
+            const sorted = [...evidences].sort((a, b) => b.length - a.length);
+            for (const ev of sorted) {
+                const evLower = ev.toLowerCase();
+                let from = 0;
+                while (from < lower.length) {
+                    const idx = lower.indexOf(evLower, from);
+                    if (idx < 0) break;
+                    // Skip if it overlaps an existing span.
+                    if (!spans.some(s => idx < s.end && idx + ev.length > s.start)) {
+                        spans.push({ start: idx, end: idx + ev.length });
+                    }
+                    from = idx + ev.length;
+                }
+            }
+            spans.sort((a, b) => a.start - b.start);
+            let cursor = 0;
+            for (const s of spans) {
+                if (s.start > cursor) {
+                    frag.appendChild(document.createTextNode(paragraph.slice(cursor, s.start)));
+                }
+                const span = document.createElement('span');
+                span.className = 'evidence-span';
+                span.textContent = paragraph.slice(s.start, s.end);
+                frag.appendChild(span);
+                cursor = s.end;
+            }
+            if (cursor < paragraph.length) {
+                frag.appendChild(document.createTextNode(paragraph.slice(cursor)));
+            }
+            return frag;
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Wire-up
+        // ────────────────────────────────────────────────────────────────
+        $('btn-summon').addEventListener('click', summonPassage);
+        $('btn-submit').addEventListener('click', submitAttempt);
+        $('btn-review-passage').addEventListener('click', enterReviewMode);
+        $('btn-return-hall').addEventListener('click', () => {
+            window.location.href = '/index.html';
+        });
+        $('btn-abandon').addEventListener('click', async () => {
+            window.analytics.track('reading_attempt_abandoned', {
+                attempt_id: state.attemptId,
+            });
+            // POST /reading/attempt/abandon then leave. Failure is non-fatal
+            // for the user — we still navigate away — but we surface a brief
+            // notice if the backend rejected the change.
+            try {
+                if (state.attemptId) {
+                    const res = await authFetch('POST', '/reading/attempt/abandon', {
+                        attempt_id: state.attemptId,
+                    });
+                    if (!res.ok) {
+                        console.warn('[reading] abandon non-OK', res.status);
+                    }
+                }
+            } catch (err) {
+                console.warn('[reading] abandon failed', err);
+            }
+            clearPersistedAnswers();
+            window.location.href = '/index.html';
+        });
+
+        // ────────────────────────────────────────────────────────────────
+        //  Boot
+        // ────────────────────────────────────────────────────────────────
+        (async () => {
+            const token = await getToken();
+            if (!token) {
+                window.location.href = '/index.html';
+                return;
+            }
+            if (state.session?.user?.id) {
+                window.analytics.identify(state.session.user.id);
+            }
+            window.analytics.track('reading_page_viewed');
+            await refreshAllowance();
+        })();
+    })();
+    </script>
+</body>
+</html>
