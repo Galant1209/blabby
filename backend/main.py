@@ -5760,8 +5760,17 @@ async def reading_generate_passage(
 
     band_raw = body.get("difficulty_band")
     topic_raw = body.get("topic")
+    # Single DB lookup for user_band_reading — used twice in this handler
+    # (difficulty fallback when caller omits a band, and vocab_targets
+    # calibration before questions generation). Reused via local variable
+    # rather than a second SELECT.
+    cached_user_band_reading = _get_user_band_reading(user_id)
     if band_raw is None:
-        difficulty_band = _get_user_band_reading(user_id) or 6.0
+        difficulty_band = (
+            cached_user_band_reading
+            if cached_user_band_reading is not None
+            else 6.0
+        )
     else:
         try:
             difficulty_band = float(band_raw)
@@ -5817,9 +5826,13 @@ async def reading_generate_passage(
     # vocab_targets are calibrated against the user's own band, not just the
     # requested passage difficulty. Falls back to difficulty_band (which itself
     # falls back to 6.0 above) for first-time Reading users with no prior band.
-    user_band_for_targets = _get_user_band_reading(user_id)
-    if user_band_for_targets is None:
-        user_band_for_targets = difficulty_band
+    # Reuses the cached_user_band_reading lookup from the top of this handler
+    # so we don't issue a second SELECT on profiles per request.
+    user_band_for_targets = (
+        cached_user_band_reading
+        if cached_user_band_reading is not None
+        else difficulty_band
+    )
     questions_prompt = build_questions_prompt(
         passage_data["body"], difficulty_band, user_band_for_targets,
     )

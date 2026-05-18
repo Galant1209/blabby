@@ -475,11 +475,29 @@
             min-height: 64px;
             transition: opacity 0.5s;
         }
-        .loading-overlay__rule {
-            width: 60px;
+        /* Phased progress bar: time-keyed, capped at 90% during the wait,
+           snaps to 100% on resolve. --ink (#2C2416 → rgb(44, 36, 22)) at
+           30% / 70% opacity keeps it in keeping with the parchment palette.
+           Default to the bar-with-track variant; if the track ever feels
+           clinical, drop background-color on the track to revert to a
+           bare growing line. */
+        .loading-overlay__progress {
+            width: 280px;
+            max-width: 80vw;
             height: 1px;
-            background: var(--gold);
+            background: rgba(44, 36, 22, 0.30);
             margin: 18px auto;
+            position: relative;
+            overflow: hidden;
+        }
+        .loading-overlay__progress-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 0%;
+            background: rgba(44, 36, 22, 0.70);
+            transition: width 0.5s ease-out;
         }
         .loading-overlay__dots {
             font-family: var(--serif);
@@ -708,7 +726,9 @@
     <div id="loading-overlay" class="loading-overlay" hidden>
         <div class="loading-overlay__panel">
             <p id="loading-phrase" class="loading-overlay__phrase">Drawing forth a passage from the archive…</p>
-            <div class="loading-overlay__rule"></div>
+            <div class="loading-overlay__progress">
+                <div id="loading-progress-fill" class="loading-overlay__progress-fill"></div>
+            </div>
             <div class="loading-overlay__dots">· · ·</div>
         </div>
     </div>
@@ -828,32 +848,93 @@
             $('error-banner').hidden = true;
         });
 
-        // ── Loading overlay with rotating phrases ──────────────────
-        const LOADING_PHRASES = [
-            'Drawing forth a passage from the archive…',
-            'The examiner sharpens his quill…',
-            'Composing questions worthy of your attention…',
-            'The candidates’ chamber is being prepared…',
-            'Inking the rubric, settling the wax…',
+        // ── Loading overlay: phased progression ────────────────────
+        // Time-keyed phrases mirror observed backend pacing (~22 s per
+        // Claude call, two calls). Phrases DO NOT loop — once the final
+        // phase is displayed, it stays until the request resolves. We
+        // deliberately don't add a fifth "still loading…" phase if the
+        // request runs over 45 s; breaking the spell is worse than the
+        // wait itself.
+        const LOADING_PHASES = [
+            { atMs:     0, text: 'Drawing forth a passage from the archive…' },
+            { atMs: 10000, text: 'The examiner sharpens his quill…' },
+            { atMs: 25000, text: 'Composing questions worthy of your attention…' },
+            { atMs: 38000, text: 'The candidates’ chamber is being prepared…' },
         ];
+        const LOADING_TOTAL_MS = 45000;
         let loadingInterval = null;
+        let loadingStartedAt = 0;
+        let loadingPhaseIdx = 0;
+
         function startLoading() {
-            $('loading-overlay').hidden = false;
+            // Hygiene: clear any prior interval so back-to-back Summons
+            // don't stack timers.
+            if (loadingInterval) {
+                clearInterval(loadingInterval);
+                loadingInterval = null;
+            }
+            loadingStartedAt = Date.now();
+            loadingPhaseIdx = 0;
+
             const phraseEl = $('loading-phrase');
-            let i = 0;
-            phraseEl.textContent = LOADING_PHRASES[0];
+            const fillEl = $('loading-progress-fill');
+            $('loading-overlay').hidden = false;
+
+            // Reset bar instantly (no easing), then enable transition on the
+            // next frame so subsequent width changes animate smoothly.
+            phraseEl.style.opacity = '1';
+            phraseEl.textContent = LOADING_PHASES[0].text;
+            if (fillEl) {
+                fillEl.style.transition = 'none';
+                fillEl.style.width = '0%';
+                requestAnimationFrame(() => {
+                    fillEl.style.transition = 'width 0.5s ease-out';
+                });
+            }
+
             loadingInterval = setInterval(() => {
-                i = (i + 1) % LOADING_PHRASES.length;
-                phraseEl.style.opacity = '0';
-                setTimeout(() => {
-                    phraseEl.textContent = LOADING_PHRASES[i];
-                    phraseEl.style.opacity = '1';
-                }, 280);
-            }, 2400);
+                const elapsed = Date.now() - loadingStartedAt;
+
+                // Advance phrase to the latest phase whose atMs is reached.
+                // Walking forward from loadingPhaseIdx prevents downgrading
+                // if a future tick somehow sees a smaller elapsed.
+                let next = loadingPhaseIdx;
+                for (let i = loadingPhaseIdx; i < LOADING_PHASES.length; i++) {
+                    if (LOADING_PHASES[i].atMs <= elapsed) next = i;
+                    else break;
+                }
+                if (next > loadingPhaseIdx) {
+                    loadingPhaseIdx = next;
+                    phraseEl.style.opacity = '0';
+                    setTimeout(() => {
+                        phraseEl.textContent = LOADING_PHASES[next].text;
+                        phraseEl.style.opacity = '1';
+                    }, 280);
+                }
+
+                // Bar fills toward 90% over LOADING_TOTAL_MS; never hits
+                // 100% during the wait (stopLoading snaps it on resolve).
+                if (fillEl) {
+                    const pct = Math.min(elapsed / LOADING_TOTAL_MS * 100, 90);
+                    fillEl.style.width = pct.toFixed(1) + '%';
+                }
+            }, 500);
         }
+
         function stopLoading() {
-            $('loading-overlay').hidden = true;
-            if (loadingInterval) { clearInterval(loadingInterval); loadingInterval = null; }
+            if (loadingInterval) {
+                clearInterval(loadingInterval);
+                loadingInterval = null;
+            }
+            const fillEl = $('loading-progress-fill');
+            // Snap to 100% so the user sees the gesture complete, then hide
+            // ~200 ms later. Applies to both success and error — on error,
+            // the banner appears after the brief settle, which feels less
+            // jarring than the overlay vanishing mid-bar.
+            if (fillEl) fillEl.style.width = '100%';
+            setTimeout(() => {
+                $('loading-overlay').hidden = true;
+            }, 200);
         }
 
         // ────────────────────────────────────────────────────────────────
