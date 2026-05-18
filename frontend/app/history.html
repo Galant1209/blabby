@@ -246,6 +246,31 @@ header.brand .subtitle {
     font-size: 13px;
 }
 
+/* Filter tabs — All / Part 1 / Part 2.
+   Italic serif + gold underline echoes header h1 + history-card labels. */
+.history-filter-tabs {
+    display: flex; gap: 2px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+}
+.history-filter-tab {
+    background: none; border: none;
+    padding: 8px 14px 10px;
+    font-family: var(--serif); font-style: italic; font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+}
+.history-filter-tab:hover { color: var(--ink-soft); }
+.history-filter-tab.active {
+    color: var(--green);
+    border-bottom-color: var(--gold);
+}
+
 /* Bottom nav — 5 tabs across all pages */
 #bottom-nav {
     position: fixed; bottom: 0; left: 0; right: 0;
@@ -298,6 +323,12 @@ header.brand .subtitle {
         <h1>Your Practice History</h1>
         <div class="subtitle">Every session leaves its mark.</div>
     </header>
+
+    <div class="history-filter-tabs" role="tablist" aria-label="Filter by IELTS part">
+        <button class="history-filter-tab active" type="button" role="tab" data-filter="all" aria-selected="true">All</button>
+        <button class="history-filter-tab" type="button" role="tab" data-filter="part1" aria-selected="false">Part 1</button>
+        <button class="history-filter-tab" type="button" role="tab" data-filter="part2" aria-selected="false">Part 2</button>
+    </div>
 
     <div id="history-list">
         <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
@@ -464,6 +495,58 @@ header.brand .subtitle {
             }));
     }
 
+    // Spec: Part 2 records have mode === 'part2'; everything else (null,
+    // 'drill', other) is Part 1. Pro-lock is bound to the ORIGINAL index
+    // so filtering can't unlock cards past FREE_LIMIT.
+    let _allRecords = [];
+    let _loaded = false;
+    let _currentFilter = 'all';
+
+    function matchesFilter(rec, key) {
+        if (key === 'all') return true;
+        if (key === 'part2') return !!rec && rec.mode === 'part2';
+        return !rec || rec.mode !== 'part2';
+    }
+
+    function renderFilteredEmpty(key) {
+        const label = key === 'part2' ? 'Part 2' : 'Part 1';
+        document.getElementById('history-list').innerHTML = `
+            <div class="empty-state">
+                <div class="lede">No ${label} sessions yet.</div>
+                <div style="margin-bottom:18px;">Practice ${label} to start a record here.</div>
+                <a href="/" class="btn-primary">Go Practice</a>
+            </div>`;
+    }
+
+    function renderList() {
+        if (!_loaded) return;
+        if (_allRecords.length === 0) { renderEmpty(); return; }
+        const filtered = _currentFilter === 'all'
+            ? _allRecords
+            : _allRecords.filter(r => matchesFilter(r, _currentFilter));
+        if (filtered.length === 0) { renderFilteredEmpty(_currentFilter); return; }
+        const list = document.getElementById('history-list');
+        list.innerHTML = filtered.map(r => renderCard(r, r._locked)).join('');
+        wireCards(list);
+    }
+
+    function wireFilterTabs() {
+        document.querySelectorAll('.history-filter-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const key = btn.dataset.filter;
+                if (!key || key === _currentFilter) return;
+                _currentFilter = key;
+                document.querySelectorAll('.history-filter-tab').forEach(b => {
+                    const on = b.dataset.filter === key;
+                    b.classList.toggle('active', on);
+                    b.setAttribute('aria-selected', on ? 'true' : 'false');
+                });
+                renderList();
+                window.analytics?.track('history_filter_changed', { filter: key });
+            });
+        });
+    }
+
     async function loadHistory() {
         const token = await getToken();
         if (!token) {
@@ -491,16 +574,9 @@ header.brand .subtitle {
         }
 
         const records = Array.isArray(body && body.records) ? body.records : [];
-        if (records.length === 0) {
-            renderEmpty();
-            return;
-        }
-
-        const list = document.getElementById('history-list');
-        list.innerHTML = records
-            .map((r, idx) => renderCard(r, idx >= FREE_LIMIT))
-            .join('');
-        wireCards(list);
+        _allRecords = records.map((r, idx) => Object.assign({}, r, { _locked: idx >= FREE_LIMIT }));
+        _loaded = true;
+        renderList();
 
         window.analytics?.track('history_viewed', {
             total_records: records.length,
@@ -508,6 +584,7 @@ header.brand .subtitle {
         });
     }
 
+    wireFilterTabs();
     loadHistory();
 })();
 </script>
