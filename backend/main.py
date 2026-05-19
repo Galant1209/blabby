@@ -5258,6 +5258,68 @@ def _run_claude_json(system_prompt: str, user_msg: str, max_tokens: int) -> dict
     return parsed
 
 
+def _extract_vocab_targets_haiku(passage_text: str, difficulty_band: float) -> list[str]:
+    """
+    Extract 6-10 band-appropriate vocab targets from a passage using
+    claude-haiku for cost/latency. Returns lowercased lemmas.
+
+    Non-fatal: any failure returns [] and is logged as a warning. Caller
+    must accept that vocab_targets may be empty (user can still read the
+    passage but cannot tap difficult words).
+
+    Cost: ~$0.0025/call. Latency: ~1s typical.
+    """
+    from reading_prompts import build_vocab_targets_prompt_haiku
+
+    prompt = build_vocab_targets_prompt_haiku(passage_text, difficulty_band)
+    try:
+        response = anthropic_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=200,
+            system=prompt,
+            messages=[{"role": "user", "content": "Output the JSON array now."}],
+        )
+        raw = (response.content[0].text or "").strip()
+        extracted = _extract_json_object(raw) if raw.startswith("{") else raw
+        # The prompt asks for a bare array, but defensive: handle either.
+        if extracted.startswith("{"):
+            # Unexpected — fall back to find first [ to first ]
+            lb = extracted.find("[")
+            rb = extracted.rfind("]")
+            if lb == -1 or rb == -1 or rb <= lb:
+                raise ValueError("Haiku returned object, no array found")
+            extracted = extracted[lb:rb + 1]
+        parsed = json.loads(extracted)
+        if not isinstance(parsed, list):
+            raise ValueError("Haiku vocab_targets not a list")
+        cleaned = [
+            w.strip().lower() for w in parsed
+            if isinstance(w, str) and w.strip()
+        ]
+        # Dedupe preserving order, cap at 10.
+        seen = set()
+        out = []
+        for w in cleaned:
+            if w not in seen:
+                seen.add(w)
+                out.append(w)
+            if len(out) >= 10:
+                break
+        if len(out) < 6:
+            logger.warning(
+                "haiku vocab_targets returned only %d items (need >=6)",
+                len(out),
+            )
+        return out
+    except Exception:
+        logger.warning(
+            "haiku vocab_targets extraction failed; passage will have no "
+            "tappable words",
+            exc_info=True,
+        )
+        return []
+
+
 def _get_user_band_reading(user_id: str) -> Optional[float]:
     """Read profiles.user_band_reading. Returns None on any error."""
     if supabase_admin is None:
@@ -6033,6 +6095,243 @@ async def reading_generate_passage(
         "vocab_targets": vocab_targets_for_persist,
         "questions":     client_questions,
     }
+
+
+@app.post("/reading/passage/generate_stream")
+@limiter.limit("6/minute")
+async def reading_generate_passage_stream(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Streaming variant of /reading/passage/generate.
+
+    Emits SSE events:
+      passage_chunk    — incremental text deltas as Claude streams the body
+      passage_complete — sent once when streaming ends; carries word count
+      metadata         — passage_id, title, topic, band, vocab_targets
+      done             — terminal success marker
+      error            — terminal failure marker
+                         code ∈ {VALIDATION_FAILED, LLM_ERROR, INTERNAL}
+
+    Note: Haiku vocab extraction failure is intentionally non-fatal —
+    it logs a warning and emits vocab_targets=[]. No error event is sent.
+
+    Order: passage_chunk* -> passage_complete -> metadata -> done
+       or: (any point)    -> error             -> [connection closes]
+
+    Side effects only happen AFTER successful validation:
+      - DB insert into reading_passages
+      - Quota decrement (via _enforce_reading_quota, called pre-stream
+        but reversible? -- NO. See note below.)
+
+    Quota note:
+      _enforce_reading_quota raises if user is over quota. We call it
+      BEFORE starting the stream so users hit a clean 403 modal instead
+      of getting a half-streamed passage that fails at the end. This
+      means quota IS consumed on stream start. If the stream fails
+      mid-flight (validator reject, LLM error), the user has effectively
+      "lost" one quota slot for that day. This matches the blocking
+      endpoint's behaviour: any /reading/passage/generate call counts
+      against quota regardless of outcome. Future work could refund on
+      failure but is out of scope.
+
+    Note: questions generation is NOT covered by this endpoint. Client
+    must call the blocking /reading/passage/generate (or a future
+    questions-stream endpoint) using the returned passage_id. This
+    endpoint streams the passage body only.
+    """
+    from reading_prompts import build_passage_prompt_plaintext
+
+    user_id = verify_token(authorization)
+
+    # Parse body (same shape as blocking endpoint)
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+
+    # Aligns with blocking endpoint /reading/passage/generate, which uses
+    # "difficulty_band" — keeps frontend payload shape identical across
+    # streaming and blocking variants.
+    band_raw = body.get("difficulty_band")
+    topic_raw = body.get("topic")
+
+    cached_user_band_reading = _get_user_band_reading(user_id)
+    if band_raw is None:
+        difficulty_band = (
+            cached_user_band_reading
+            if cached_user_band_reading is not None
+            else 6.0
+        )
+    else:
+        try:
+            difficulty_band = float(band_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="invalid band")
+        if difficulty_band < 4.0 or difficulty_band > 9.0:
+            raise HTTPException(status_code=400, detail="band out of range")
+
+    topic = (
+        topic_raw.strip()
+        if isinstance(topic_raw, str) and topic_raw.strip()
+        else None
+    )
+
+    # Pre-stream quota check (clean 403 if blocked)
+    _enforce_reading_quota(user_id)
+
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    passage_prompt = build_passage_prompt_plaintext(difficulty_band, topic)
+
+    async def event_stream():
+        """SSE generator. Each yield is one SSE frame."""
+
+        def sse(event: str, data: dict) -> str:
+            return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        collected_chunks: list[str] = []
+
+        try:
+            # Stream from Anthropic. The sync client's messages.stream() is a
+            # sync context manager yielding text deltas synchronously; safe
+            # inside an async generator as long as no await sits in the
+            # text_stream loop.
+            with anthropic_client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=READING_PASSAGE_MAX_TOKENS,
+                system=passage_prompt,
+                messages=[
+                    {"role": "user", "content": "Generate the passage now."}
+                ],
+            ) as stream:
+                for text in stream.text_stream:
+                    if not text:
+                        continue
+                    collected_chunks.append(text)
+                    yield sse("passage_chunk", {"text": text})
+
+            passage_text = "".join(collected_chunks).strip()
+
+            if not passage_text:
+                yield sse(
+                    "error",
+                    {"code": "LLM_ERROR", "message": "empty passage from LLM"},
+                )
+                return
+
+            word_count = len(passage_text.split())
+            yield sse("passage_complete", {"words": word_count})
+
+            # Derive title from first sentence (cheap, deterministic).
+            # Done before validate so we can pass it into the validator's
+            # required {title, body, topic, word_count} shape.
+            first_period = passage_text.find(".")
+            if first_period == -1 or first_period > 120:
+                title = passage_text[:80].strip()
+            else:
+                title = passage_text[: first_period + 1].strip()
+
+            # Validator expects a dict matching the blocking-endpoint schema.
+            passage_data = {
+                "title":      title,
+                "body":       passage_text,
+                "topic":      topic or "general",
+                "word_count": word_count,
+            }
+            ok, reason = validate_passage(passage_data)
+            if not ok:
+                logger.warning(
+                    "streaming passage validator rejected | "
+                    "band=%s topic=%s reason=%s",
+                    difficulty_band, topic, reason,
+                )
+                yield sse(
+                    "error",
+                    {
+                        "code": "VALIDATION_FAILED",
+                        "message": "passage failed quality checks",
+                    },
+                )
+                return
+
+            # Haiku vocab extraction (blocking, non-fatal — returns [] on fail)
+            vocab_targets = _extract_vocab_targets_haiku(
+                passage_text, difficulty_band
+            )
+
+            # DB insert (only after validate passes). Schema matches the
+            # blocking endpoint's insert: no user_id column on reading_passages
+            # (ownership lives on reading_attempts.user_id).
+            try:
+                passage_insert = supabase_admin.table("reading_passages").insert({
+                    "title":           title,
+                    "body":            passage_text,
+                    "difficulty_band": difficulty_band,
+                    "topic":           topic or "general",
+                    "source":          "ai_generated",
+                    "word_count":      word_count,
+                    "vocab_targets":   vocab_targets,
+                }).execute()
+            except Exception:
+                logger.exception(
+                    "streaming passage insert failed",
+                    extra={"user_id": user_id},
+                )
+                yield sse(
+                    "error",
+                    {"code": "INTERNAL", "message": "passage persist failed"},
+                )
+                return
+
+            passage_id = (passage_insert.data or [{}])[0].get("id")
+            if not passage_id:
+                yield sse(
+                    "error",
+                    {"code": "INTERNAL", "message": "passage persist returned no id"},
+                )
+                return
+
+            logger.info(
+                "[READING_PASSAGE_STREAMED] user_id=%s passage_id=%s "
+                "band=%s topic=%r words=%d vocab=%d",
+                user_id, passage_id, difficulty_band, topic,
+                word_count, len(vocab_targets),
+            )
+
+            yield sse("metadata", {
+                "passage_id":      passage_id,
+                "title":           title,
+                "topic":           topic or "general",
+                "difficulty_band": difficulty_band,
+                "vocab_targets":   vocab_targets,
+                "word_count":      word_count,
+            })
+
+            yield sse("done", {})
+
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("streaming passage failed unexpectedly")
+            yield sse(
+                "error",
+                {"code": "INTERNAL", "message": "unexpected stream failure"},
+            )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/reading/attempt/start")

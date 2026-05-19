@@ -99,6 +99,42 @@ Return the JSON object only.
 """
 
 
+def build_passage_prompt_plaintext(difficulty_band: float, topic: Optional[str]) -> str:
+    """
+    Plaintext variant of build_passage_prompt for SSE streaming.
+
+    Identical pedagogical constraints (band-adaptive vocabulary, sentence
+    length, paragraph structure, topic adherence), but instructs Claude to
+    output the passage body ONLY — no JSON envelope, no markdown, no title,
+    no metadata. Title is derived server-side from the first sentence;
+    word_count is computed by str.split(); vocab_targets are extracted in
+    a separate Haiku call after the stream completes.
+
+    This keeps the LLM in a single mode (prose author) which streams cleanly
+    and avoids the partial-JSON-parse problem during streaming.
+    """
+    base = build_passage_prompt(difficulty_band, topic)
+
+    # Strip any JSON-output instruction from the parent prompt and replace
+    # with plaintext directive. We append a strong override at the end so
+    # late-stage instructions in build_passage_prompt() (typically the
+    # "Output as JSON" tail) are superseded.
+    override = (
+        "\n\n=== OUTPUT FORMAT OVERRIDE ===\n"
+        "Output ONLY the passage body as plain prose. "
+        "Do NOT output JSON. "
+        "Do NOT wrap in code fences. "
+        "Do NOT include a title, heading, byline, word count, "
+        "or any metadata. "
+        "Do NOT include preamble such as 'Here is the passage:' "
+        "or postamble such as 'I hope this helps'. "
+        "Begin directly with the first sentence of the passage. "
+        "End with the last sentence. "
+        "Use blank lines between paragraphs."
+    )
+    return base + override
+
+
 def build_questions_prompt(
     passage_body: str,
     difficulty_band: float,
@@ -184,3 +220,35 @@ Critical: choose words a band-{user_band} student would actually struggle with �
 
 Return the JSON object only.
 """
+
+
+def build_vocab_targets_prompt_haiku(passage_text: str, difficulty_band: float) -> str:
+    """
+    Haiku prompt to extract 6-10 band-appropriate vocabulary targets from
+    a passage. Output is a JSON array of lowercase headwords (lemmas, not
+    surface forms — 'meander' not 'meandered').
+
+    Targets are words that are:
+    - Plausibly unfamiliar to a Band {difficulty_band} learner
+    - Not proper nouns
+    - Not function words
+    - Not trivially decodable from context
+    - Useful for IELTS vocabulary expansion (Academic Word List preferred)
+    """
+    return (
+        f"You select vocabulary targets for IELTS learners at Band "
+        f"{difficulty_band:.1f}.\n\n"
+        "Given the passage below, identify 6 to 10 words that are:\n"
+        "- Plausibly unfamiliar to a learner at this band\n"
+        "- Lemmas (root forms — 'meander' not 'meandered', "
+        "'analyse' not 'analysing')\n"
+        "- Single words (no phrases)\n"
+        "- Lowercase\n"
+        "- Not proper nouns, function words, or trivially decodable\n"
+        "- Useful for IELTS vocabulary expansion\n\n"
+        "Output ONLY a JSON array of strings. No prose, no fences, no keys.\n"
+        'Example: ["meander", "burgeoning", "veneer", "tantamount", '
+        '"surreptitious", "enclave"]\n\n'
+        "=== PASSAGE ===\n"
+        f"{passage_text}"
+    )
