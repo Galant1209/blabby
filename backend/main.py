@@ -5274,12 +5274,29 @@ def _extract_vocab_targets_haiku(passage_text: str, difficulty_band: float) -> l
     prompt = build_vocab_targets_prompt_haiku(passage_text, difficulty_band)
     try:
         response = anthropic_client.messages.create(
-            model="claude-haiku-4-5",
+            # Dated alias — undated 'claude-haiku-4-5' was producing empty
+            # responses in production (JSONDecodeError 'Expecting value at
+            # char 0' downstream). Anthropic's session-start hook lists
+            # this as the canonical Haiku 4.5 identifier.
+            model="claude-haiku-4-5-20251001",
             max_tokens=200,
             system=prompt,
             messages=[{"role": "user", "content": "Output the JSON array now."}],
         )
         raw = (response.content[0].text or "").strip()
+
+        # Defensive: empty response can occur from model misconfiguration,
+        # safety filtering, or rate-limit edge cases. Bail before json.loads
+        # so we don't surface "Expecting value at char 0" — return [] silently
+        # (vocab is non-fatal; passage still renders, just without tappable words).
+        if not raw:
+            logger.warning(
+                "haiku vocab_targets returned empty response; "
+                "passage will have no tappable words",
+                extra={"passage_chars": len(passage_text)},
+            )
+            return []
+
         extracted = _extract_json_object(raw) if raw.startswith("{") else raw
         # The prompt asks for a bare array, but defensive: handle either.
         if extracted.startswith("{"):
@@ -5311,6 +5328,20 @@ def _extract_vocab_targets_haiku(passage_text: str, difficulty_band: float) -> l
                 len(out),
             )
         return out
+    except json.JSONDecodeError:
+        # Log raw response head/tail so future regressions can be diagnosed
+        # without re-running. Mirrors _run_claude_json's hardening pattern.
+        # raw is guaranteed bound here: JSONDecodeError can only originate
+        # from json.loads(extracted), which is preceded by raw = ... in
+        # the same try block.
+        head = raw[:200].replace("\n", "\\n")
+        tail = raw[-200:].replace("\n", "\\n") if len(raw) > 200 else ""
+        logger.warning(
+            "haiku vocab_targets parse failure | raw_len=%d | head=%r | tail=%r",
+            len(raw), head, tail,
+            exc_info=True,
+        )
+        return []
     except Exception:
         logger.warning(
             "haiku vocab_targets extraction failed; passage will have no "
