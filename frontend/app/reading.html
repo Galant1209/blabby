@@ -288,6 +288,18 @@
         .vocab-target.is-saved {
             border-bottom: 1px solid var(--gold);
         }
+        .questions-waiting {
+            font-style: italic;
+            color: var(--ink-soft, #6a6a6a);
+            text-align: center;
+            padding: 1.5rem 1rem;
+            margin: 0;
+        }
+        .passage-paragraph--streaming {
+            /* Placeholder for future streaming-specific styling. The
+               final renderPassage() call replaces this paragraph entirely
+               with numbered paragraphs + vocab highlights. */
+        }
         /* Evidence highlight, used in "Review the Passage" mode. */
         .evidence-span {
             background: rgba(45, 80, 22, 0.13);
@@ -678,7 +690,7 @@
                     <div id="passage-body" class="passage-body"></div>
                 </article>
 
-                <aside class="questions-card">
+                <aside id="questions-card" class="questions-card">
                     <h3 class="section-label">Multiple Choice</h3>
                     <div id="mcq-block"></div>
 
@@ -826,6 +838,111 @@
             return res;
         }
 
+        // ────────────────────────────────────────────────────────────────
+        //  Streaming helpers (Sprint A1.1b-2)
+        //  These exist alongside authFetch — they cannot reuse it because
+        //  authFetch returns a fully-consumed Response, and we need a live
+        //  Response whose body we can stream incrementally.
+        // ────────────────────────────────────────────────────────────────
+        async function authFetchStream(method, path, body) {
+            const token = await getToken();
+            if (!token) {
+                window.location.href = '/index.html';
+                throw new Error('not_signed_in');
+            }
+            return fetch(`${API_BASE}${path}`, {
+                method,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+                },
+                body: body !== undefined ? JSON.stringify(body) : undefined,
+            });
+        }
+
+        // Parse a single SSE frame ("event: X\ndata: Y") into {event, data}.
+        // Pure function. Returns null on malformed frames so the caller can
+        // skip rather than crash mid-stream.
+        function parseSSEFrame(frameText) {
+            const lines = frameText.split('\n');
+            let event = 'message';
+            const dataLines = [];
+            for (const line of lines) {
+                if (line.startsWith('event:')) {
+                    event = line.slice(6).trim();
+                } else if (line.startsWith('data:')) {
+                    dataLines.push(line.slice(5).trimStart());
+                }
+            }
+            if (dataLines.length === 0) return null;
+            const raw = dataLines.join('\n');
+            try {
+                return { event, data: JSON.parse(raw) };
+            } catch (_) {
+                return null;
+            }
+        }
+
+        // Streaming-mode passage rendering:
+        // - clear existing passage body
+        // - append plain text chunks as they arrive (no vocab highlighting yet)
+        // - finalize with full renderPassage() once stream completes
+        function resetPassageBodyForStreaming() {
+            // Placeholder title; real title arrives in the `metadata` event
+            // ~25s later. A bare empty title looks like a broken layout, so
+            // we use an in-brand placeholder.
+            $('passage-title').textContent = 'A passage is being summoned…';
+            const bodyEl = $('passage-body');
+            bodyEl.innerHTML = '';
+            const p = document.createElement('p');
+            p.className = 'passage-paragraph passage-paragraph--streaming';
+            bodyEl.appendChild(p);
+        }
+
+        function appendPassageChunk(chunkText) {
+            const bodyEl = $('passage-body');
+            const streamingP = bodyEl.querySelector('.passage-paragraph--streaming');
+            if (!streamingP) return;
+            // Text nodes are auto-escaped — no XSS risk from LLM output.
+            streamingP.appendChild(document.createTextNode(chunkText));
+        }
+
+        // Once stream completes, call this with the full passage data
+        // {title, body, vocab_targets} to get proper paragraph-numbered +
+        // vocab-highlighted layout. Replaces the streaming-mode single
+        // paragraph with the canonical rendering.
+        function finalizePassageWithVocab(passage) {
+            renderPassage(passage);
+        }
+
+        // Questions-waiting placeholder: minimal DOM change indicating
+        // questions are being prepared. Uses LOADING_PHASES[2] for brand
+        // consistency. Stashes existing innerHTML so hide can restore.
+        function showQuestionsWaitingState() {
+            const container = $('questions-card');
+            if (!container) return;
+            container.dataset.waiting = '1';
+            container.innerHTML =
+                '<p class="questions-waiting">' +
+                escapeHtml(LOADING_PHASES[2].text) +
+                '</p>';
+        }
+        function hideQuestionsWaitingState() {
+            const container = $('questions-card');
+            if (!container) return;
+            delete container.dataset.waiting;
+            // renderQuestions() will repopulate the inner structure.
+            // We need to restore the 3 sub-blocks first.
+            container.innerHTML =
+                '<h3 class="section-label">Multiple Choice</h3>' +
+                '<div id="mcq-block"></div>' +
+                '<h3 class="section-label">True, False or Not Given</h3>' +
+                '<div id="tfng-block"></div>' +
+                '<h3 class="section-label">Matching Headings</h3>' +
+                '<div id="heading-bank-mount"></div>' +
+                '<div id="heading-block"></div>';
+        }
+
         function showState(name) {
             ['state-landing','state-exam','state-reckoning'].forEach(id => {
                 const el = $(id);
@@ -866,7 +983,9 @@
         let loadingStartedAt = 0;
         let loadingPhaseIdx = 0;
 
-        function startLoading() {
+        function startLoading(opts) {
+            const streamingMode = !!(opts && opts.streaming);
+
             // Hygiene: clear any prior interval so back-to-back Summons
             // don't stack timers.
             if (loadingInterval) {
@@ -890,6 +1009,14 @@
                 requestAnimationFrame(() => {
                     fillEl.style.transition = 'width 0.5s ease-out';
                 });
+            }
+
+            // In streaming mode, we expect the first passage chunk to arrive
+            // within ~500ms and stopLoading() to be called immediately. Don't
+            // start the phrase-rotation interval — it would fire at most once
+            // before being killed, wasting cycles and risking a flicker.
+            if (streamingMode) {
+                return;
             }
 
             loadingInterval = setInterval(() => {
@@ -1413,39 +1540,304 @@
 
         // ────────────────────────────────────────────────────────────────
         //  Summon flow — generate passage + start attempt
+        //  Streaming path is default; blocking is automatic fallback.
+        //  Use ?stream=false to force blocking (debug / A-B testing).
         // ────────────────────────────────────────────────────────────────
         async function summonPassage() {
             window.analytics.track('reading_summon_clicked');
-            startLoading();
+            // Disable button before branching. Both paths show their own
+            // loading overlay within ~5ms — too brief for the user to see
+            // a "button disabled but no feedback" gap.
             $('btn-summon').disabled = true;
+
+            const useStreaming =
+                new URLSearchParams(window.location.search).get('stream') !== 'false';
+
             try {
-                // 1. Generate the passage
-                const genRes = await authFetch('POST', '/reading/passage/generate', {});
+                if (useStreaming) {
+                    await summonViaStreaming();
+                } else {
+                    await summonViaBlocking();
+                }
+            } catch (err) {
+                stopLoading();
+                console.error('[reading] summon failed', err);
+                showError(
+                    'The archive could not be opened. The fault is recorded.',
+                    () => {
+                        $('error-banner').hidden = true;
+                        summonPassage();
+                    },
+                );
+            } finally {
+                $('btn-summon').disabled = false;
+            }
+        }
+
+        // Streaming path. Passage streams as SSE; questions fetched in
+        // parallel once passage metadata arrives. Falls back to blocking
+        // on stream error, stall, or any non-200/403 response.
+        async function summonViaStreaming() {
+            startLoading({ streaming: true });
+            window.analytics.track('reading_stream_started');
+
+            let streamRes;
+            try {
+                streamRes = await authFetchStream(
+                    'POST',
+                    '/reading/passage/generate_stream',
+                    {},
+                );
+            } catch (err) {
+                window.analytics.track('reading_stream_fallback', {
+                    reason: 'network_error',
+                });
+                return summonViaBlocking();
+            }
+
+            if (streamRes.status === 403) {
+                window.analytics.track('reading_paywall_hit', { stage: 'generate' });
+                window.location.href = '/upgrade.html?source=reading_quota';
+                return;
+            }
+            if (!streamRes.ok) {
+                window.analytics.track('reading_stream_fallback', {
+                    reason: 'http_' + streamRes.status,
+                });
+                return summonViaBlocking();
+            }
+
+            const reader = streamRes.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let receivedFirstChunk = false;
+            let passageMetadata = null;
+            let passageBodyText = '';
+            let streamErrored = false;
+            let questionsFetchPromise = null;
+
+            // Stall watchdog: if no chunk in 8s, abort and fallback.
+            let stallTimer = null;
+            const armStallTimer = () => {
+                if (stallTimer) clearTimeout(stallTimer);
+                stallTimer = setTimeout(() => {
+                    try { reader.cancel('stall_timeout'); } catch (_) {}
+                    streamErrored = true;
+                }, 8000);
+            };
+            armStallTimer();
+
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop();
+
+                    for (const rawFrame of parts) {
+                        if (!rawFrame.trim()) continue;
+                        const frame = parseSSEFrame(rawFrame);
+                        if (!frame) continue;
+
+                        if (frame.event === 'passage_chunk') {
+                            if (!receivedFirstChunk) {
+                                receivedFirstChunk = true;
+                                window.analytics.track('reading_stream_first_chunk');
+                                stopLoading();
+                                resetPassageBodyForStreaming();
+                                showState('exam');
+                                showQuestionsWaitingState();
+                            }
+                            const text = frame.data.text || '';
+                            passageBodyText += text;
+                            appendPassageChunk(text);
+                            armStallTimer();
+                        } else if (frame.event === 'passage_complete') {
+                            // word_count delivered; logged server-side only.
+                        } else if (frame.event === 'metadata') {
+                            passageMetadata = frame.data;
+                            // Title arrives now — replace placeholder.
+                            $('passage-title').textContent =
+                                passageMetadata.title || '';
+                            // Kick off questions fetch in parallel. User
+                            // keeps reading while it generates (~22s).
+                            questionsFetchPromise = fetchQuestionsForPassage(
+                                passageMetadata.passage_id,
+                            );
+                        } else if (frame.event === 'done') {
+                            // Terminal success.
+                        } else if (frame.event === 'error') {
+                            streamErrored = true;
+                            window.analytics.track('reading_stream_fallback', {
+                                reason: 'event_error_' +
+                                    (frame.data.code || 'unknown'),
+                            });
+                        }
+                    }
+                }
+            } catch (err) {
+                streamErrored = true;
+                window.analytics.track('reading_stream_fallback', {
+                    reason: 'read_exception',
+                });
+            } finally {
+                if (stallTimer) clearTimeout(stallTimer);
+            }
+
+            if (streamErrored || !passageMetadata) {
+                hideQuestionsWaitingState();
+                showState('landing');
+                return summonViaBlocking();
+            }
+
+            // Finalize passage with proper paragraphs + vocab highlights.
+            const fullPassage = {
+                title: passageMetadata.title,
+                body: passageBodyText,
+                vocab_targets: passageMetadata.vocab_targets || [],
+            };
+            state.passage = fullPassage;
+            state.passageId = passageMetadata.passage_id;
+            finalizePassageWithVocab(fullPassage);
+            window.analytics.track('reading_stream_completed', {
+                passage_id: passageMetadata.passage_id,
+                words: passageMetadata.word_count,
+            });
+
+            // Wait for questions (already in flight from metadata event).
+            let questions;
+            try {
+                questions = await questionsFetchPromise;
+            } catch (err) {
+                console.error('[reading] questions fetch failed', err);
+                window.analytics.track('reading_questions_failed', {
+                    passage_id: passageMetadata.passage_id,
+                });
+                hideQuestionsWaitingState();
+                // Per design X: passage stays visible, error banner with
+                // retry triggers questions-only re-fetch.
+                showError(
+                    'The questions could not be assembled. Try again.',
+                    async () => {
+                        $('error-banner').hidden = true;
+                        showQuestionsWaitingState();
+                        try {
+                            const retried = await fetchQuestionsForPassage(
+                                passageMetadata.passage_id,
+                            );
+                            await continueWithQuestions(
+                                retried, passageMetadata.passage_id,
+                            );
+                        } catch (e) {
+                            hideQuestionsWaitingState();
+                            showError(
+                                'The questions could not be assembled. ' +
+                                'Try again.',
+                                () => { $('error-banner').hidden = true; },
+                            );
+                        }
+                    },
+                );
+                return;
+            }
+
+            await continueWithQuestions(questions, passageMetadata.passage_id);
+        }
+
+        // Fetch questions for an existing passage_id.
+        async function fetchQuestionsForPassage(passage_id) {
+            const res = await authFetch('POST', '/reading/questions/generate', {
+                passage_id,
+            });
+            if (!res.ok) {
+                const detail = await safeBody(res);
+                throw new Error('questions ' + res.status + ': ' + detail);
+            }
+            const body = await res.json();
+            if (!body || !Array.isArray(body.questions)) {
+                throw new Error('questions response malformed');
+            }
+            return body.questions;
+        }
+
+        // Shared post-questions flow: start attempt, render, transition UI.
+        // Used by both the streaming success path and the questions-only
+        // retry path.
+        async function continueWithQuestions(questions, passage_id) {
+            state.questions = questions;
+            window.analytics.track('reading_passage_rendered', {
+                passage_id,
+                question_count: questions.length,
+            });
+
+            const startRes = await authFetch('POST', '/reading/attempt/start', {
+                passage_id,
+            });
+            if (startRes.status === 403) {
+                window.analytics.track('reading_paywall_hit', { stage: 'start' });
+                window.location.href = '/upgrade.html?source=reading_quota';
+                return;
+            }
+            if (!startRes.ok) {
+                const detail = await safeBody(startRes);
+                throw new Error('start ' + startRes.status + ': ' + detail);
+            }
+            const startBody = await startRes.json();
+            if (!startBody || !startBody.attempt_id) {
+                throw new Error('start response missing attempt_id');
+            }
+            state.attemptId = startBody.attempt_id;
+            window.analytics.track('reading_attempt_started', {
+                attempt_id: startBody.attempt_id,
+                passage_id,
+            });
+
+            hideQuestionsWaitingState();
+            renderQuestions(state.questions);
+        }
+
+        // Blocking path: original implementation preserved verbatim as
+        // the fallback. Identical to pre-A1.1b-2 behaviour.
+        async function summonViaBlocking() {
+            startLoading();
+            try {
+                const genRes = await authFetch(
+                    'POST', '/reading/passage/generate', {},
+                );
                 if (genRes.status === 403) {
-                    window.analytics.track('reading_paywall_hit', { stage: 'generate' });
+                    window.analytics.track('reading_paywall_hit', {
+                        stage: 'generate',
+                    });
                     window.location.href = '/upgrade.html?source=reading_quota';
                     return;
                 }
                 if (!genRes.ok) {
                     const detail = await safeBody(genRes);
-                    throw new Error(`generate ${genRes.status}: ${detail}`);
+                    throw new Error('generate ' + genRes.status + ': ' + detail);
                 }
                 const genBody = await genRes.json();
-                if (!genBody || !genBody.passage_id || !Array.isArray(genBody.questions)) {
+                if (!genBody || !genBody.passage_id ||
+                    !Array.isArray(genBody.questions)) {
                     throw new Error('generate response malformed');
                 }
                 state.passageId = genBody.passage_id;
-                state.passage = { title: genBody.title, body: genBody.body };
+                state.passage = {
+                    title: genBody.title,
+                    body: genBody.body,
+                    vocab_targets: genBody.vocab_targets,
+                };
                 state.questions = genBody.questions;
                 window.analytics.track('reading_passage_rendered', {
                     passage_id: genBody.passage_id,
                     question_count: genBody.questions.length,
                 });
 
-                // 2. Start the attempt (this is the hard quota gate)
-                const startRes = await authFetch('POST', '/reading/attempt/start', {
-                    passage_id: genBody.passage_id,
-                });
+                const startRes = await authFetch(
+                    'POST', '/reading/attempt/start',
+                    { passage_id: genBody.passage_id },
+                );
                 if (startRes.status === 403) {
                     window.analytics.track('reading_paywall_hit', { stage: 'start' });
                     window.location.href = '/upgrade.html?source=reading_quota';
@@ -1453,7 +1845,7 @@
                 }
                 if (!startRes.ok) {
                     const detail = await safeBody(startRes);
-                    throw new Error(`start ${startRes.status}: ${detail}`);
+                    throw new Error('start ' + startRes.status + ': ' + detail);
                 }
                 const startBody = await startRes.json();
                 if (!startBody || !startBody.attempt_id) {
@@ -1471,16 +1863,7 @@
                 showState('exam');
             } catch (err) {
                 stopLoading();
-                console.error('[reading] summon failed', err);
-                showError(
-                    'The archive could not be opened. The fault is recorded.',
-                    () => {
-                        $('error-banner').hidden = true;
-                        summonPassage();
-                    },
-                );
-            } finally {
-                $('btn-summon').disabled = false;
+                throw err;
             }
         }
 
