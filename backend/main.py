@@ -5320,6 +5320,76 @@ def _extract_vocab_targets_haiku(passage_text: str, difficulty_band: float) -> l
         return []
 
 
+def _generate_questions_for_passage(
+    passage_text: str,
+    difficulty_band: float,
+    user_band_reading: float,
+) -> dict:
+    """
+    Generate IELTS reading questions + vocab_targets for a given passage.
+
+    Shared between /reading/passage/generate (blocking, full passage+questions)
+    and /reading/questions/generate (new, called after streaming passage).
+
+    Returns the full questions_data dict: {"questions": [...], "vocab_targets": [...]}.
+    The caller decides which fields to use:
+      - blocking endpoint uses both (questions persisted, vocab_targets
+        written onto reading_passages row)
+      - new questions endpoint uses only "questions" — vocab_targets for
+        streamed passages comes from _extract_vocab_targets_haiku, not here
+
+    Raises HTTPException(500) on retry exhaustion. Caller does NOT catch;
+    the framework returns the 500 to the client.
+
+    Retry behaviour mirrors the prior inline loop: READING_LLM_RETRIES + 1
+    attempts, validator-driven retry on each failure.
+    """
+    questions_prompt = build_questions_prompt(
+        passage_text, difficulty_band, user_band_reading,
+    )
+    questions_data: Optional[dict] = None
+    last_question_reason: Optional[str] = None
+
+    for attempt in range(READING_LLM_RETRIES + 1):
+        try:
+            candidate = _run_claude_json(
+                questions_prompt,
+                passage_text,
+                READING_QUESTIONS_MAX_TOKENS,
+            )
+        except Exception:
+            logger.exception(
+                "reading questions LLM call failed",
+                extra={"attempt": attempt},
+            )
+            last_question_reason = "llm_call_failed"
+            continue
+        ok, reason = validate_questions(candidate, passage_text)
+        if ok:
+            questions_data = candidate
+            break
+        last_question_reason = reason
+        logger.warning(
+            "reading questions validator rejected output",
+            extra={"attempt": attempt, "reason": reason},
+        )
+
+    if questions_data is None:
+        logger.error(
+            "reading questions generation failed after retries",
+            extra={"reason": last_question_reason},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "questions_generation_failed",
+                "reason": last_question_reason or "unknown",
+            },
+        )
+
+    return questions_data
+
+
 def _get_user_band_reading(user_id: str) -> Optional[float]:
     """Read profiles.user_band_reading. Returns None on any error."""
     if supabase_admin is None:
@@ -5954,7 +6024,7 @@ async def reading_generate_passage(
             },
         )
 
-    # --- Question generation with validator retries ------------------------
+    # --- Question generation via shared helper ----------------------------
     # vocab_targets are calibrated against the user's own band, not just the
     # requested passage difficulty. Falls back to difficulty_band (which itself
     # falls back to 6.0 above) for first-time Reading users with no prior band.
@@ -5965,48 +6035,13 @@ async def reading_generate_passage(
         if cached_user_band_reading is not None
         else difficulty_band
     )
-    questions_prompt = build_questions_prompt(
+    # Helper raises HTTPException(500) on retry exhaustion; no try/except here
+    # since the orphan-passage rollback logic below only protects against the
+    # questions-insert failure (DB-level), not LLM-generation failure (which
+    # happens before any passage is persisted, so no rollback needed).
+    questions_data = _generate_questions_for_passage(
         passage_data["body"], difficulty_band, user_band_for_targets,
     )
-    questions_data: Optional[dict] = None
-    last_question_reason: Optional[str] = None
-    for attempt in range(READING_LLM_RETRIES + 1):
-        try:
-            candidate = _run_claude_json(
-                questions_prompt,
-                passage_data["body"],
-                READING_QUESTIONS_MAX_TOKENS,
-            )
-        except Exception:
-            logger.exception(
-                "reading questions LLM call failed",
-                extra={"user_id": user_id, "attempt": attempt},
-            )
-            last_question_reason = "llm_call_failed"
-            continue
-        ok, reason = validate_questions(candidate, passage_data["body"])
-        if ok:
-            questions_data = candidate
-            break
-        last_question_reason = reason
-        logger.warning(
-            "reading questions validator rejected output",
-            extra={"user_id": user_id, "attempt": attempt, "reason": reason},
-        )
-    if questions_data is None:
-        # Do NOT persist a passage without valid questions — it would be
-        # unusable and would clutter the table.
-        logger.error(
-            "reading questions generation failed after retries",
-            extra={"user_id": user_id, "reason": last_question_reason},
-        )
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "questions_generation_failed",
-                "reason": last_question_reason or "unknown",
-            },
-        )
 
     # --- Persist ------------------------------------------------------------
     if supabase_admin is None:
@@ -6337,6 +6372,182 @@ async def reading_generate_passage_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/reading/questions/generate")
+@limiter.limit("6/minute")
+async def reading_generate_questions(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Generate the 9-question battery for an existing passage.
+
+    Designed to be called by the frontend AFTER /reading/passage/generate_stream
+    has emitted its `metadata` event with the passage_id. Lets the client read
+    the passage while questions are being generated in parallel.
+
+    Ownership: questions can only be generated for passages where
+    reading_passages.created_by == current user. Mismatches return 404 (not
+    403) to avoid leaking the existence of other users' passages.
+
+    Idempotent: if the passage already has READING_TOTAL_QUESTIONS rows in
+    reading_questions, returns them without re-invoking the LLM. This
+    protects against double-click / network-retry causing duplicate insert.
+
+    Quota: NOT enforced here. /reading/passage/generate_stream consumes the
+    quota slot when it begins. Calling this endpoint after a successful
+    stream is part of the same logical "summon" and must not be gated.
+    """
+    user_id = verify_token(authorization)
+
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+
+    passage_id = body.get("passage_id")
+    if not isinstance(passage_id, str) or not passage_id.strip():
+        raise HTTPException(status_code=400, detail="passage_id required")
+    passage_id = passage_id.strip()
+
+    # --- Ownership + existence check (single query) -----------------------
+    # Select the passage; 404 covers both "doesn't exist" and "not yours".
+    try:
+        passage_row = (
+            supabase_admin.table("reading_passages")
+            .select("id, body, difficulty_band, topic, created_by")
+            .eq("id", passage_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "reading questions passage lookup failed",
+            extra={"user_id": user_id, "passage_id": passage_id},
+        )
+        raise HTTPException(status_code=500, detail="passage lookup failed")
+
+    rows = passage_row.data or []
+    if not rows or rows[0].get("created_by") != user_id:
+        # Either passage doesn't exist or belongs to someone else. Same
+        # response for both cases — don't leak passage existence.
+        raise HTTPException(status_code=404, detail="passage not found")
+    passage = rows[0]
+
+    # --- Idempotency check ------------------------------------------------
+    # If questions already exist for this passage (e.g. user double-clicked,
+    # network retried, or this is a deliberate refresh), return what's there
+    # instead of re-generating.
+    try:
+        existing_questions_resp = (
+            supabase_admin.table("reading_questions")
+            .select(
+                "id, question_type, question_text, options, "
+                "correct_answer, explanation, evidence_quote, order_idx"
+            )
+            .eq("passage_id", passage_id)
+            .order("order_idx")
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "reading questions idempotency lookup failed",
+            extra={"user_id": user_id, "passage_id": passage_id},
+        )
+        raise HTTPException(status_code=500, detail="questions lookup failed")
+
+    existing = existing_questions_resp.data or []
+    if len(existing) == READING_TOTAL_QUESTIONS:
+        logger.info(
+            "[READING_QUESTIONS_IDEMPOTENT] user_id=%s passage_id=%s",
+            user_id, passage_id,
+        )
+        client_questions = sorted(existing, key=lambda r: r["order_idx"])
+        return {"questions": client_questions}
+    if 0 < len(existing) < READING_TOTAL_QUESTIONS:
+        # Schema-level invariant violated. Don't try to "fix" by inserting
+        # missing rows; the existing partial set may have valid attempt
+        # answers attached. Surface loudly.
+        logger.error(
+            "reading_questions partial state detected",
+            extra={
+                "user_id": user_id,
+                "passage_id": passage_id,
+                "existing_count": len(existing),
+                "expected": READING_TOTAL_QUESTIONS,
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="questions in partial state; contact support",
+        )
+
+    # --- Generate ---------------------------------------------------------
+    cached_user_band_reading = _get_user_band_reading(user_id)
+    user_band_for_targets = (
+        cached_user_band_reading
+        if cached_user_band_reading is not None
+        else float(passage["difficulty_band"])
+    )
+
+    questions_data = _generate_questions_for_passage(
+        passage["body"],
+        float(passage["difficulty_band"]),
+        user_band_for_targets,
+    )
+
+    # --- Insert -----------------------------------------------------------
+    try:
+        question_rows = [
+            {
+                "passage_id":     passage_id,
+                "question_type":  q["question_type"],
+                "question_text":  q["question_text"],
+                "options":        q.get("options"),
+                "correct_answer": q["correct_answer"],
+                "explanation":    q["explanation"],
+                "evidence_quote": q.get("evidence_quote"),
+                "order_idx":      q["order_idx"],
+            }
+            for q in questions_data["questions"]
+        ]
+        insert_resp = (
+            supabase_admin.table("reading_questions")
+            .insert(question_rows)
+            .execute()
+        )
+        inserted = insert_resp.data or []
+        if len(inserted) != READING_TOTAL_QUESTIONS:
+            raise RuntimeError(
+                f"expected {READING_TOTAL_QUESTIONS} question rows, "
+                f"got {len(inserted)}"
+            )
+    except Exception:
+        logger.exception(
+            "reading questions insert failed (questions endpoint)",
+            extra={"user_id": user_id, "passage_id": passage_id},
+        )
+        # We do NOT roll back the passage here. Unlike the blocking endpoint
+        # (which created the passage moments earlier), the passage in this
+        # endpoint was created by a separate /reading/passage/generate_stream
+        # call. Rolling it back would break stream semantics and could erase
+        # a passage the user is actively reading. Surface the error and let
+        # the user retry the questions call.
+        raise HTTPException(status_code=500, detail="Failed to persist questions")
+
+    logger.info(
+        "[READING_QUESTIONS_GENERATED] user_id=%s passage_id=%s questions=%d",
+        user_id, passage_id, len(inserted),
+    )
+
+    client_questions = sorted(inserted, key=lambda r: r["order_idx"])
+    return {"questions": client_questions}
 
 
 @app.post("/reading/attempt/start")
