@@ -189,7 +189,11 @@ def test_questions_rejects_vocab_targets_too_few():
     pack["vocab_targets"] = pack["vocab_targets"][:5]
     ok, reason = validate_questions(pack, PASSAGE_BODY)
     assert ok is False
-    assert "vocab_targets count 5" in reason
+    # Reject reason changed when vocab_targets adopted drop-not-reject
+    # semantics: count check happens AFTER lemma-aware filtering, so
+    # the message references "only N ... need >= 6" rather than the
+    # pre-filter "count N outside" phrasing.
+    assert "only 5" in reason and "need >= 6" in reason
 
 
 def test_questions_rejects_vocab_targets_too_many():
@@ -205,19 +209,27 @@ def test_questions_rejects_vocab_targets_too_many():
     assert "vocab_targets count 11" in reason
 
 
-def test_questions_rejects_vocab_target_not_in_passage():
+def test_questions_drops_vocab_target_not_in_passage():
+    """A target absent from the passage is silently filtered; the
+    response remains valid as long as >= 6 targets survive. _happy_pack
+    has 7 valid targets, so replacing one with 'unicorn' leaves 6 kept."""
     pack = _happy_pack()
     pack["vocab_targets"][0] = "unicorn"  # not in PASSAGE_BODY
     ok, reason = validate_questions(pack, PASSAGE_BODY)
-    assert ok is False
-    assert "'unicorn'" in reason
-    assert "not a whole word" in reason
+    assert ok is True, f"expected pass, got reason={reason!r}"
+    assert "unicorn" not in pack["vocab_targets"]
+    assert len(pack["vocab_targets"]) == 6
 
 
-def test_questions_rejects_vocab_target_substring_match():
+def test_questions_drops_vocab_target_with_substring_only_match():
+    """A target appearing only as a substring of a passage word (e.g.
+    'art' inside 'artisan') is silently dropped — whole-word boundary
+    is still enforced inside the lemma-aware matcher. The response
+    remains valid if enough other targets survive (>= 6 after filtering).
+    """
     # Build a passage where "artisan" appears but "art" does not stand alone.
     # Prepend the happy-pack's evidence quote so the earlier evidence check
-    # passes and the failure is genuinely from the vocab_targets rule.
+    # passes and the test isolates the vocab_targets behaviour.
     custom_body = (
         "Paragraph one establishes the topic and outlines the principal "
         "claims. "
@@ -229,11 +241,12 @@ def test_questions_rejects_vocab_target_substring_match():
     pack["vocab_targets"] = [
         "art",              # ← only appears inside "artisan", not as whole word
         "artisan", "methodologies", "principle", "loom", "sentence",
+        "outlines",         # ← extra valid target so the kept count stays >= 6
     ]
     ok, reason = validate_questions(pack, custom_body)
-    assert ok is False
-    assert "'art'" in reason
-    assert "not a whole word" in reason
+    assert ok is True, f"expected pass, got reason={reason!r}"
+    assert "art" not in pack["vocab_targets"]
+    assert len(pack["vocab_targets"]) == 6
 
 
 def test_questions_rejects_vocab_target_duplicate():

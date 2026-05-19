@@ -25,6 +25,123 @@ def _normalise(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip().lower())
 
 
+# Common English inflectional and derivational suffixes used to bridge
+# the gap between LLM-emitted lemmas (e.g. "nominalisation") and
+# surface forms appearing in the passage (e.g. "nominalisations").
+#
+# Ordering matters: LONGER suffixes first, so that "ations" is tested
+# before "ation" — otherwise stripping "ation" from "nominalisations"
+# leaves "nominalis", which is no real word; we want to strip "ations"
+# in one go to reach the lemma "nominalis" or further "nominalise".
+#
+# Two-level inflection (e.g. -ation then -s) is handled by trying
+# additive matches in both directions.
+_INFLECTION_SUFFIXES = (
+    # 5-letter
+    "ations",
+    # 4-letter
+    "ation", "ising", "izing", "ously", "ition", "ities",
+    # 3-letter
+    "ies", "ing", "ous", "ity", "ise", "ize", "ial",
+    "ant", "ent", "ism", "ist", "ive",
+    # 2-letter
+    "es", "ed", "er", "or", "al", "ly",
+    # 1-letter
+    "s", "d",
+)
+
+
+def _word_appears_in_passage(target: str, passage_lower: str) -> bool:
+    """
+    Whole-word search for `target` (a lowercase lemma) in passage_lower,
+    tolerant of common English inflection and derivation in either
+    direction:
+
+      (a) target appears verbatim                  -- exact match
+      (b) target + any common suffix appears       -- LLM gave lemma,
+                                                       passage has surface
+      (c) some passage token strips to target      -- LLM gave deeper lemma,
+                                                       passage has derived form
+
+    Returns True on first match. Does not handle:
+      - irregular forms (run/ran/running — passage rarely uses these as
+        learner vocabulary anyway)
+      - compound words / hyphenation
+      - spelling variants (analyse/analyze — caller's prompt asks for
+        the form used in the passage)
+
+    Designed for IELTS academic vocabulary where most inflection follows
+    regular suffix patterns.
+    """
+    # (a) exact whole-word match
+    if re.search(r"\b" + re.escape(target) + r"\b", passage_lower):
+        return True
+
+    # (b) target + suffix, whole-word match
+    for suffix in _INFLECTION_SUFFIXES:
+        if re.search(
+            r"\b" + re.escape(target + suffix) + r"\b",
+            passage_lower,
+        ):
+            return True
+
+    # (b') E-drop forward: English verbs ending in -e drop the e before
+    # vowel-initial suffixes (nominalise → nominalisation, regulate →
+    # regulation). If target ends in 'e', try stem + vowel-initial suffix.
+    if target.endswith("e") and len(target) >= 3:
+        stem = target[:-1]
+        for suffix in _INFLECTION_SUFFIXES:
+            if suffix and suffix[0] in "aeiou":
+                if re.search(
+                    r"\b" + re.escape(stem + suffix) + r"\b",
+                    passage_lower,
+                ):
+                    return True
+
+    # (c) passage tokens that strip to target. Extract candidate tokens
+    # of length up to len(target) + longest_suffix; check each one's
+    # possible lemma forms against target.
+    longest_suffix = len(_INFLECTION_SUFFIXES[0])  # "ations" = 5
+    max_token_len = len(target) + longest_suffix
+    # Bound candidate tokens to plausibly-inflected forms of target. We
+    # only check tokens that start with at least 3 chars of target —
+    # cheaper than scanning every word.
+    if len(target) >= 4:
+        prefix = target[:4]
+        candidate_pattern = (
+            r"\b" + re.escape(prefix) + r"[a-z]{0," +
+            str(max_token_len - len(prefix)) + r"}\b"
+        )
+        for match in re.finditer(candidate_pattern, passage_lower):
+            token = match.group()
+            # Try stripping each suffix from the token; if any strip
+            # yields target, accept.
+            for suffix in _INFLECTION_SUFFIXES:
+                if token.endswith(suffix):
+                    stripped = token[: -len(suffix)]
+                    if stripped == target:
+                        return True
+                    # E-drop reverse: passage form may be the stem (with
+                    # the e dropped); target may be the verb retaining e.
+                    # If suffix is vowel-initial and stripped + 'e' equals
+                    # target, treat as match.
+                    if (suffix and suffix[0] in "aeiou"
+                            and stripped + "e" == target):
+                        return True
+                    # One more level: strip another suffix.
+                    for suffix2 in _INFLECTION_SUFFIXES:
+                        if stripped.endswith(suffix2):
+                            stripped2 = stripped[: -len(suffix2)]
+                            if stripped2 == target:
+                                return True
+                            # E-drop at the second-level strip too.
+                            if (suffix2 and suffix2[0] in "aeiou"
+                                    and stripped2 + "e" == target):
+                                return True
+
+    return False
+
+
 def validate_passage(data: dict) -> tuple[bool, Optional[str]]:
     """
     Validate a passage JSON object emitted by the LLM.
@@ -194,33 +311,59 @@ def validate_questions(
         return False, f"tfng answers lack variety: {sorted(tfng_answers)}"
 
     # ---- vocab_targets validation ------------------------------------
+    # Strategy: targets that match the passage (exact or lemma-aware)
+    # are kept; targets that don't match are silently dropped. The final
+    # count must be >= 6 (preserving the original lower bound) but may
+    # be < 10 if some LLM-emitted targets couldn't be found.
+    #
+    # Rationale: vocab_targets drive a dotted-underline UI affordance.
+    # A target absent from the passage simply doesn't get rendered as
+    # tappable — harmless. Rejecting the entire response over one
+    # un-locatable target trades a small UI degradation for a hard 500
+    # to the user. The lemma-aware matcher (_word_appears_in_passage)
+    # catches most inflection gaps; this filter handles the rest.
+    #
+    # Other vocab_targets rules remain strict — duplicates, non-strings,
+    # non-lowercase-alphabetic, and structural shape violations still
+    # reject. Only the "exists in passage" check is downgraded to filter.
     if "vocab_targets" not in data:
         return False, "missing key: vocab_targets"
     targets = data.get("vocab_targets")
     if not isinstance(targets, list):
         return False, "vocab_targets is not a list"
-    if not (6 <= len(targets) <= 10):
-        return False, f"vocab_targets count {len(targets)} outside 6–10"
+    if len(targets) > 10:
+        return False, f"vocab_targets count {len(targets)} exceeds 10"
+    # Lower bound deferred — checked after filtering below.
 
     seen: set[str] = set()
-    # Pre-compute a lowercased copy of the passage for word-boundary checks.
+    kept: list[str] = []
     passage_lower = (passage_body or "").lower()
     for i, w in enumerate(targets):
         if not isinstance(w, str):
             return False, f"vocab_targets[{i}] is not a string"
         if not w:
             return False, f"vocab_targets[{i}] is empty"
-        # Must be lowercase alphabetic only (no digits, no punctuation,
-        # no whitespace, no hyphens or apostrophes). The prompt enforces
-        # single-token English; the validator enforces it strictly.
         if not re.fullmatch(r"[a-z]+", w):
             return False, f"vocab_targets[{i}] {w!r} not lowercase alphabetic"
         if w in seen:
             return False, f"vocab_targets[{i}] duplicate: {w!r}"
         seen.add(w)
-        # Whole-word match against the passage. \b anchors prevent
-        # "art" matching inside "artisan".
-        if not re.search(r"\b" + re.escape(w) + r"\b", passage_lower):
-            return False, f"vocab_targets[{i}] {w!r} not a whole word in passage"
+        # Lemma-aware whole-word match. Targets not present in any
+        # tolerated form are silently dropped (see strategy note above).
+        if _word_appears_in_passage(w, passage_lower):
+            kept.append(w)
+
+    if len(kept) < 6:
+        return (
+            False,
+            f"vocab_targets: only {len(kept)} of {len(targets)} found in "
+            f"passage (need >= 6)",
+        )
+
+    # Mutate data so callers persist the filtered list, not the raw
+    # LLM output. This is the only place where validator mutates input,
+    # justified because the alternative (returning a separate clean list)
+    # would require changing the validator's API.
+    data["vocab_targets"] = kept
 
     return True, None
