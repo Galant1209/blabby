@@ -5162,6 +5162,64 @@ def _reading_band_from_score(score: int) -> float:
     return _READING_BAND_BY_SCORE[clamped]
 
 
+def _extract_json_object(raw: str) -> str:
+    """
+    Extract the first top-level JSON object from an LLM response string.
+
+    Handles three known failure modes of structured-output LLM calls:
+      1. Markdown code fence wrappers: ```json ... ``` or ``` ... ```
+         (with optional language tag and leading/trailing prose)
+      2. Prose preamble/postamble: "Here is the passage:\n{...}\nHope this helps!"
+      3. Trailing extra data: "{...}\n\nNote: ..." or stray characters after
+         the closing brace, which cause json.JSONDecodeError("Extra data").
+
+    Strategy:
+      - Locate the first '{' in the string.
+      - Walk forward tracking brace depth, ignoring braces inside string
+        literals (handles escaped quotes).
+      - Return the substring from the first '{' to its matching '}'.
+      - Markdown fence wrappers (```json ... ```) and prose preambles are
+        handled transparently — '```' is not '{', so they're skipped.
+
+    Returns the extracted JSON substring (no parsing — caller invokes
+    json.loads). If no '{' is found, returns the original input stripped;
+    json.loads will then raise a meaningful error.
+    """
+    s = raw.strip()
+    # Locate the first '{' anywhere in the string. The brace-counting loop
+    # below transparently handles markdown fence wrappers, prose preambles,
+    # and any other non-JSON text surrounding the object — '```' is not '{',
+    # so the scanner walks past fences naturally.
+    start = s.find("{")
+    if start == -1:
+        return s
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start:i + 1]
+    # Unbalanced — return from first '{' to end, let json.loads raise.
+    return s[start:]
+
+
 def _run_claude_json(system_prompt: str, user_msg: str, max_tokens: int) -> dict:
     """
     Thin Claude wrapper for Reading-module structured-output calls.
@@ -5171,6 +5229,10 @@ def _run_claude_json(system_prompt: str, user_msg: str, max_tokens: int) -> dict
     the 2048-token cap baked into run_claude(). Does NOT loop on JSON errors;
     the calling endpoint owns retry policy because retries here are coupled
     with validator failures, which run_claude() can't see.
+
+    Hardened against three LLM output failure modes via _extract_json_object:
+    code-fenced output with prose, prose preamble/postamble, and trailing
+    extra data after the closing brace.
     """
     response = anthropic_client.messages.create(
         model="claude-sonnet-4-6",
@@ -5178,11 +5240,19 @@ def _run_claude_json(system_prompt: str, user_msg: str, max_tokens: int) -> dict
         system=system_prompt,
         messages=[{"role": "user", "content": user_msg}],
     )
-    content = (response.content[0].text or "").strip()
-    if content.startswith("```"):
-        content = re.sub(r"^```(?:json)?\s*", "", content)
-        content = re.sub(r"\s*```$", "", content)
-    parsed = json.loads(content)
+    raw_content = response.content[0].text or ""
+    extracted = _extract_json_object(raw_content)
+    try:
+        parsed = json.loads(extracted)
+    except json.JSONDecodeError:
+        # Log enough to diagnose without dumping a full passage to logs.
+        head = raw_content[:200].replace("\n", "\\n")
+        tail = raw_content[-200:].replace("\n", "\\n") if len(raw_content) > 200 else ""
+        logger.error(
+            "_run_claude_json parse failure | raw_len=%d | head=%r | tail=%r",
+            len(raw_content), head, tail,
+        )
+        raise
     if not isinstance(parsed, dict):
         raise ValueError("Claude returned non-object JSON")
     return parsed
