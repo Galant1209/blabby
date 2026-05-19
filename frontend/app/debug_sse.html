@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SSE Spike Test</title>
+<style>
+  body { font-family: ui-monospace, monospace; padding: 20px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 16px; }
+  #status { padding: 8px 12px; background: #f4f4f4; margin-bottom: 12px; border-left: 3px solid #888; }
+  #status.ok { border-color: #2a7; }
+  #status.err { border-color: #d33; }
+  #status.done { border-color: #248; }
+  #log { background: #111; color: #0f0; padding: 12px; border-radius: 4px; height: 480px; overflow-y: auto; font-size: 12px; white-space: pre-wrap; }
+  .row { margin-bottom: 12px; }
+  button { padding: 6px 14px; cursor: pointer; }
+  .stat { display: inline-block; margin-right: 16px; }
+  .stat b { color: #248; }
+</style>
+</head>
+<body>
+
+<h1>SSE Spike Test — Render Free Tier</h1>
+
+<div class="row">
+  <button id="start">Start Test</button>
+  <button id="stop" disabled>Abort</button>
+</div>
+
+<div id="stats" class="row">
+  <span class="stat">Received: <b id="count">0</b>/60</span>
+  <span class="stat">First chunk: <b id="first">—</b></span>
+  <span class="stat">Last gap: <b id="gap">—</b></span>
+  <span class="stat">Max gap: <b id="maxgap">—</b></span>
+</div>
+
+<div id="status">Idle.</div>
+
+<div id="log"></div>
+
+<script>
+const API_BASE = window.location.hostname === 'localhost'
+  ? 'http://localhost:8000'
+  : 'https://blabby-backend.onrender.com';
+
+let es = null;
+let receivedCount = 0;
+let firstChunkAt = null;
+let lastChunkAt = null;
+let maxGap = 0;
+let testStart = null;
+
+const $ = (id) => document.getElementById(id);
+const log = (msg, level = 'info') => {
+  const ts = new Date().toISOString().substr(11, 12);
+  const line = `[${ts}] ${msg}`;
+  $('log').textContent += line + '\n';
+  $('log').scrollTop = $('log').scrollHeight;
+};
+
+const setStatus = (msg, cls = '') => {
+  $('status').textContent = msg;
+  $('status').className = cls;
+};
+
+const reset = () => {
+  receivedCount = 0;
+  firstChunkAt = null;
+  lastChunkAt = null;
+  maxGap = 0;
+  testStart = null;
+  $('count').textContent = '0';
+  $('first').textContent = '—';
+  $('gap').textContent = '—';
+  $('maxgap').textContent = '—';
+  $('log').textContent = '';
+};
+
+$('start').onclick = () => {
+  reset();
+  testStart = performance.now();
+  log(`Connecting to ${API_BASE}/debug/sse_test ...`);
+  setStatus('Connecting...', '');
+  $('start').disabled = true;
+  $('stop').disabled = false;
+
+  es = new EventSource(`${API_BASE}/debug/sse_test`);
+
+  es.onopen = () => {
+    log('Connection opened.');
+    setStatus('Connected — awaiting chunks.', 'ok');
+  };
+
+  es.onmessage = (ev) => {
+    const now = performance.now();
+    let data;
+    try { data = JSON.parse(ev.data); } catch (e) {
+      log(`PARSE ERROR: ${ev.data}`);
+      return;
+    }
+
+    if (data.done) {
+      log('Stream complete (done=true received).');
+      setStatus(`✓ All 60 chunks received in ${((now - testStart) / 1000).toFixed(2)}s`, 'done');
+      es.close();
+      $('start').disabled = false;
+      $('stop').disabled = true;
+      return;
+    }
+
+    receivedCount++;
+    if (firstChunkAt === null) {
+      firstChunkAt = now - testStart;
+      $('first').textContent = `${firstChunkAt.toFixed(0)}ms`;
+    }
+
+    if (lastChunkAt !== null) {
+      const gap = now - lastChunkAt;
+      $('gap').textContent = `${gap.toFixed(0)}ms`;
+      if (gap > maxGap) {
+        maxGap = gap;
+        $('maxgap').textContent = `${maxGap.toFixed(0)}ms`;
+      }
+    }
+    lastChunkAt = now;
+
+    $('count').textContent = String(receivedCount);
+    log(`tick=${data.tick} server_elapsed=${data.elapsed_ms}ms`);
+  };
+
+  es.onerror = (err) => {
+    log(`ERROR — readyState=${es.readyState}`);
+    if (es.readyState === EventSource.CLOSED) {
+      setStatus(`✗ Connection closed prematurely after ${receivedCount}/60 chunks`, 'err');
+      $('start').disabled = false;
+      $('stop').disabled = true;
+    } else {
+      setStatus('Connection error — retrying...', 'err');
+    }
+  };
+};
+
+$('stop').onclick = () => {
+  if (es) {
+    es.close();
+    log('Aborted by user.');
+    setStatus('Aborted.', '');
+    $('start').disabled = false;
+    $('stop').disabled = true;
+  }
+};
+</script>
+
+</body>
+</html>

@@ -6358,6 +6358,37 @@ async def reading_history(
     }
 
 
+@app.get("/debug/sse_test")
+async def debug_sse_test():
+    """
+    SSE spike test endpoint. Pushes one chunk per second for 60 seconds.
+    Used to validate Render free tier's long-lived SSE support before Sprint A1.
+    DO NOT remove until streaming module is stable in production for 2 weeks.
+    """
+    async def event_generator():
+        start = datetime.now(timezone.utc)
+        for i in range(60):
+            now = datetime.now(timezone.utc)
+            elapsed_ms = int((now - start).total_seconds() * 1000)
+            payload = (
+                f'{{"tick": {i+1}, "elapsed_ms": {elapsed_ms}, '
+                f'"ts": "{now.isoformat()}"}}'
+            )
+            yield f"data: {payload}\n\n"
+            await asyncio.sleep(1.0)
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable proxy buffering (nginx hint)
+        },
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=10000)
