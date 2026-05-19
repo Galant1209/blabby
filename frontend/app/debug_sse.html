@@ -20,6 +20,10 @@
 <body>
 
 <h1>SSE Spike Test — Render Free Tier</h1>
+<div style="font-size: 11px; color: #666; margin-bottom: 12px;">
+  Target: <span id="target"></span>
+  <span style="color: #999;">(append <code>?env=local</code> to test local backend)</span>
+</div>
 
 <div class="row">
   <button id="start">Start Test</button>
@@ -38,9 +42,15 @@
 <div id="log"></div>
 
 <script>
-const API_BASE = window.location.hostname === 'localhost'
-  ? 'http://localhost:8000'
-  : 'https://blabby-backend.onrender.com';
+// SSE spike test must probe production Render — frontend isn't deployed,
+// so we always target production unless `?env=local` is explicitly set
+// for testing local backend SSE behaviour.
+const PROD_API = 'https://blabby-backend.onrender.com';
+const LOCAL_API = 'http://localhost:8000';
+const urlParams = new URLSearchParams(window.location.search);
+const API_BASE = urlParams.get('env') === 'local' ? LOCAL_API : PROD_API;
+
+document.getElementById('target').textContent = API_BASE;
 
 let es = null;
 let receivedCount = 0;
