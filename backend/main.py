@@ -6025,6 +6025,7 @@ async def reading_generate_passage(
             "source":          "ai_generated",
             "word_count":      passage_data["word_count"],
             "vocab_targets":   vocab_targets_for_persist,
+            "created_by":      user_id,
         }).execute()
         passage_id = (passage_insert.data or [{}])[0].get("id")
         if not passage_id:
@@ -6264,9 +6265,12 @@ async def reading_generate_passage_stream(
                 passage_text, difficulty_band
             )
 
-            # DB insert (only after validate passes). Schema matches the
-            # blocking endpoint's insert: no user_id column on reading_passages
-            # (ownership lives on reading_attempts.user_id).
+            # DB insert (only after validate passes). Persist with
+            # created_by for ownership: the new /reading/questions/generate
+            # endpoint relies on this to enforce "you can only generate
+            # questions for passages you created"; without it, knowing a
+            # passage_id would let any authenticated user burn Sonnet
+            # tokens on somebody else's passage.
             try:
                 passage_insert = supabase_admin.table("reading_passages").insert({
                     "title":           title,
@@ -6276,6 +6280,7 @@ async def reading_generate_passage_stream(
                     "source":          "ai_generated",
                     "word_count":      word_count,
                     "vocab_targets":   vocab_targets,
+                    "created_by":      user_id,
                 }).execute()
             except Exception:
                 logger.exception(
