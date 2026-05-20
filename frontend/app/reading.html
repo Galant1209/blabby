@@ -905,8 +905,16 @@
                 chunkLen: chunkText?.length
             });
             const bodyEl = $('passage-body');
-            const streamingP = bodyEl.querySelector('.passage-paragraph--streaming');
-            if (!streamingP) return;
+            let streamingP = bodyEl.querySelector('.passage-paragraph--streaming');
+            if (!streamingP) {
+                // Defensive: streaming paragraph should already exist
+                // (resetPassageBodyForStreaming runs at summon start),
+                // but create it on demand rather than dropping the chunk.
+                console.warn('[RENDER] streaming paragraph missing, creating on demand');
+                streamingP = document.createElement('p');
+                streamingP.className = 'passage-paragraph passage-paragraph--streaming';
+                bodyEl.appendChild(streamingP);
+            }
             // Text nodes are auto-escaped — no XSS risk from LLM output.
             streamingP.appendChild(document.createTextNode(chunkText));
             console.log('[RENDER] DOM mutated', {
@@ -1587,8 +1595,17 @@
         // parallel once passage metadata arrives. Falls back to blocking
         // on stream error, stall, or any non-200/403 response.
         async function summonViaStreaming() {
-            startLoading({ streaming: true });
+            // No loading overlay — the skeleton state IS the loading state.
+            // User sees placeholder title + empty passage region + questions
+            // waiting marker immediately on Summon click; text streams in as
+            // chunks arrive (~12s to first chunk during backend warmup + LLM
+            // TTFT). Blocking fallback path (summonViaBlocking) keeps the
+            // overlay since it has nothing to render until the response lands.
             window.analytics.track('reading_stream_started');
+
+            resetPassageBodyForStreaming();
+            showState('exam');
+            showQuestionsWaitingState();
 
             let streamRes;
             try {
@@ -1659,10 +1676,10 @@
                             if (!receivedFirstChunk) {
                                 receivedFirstChunk = true;
                                 window.analytics.track('reading_stream_first_chunk');
+                                // Skeleton DOM already prepared at function
+                                // entry; here we only dismiss the overlay
+                                // so the prepared layout becomes visible.
                                 stopLoading();
-                                resetPassageBodyForStreaming();
-                                showState('exam');
-                                showQuestionsWaitingState();
                             }
                             const text = frame.data.text || '';
                             passageBodyText += text;
