@@ -900,10 +900,6 @@
         }
 
         function appendPassageChunk(chunkText) {
-            console.log('[RENDER] appendPassageChunk called', {
-                ts: performance.now(),
-                chunkLen: chunkText?.length
-            });
             const bodyEl = $('passage-body');
             let streamingP = bodyEl.querySelector('.passage-paragraph--streaming');
             if (!streamingP) {
@@ -917,10 +913,6 @@
             }
             // Text nodes are auto-escaped — no XSS risk from LLM output.
             streamingP.appendChild(document.createTextNode(chunkText));
-            console.log('[RENDER] DOM mutated', {
-                ts: performance.now(),
-                bodyHTML_len: bodyEl.innerHTML.length
-            });
         }
 
         // Once stream completes, call this with the full passage data
@@ -1077,7 +1069,6 @@
             if (fillEl) fillEl.style.width = '100%';
             setTimeout(() => {
                 $('loading-overlay').hidden = true;
-                console.log('[OVERLAY] hidden at', performance.now());
             }, 200);
         }
 
@@ -1668,18 +1659,9 @@
                         if (!frame) continue;
 
                         if (frame.event === 'passage_chunk') {
-                            console.log('[SSE] chunk received', {
-                                ts: performance.now(),
-                                textLen: frame.data.text?.length,
-                                bodyStreamingEl: !!document.querySelector('#passage-body .passage-paragraph--streaming')
-                            });
                             if (!receivedFirstChunk) {
                                 receivedFirstChunk = true;
                                 window.analytics.track('reading_stream_first_chunk');
-                                // Skeleton DOM already prepared at function
-                                // entry; here we only dismiss the overlay
-                                // so the prepared layout becomes visible.
-                                stopLoading();
                             }
                             const text = frame.data.text || '';
                             passageBodyText += text;
