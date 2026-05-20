@@ -6298,10 +6298,14 @@ async def reading_generate_passage_stream(
             # Done before validate so we can pass it into the validator's
             # required {title, body, topic, word_count} shape.
             first_period = passage_text.find(".")
-            if first_period == -1 or first_period > 120:
-                title = passage_text[:80].strip()
-            else:
+            if first_period != -1 and first_period <= 120:
+                # First sentence is reasonable length — use it whole.
                 title = passage_text[: first_period + 1].strip()
+            else:
+                # No period in first 120 chars (rare; usually LLM verbosity).
+                # Truncate at word boundary near 80 chars + ellipsis.
+                truncated = passage_text[:80].rsplit(" ", 1)[0].strip()
+                title = truncated + "…"
 
             # Validator expects a dict matching the blocking-endpoint schema.
             passage_data = {
