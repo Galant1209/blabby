@@ -4367,6 +4367,25 @@
                     recordBtn.disabled = false;
                     return;
                 }
+                if (res.status === 403) {
+                    const body403 = await res.json().catch(() => ({}));
+                    clearGentleLoading();
+                    if (body403.error === 'feedback_quota_reached') {
+                        setRecorderStatus('本月練習額度已用完。');
+                        const quotaEl = document.createElement('div');
+                        quotaEl.style.cssText = 'margin-top:12px;padding:12px 14px;border:1px solid rgba(201,168,76,0.4);background:rgba(201,168,76,0.05);font-family:var(--serif);font-size:15px;text-align:center;line-height:1.7;';
+                        quotaEl.innerHTML = '免費版每月最多 20 次批改。<br><a href="/upgrade.html?source=feedback_quota" style="color:var(--gold);text-decoration:none;font-style:italic;">升級 Pro，無限練習 →</a>';
+                        const statusEl = document.querySelector('.recorder-status') || recordBtn.parentNode;
+                        if (statusEl) statusEl.insertAdjacentElement('afterend', quotaEl);
+                        window.analytics?.track('feedback_quota_hit', { source: 'practice' });
+                    } else if (body403.error === 'quota_exceeded') {
+                        setRecorderStatus('Drill 額度已用完。');
+                    } else {
+                        setRecorderStatus('額度已用完，請升級 Pro 繼續練習。');
+                    }
+                    recordBtn.disabled = false;
+                    return;
+                }
                 const data = await res.json();
                 clearGentleLoading();
                 if (data.error) {
