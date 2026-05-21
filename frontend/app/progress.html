@@ -356,7 +356,7 @@ main.page {
             return;
         }
         try {
-            const res = await fetch(`${API_BASE}/progress`, {
+            const res = await fetch(`${API_BASE}/api/progress`, {
                 headers: { 'Authorization': `Bearer ${token}` },
             });
             if (!res.ok) {

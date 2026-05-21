@@ -2760,7 +2760,7 @@ async def get_history(
     return {"records": resp.data or []}
 
 
-@app.get("/progress")
+@app.get("/api/progress")
 @limiter.limit("30/minute")
 async def get_progress(
     request: Request,
