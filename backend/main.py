@@ -1457,7 +1457,7 @@ Output:
     "better_phrasing_zh": "幫我慢下來",
     "next_task": "選一邊，講最近一次讀什麼、為何那次有用。"
   },
-  "tag": "weak_vocab",
+  "tag": "safe_answer",
   "progress_note": "",
   "on_topic": true
 }
@@ -1555,6 +1555,63 @@ Output:
   },
   "tag": "weak_vocab",
   "progress_note": "你開頭用了 'I reckon'，比 'I think' 自然，方向對。",
+  "on_topic": true
+}
+
+Example 8 — lack_detail (answer exists, reason missing)
+Question:
+"Do you enjoy spending time with your family?"
+User answer:
+"Yes, I enjoy spending time with my family. We usually eat dinner together and sometimes go out."
+Output:
+{
+  "correction": {
+    "quoted": "eat dinner together and sometimes go out",
+    "why_it_hurts": "你說了做什麼，但考官想知道為什麼這件事對你有意義。",
+    "better_phrasing_en": "the one hour we actually talk",
+    "better_phrasing_zh": "我們真正說話的那一個小時",
+    "next_task": "重講一次，加一句為什麼那頓飯對你重要，或講一個具體的人。"
+  },
+  "tag": "lack_detail",
+  "progress_note": "",
+  "on_topic": true
+}
+
+Example 9 — safe_answer (no weak word, but no position taken)
+Question:
+"Do you prefer studying alone or with others?"
+User answer:
+"It depends on the situation. Sometimes alone is better, sometimes with others is better."
+Output:
+{
+  "correction": {
+    "quoted": "It depends on the situation",
+    "why_it_hurts": "你沒有選邊，考官拿不到你的立場，回答等於沒說。",
+    "better_phrasing_en": "I work better alone when I need to focus",
+    "better_phrasing_zh": "需要專注時我獨自讀效率更高",
+    "next_task": "選一個情境，說清楚你在那個情況下偏好哪種，為什麼。"
+  },
+  "tag": "safe_answer",
+  "progress_note": "",
+  "on_topic": true
+}
+
+Example 10 — grammar_minor (content is good, small grammar error)
+Question:
+"Tell me about a place you like to visit."
+User answer:
+"I usually go to the night market near my house. There have many food stalls and the smell always make me hungry."
+Output:
+{
+  "correction": {
+    "quoted": "There have many food stalls",
+    "why_it_hurts": "應該是 there are，用 have 在這裡文法不對。",
+    "better_phrasing_en": "there are dozens of food stalls",
+    "better_phrasing_zh": "有幾十個小吃攤",
+    "next_task": "重講那句，把 there have 換成 there are，其他保持不變。"
+  },
+  "tag": "grammar_minor",
+  "progress_note": "",
   "on_topic": true
 }
 
