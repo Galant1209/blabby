@@ -1859,7 +1859,7 @@ async def process(
                 memory_block=memory_block + tier_b_override + intensity_block,
                 repeated_weak_words=repeated_weak_words,
                 drill_tag=drill_tag if is_drill_mode else None,
-                persona_prefix=PERSONA_PROMPTS[get_persona(user_band)] if is_drill_mode else "",
+                persona_prefix=PERSONA_PROMPTS[get_persona(user_band)],
                 previous_transcript_block=(
                     f'\n\n[PREVIOUS ATTEMPT]\nThe student has answered this question before.'
                     f' Their previous response was:\n"{previous_transcript.strip()[:500]}"\n\n'
