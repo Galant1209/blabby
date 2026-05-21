@@ -761,6 +761,64 @@ def is_intensity_calibration_enabled() -> bool:
     return os.getenv("INTENSITY_CALIBRATION_ENABLED", "false").strip().lower() == "true"
 
 
+def pick_next_question(current_topic: str, current_question: str, user_id: str) -> str:
+    """
+    Pick a next question biased toward the same topic as the current one,
+    excluding the question just answered. Falls back to any unrecent question.
+    Returns question text string, or "" on any failure.
+    """
+    try:
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=QUESTION_EXCLUSION_DAYS)
+        ).isoformat()
+        recent_resp = (
+            supabase_admin.table("practice_records")
+            .select("question")
+            .eq("user_id", user_id)
+            .gte("created_at", cutoff)
+            .execute()
+        )
+        recent_set = {
+            (row.get("question") or "").strip()
+            for row in (recent_resp.data or [])
+            if (row.get("question") or "").strip()
+        }
+        recent_set.add(current_question.strip())
+
+        questions_resp = (
+            supabase_admin.table("questions")
+            .select("text, topic, part")
+            .eq("part", 1)
+            .execute()
+        )
+        questions = questions_resp.data or []
+        if not questions:
+            return ""
+
+        # Tier 1 — same topic, not recently practiced
+        same_topic = [
+            q for q in questions
+            if (q.get("topic") or "").strip().lower() == current_topic.strip().lower()
+            and (q.get("text") or "").strip() not in recent_set
+        ]
+        if same_topic:
+            return random.choice(same_topic).get("text", "")
+
+        # Tier 2 — any topic, not recently practiced
+        not_recent = [
+            q for q in questions
+            if (q.get("text") or "").strip() not in recent_set
+        ]
+        if not_recent:
+            return random.choice(not_recent).get("text", "")
+
+        # Tier 3 — fallback random
+        return random.choice(questions).get("text", "")
+    except Exception:
+        logger.exception("pick_next_question failed, returning empty")
+        return ""
+
+
 def build_witness_note(total_practice_count: int, tag_counts: dict, current_tag: str) -> str:
     """Generate a one-line witness note based on practice history. No LLM call."""
     # Milestone
@@ -2026,7 +2084,11 @@ async def process(
 
         better_expression    = better_phrasing_en
         better_expression_zh = better_phrasing_zh
-        next_question        = ""
+        next_question = pick_next_question(
+            current_topic=topic,
+            current_question=question,
+            user_id=user_id,
+        )
 
         # Groq now produces tag itself. Validate against the allow-list
         # so a hallucinated value never pollutes the DB / admin dashboards.
