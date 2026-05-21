@@ -2760,6 +2760,99 @@ async def get_history(
     return {"records": resp.data or []}
 
 
+@app.get("/progress")
+@limiter.limit("30/minute")
+async def get_progress(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Returns first vs latest attempt comparison for each question the user
+    has practised at least twice. Drives /progress.html, which makes
+    perceived improvement legible — directly targets the "感覺像只有一個
+    功能，太簡單了" feedback by giving the user evidence of their own
+    longitudinal change.
+
+    For each question with >= 2 records:
+      - first  = earliest attempt (transcript + created_at)
+      - latest = most recent attempt (transcript + created_at)
+      - delta  = word_delta + sentence_delta, computed server-side so the
+                 client never has to reason about tokenisation
+
+    Sorted by latest.created_at DESC so recently revisited questions
+    appear first. Returns a top-level JSON array.
+
+    Records with blank question or blank user_transcript are skipped —
+    they can't form a meaningful comparison.
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        resp = (
+            supabase_admin.table("practice_records")
+            .select("question, user_transcript, created_at")
+            .eq("user_id", user_id)
+            # Ascending so attempts[0] is the first attempt for each
+            # question and attempts[-1] is the latest, without a second
+            # min/max pass per group.
+            .order("created_at", desc=False)
+            .execute()
+        )
+    except Exception:
+        logger.exception("get_progress query failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load progress")
+
+    records = resp.data or []
+
+    by_question: dict[str, list[dict]] = {}
+    for r in records:
+        q = (r.get("question") or "").strip()
+        if not q:
+            continue
+        t = (r.get("user_transcript") or "").strip()
+        if not t:
+            # No transcript = nothing to compare. Skip rather than
+            # surfacing a misleading 0-word "first attempt".
+            continue
+        by_question.setdefault(q, []).append(r)
+
+    def _sentence_count(text: str) -> int:
+        # Split on terminal punctuation; count non-empty fragments. Treats
+        # "..." and "?!" as single boundaries. Good enough for IELTS
+        # speaking transcripts where punctuation is Whisper-supplied.
+        return len([frag for frag in re.split(r"[.!?]+", text) if frag.strip()])
+
+    items: list[dict] = []
+    for question, attempts in by_question.items():
+        if len(attempts) < 2:
+            continue
+        first = attempts[0]
+        latest = attempts[-1]
+        first_t = (first.get("user_transcript") or "").strip()
+        latest_t = (latest.get("user_transcript") or "").strip()
+
+        items.append({
+            "question": question,
+            "first": {
+                "transcript": first_t,
+                "created_at": first.get("created_at"),
+            },
+            "latest": {
+                "transcript": latest_t,
+                "created_at": latest.get("created_at"),
+            },
+            "delta": {
+                "word_delta":     len(latest_t.split()) - len(first_t.split()),
+                "sentence_delta": _sentence_count(latest_t) - _sentence_count(first_t),
+            },
+        })
+
+    items.sort(key=lambda x: x["latest"]["created_at"] or "", reverse=True)
+    return items
+
+
 @app.get("/api/diagnosis/timeline")
 @limiter.limit("20/minute")
 async def diagnosis_timeline(
