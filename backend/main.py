@@ -761,6 +761,24 @@ def is_intensity_calibration_enabled() -> bool:
     return os.getenv("INTENSITY_CALIBRATION_ENABLED", "false").strip().lower() == "true"
 
 
+def build_witness_note(total_practice_count: int, tag_counts: dict, current_tag: str) -> str:
+    """Generate a one-line witness note based on practice history. No LLM call."""
+    # Milestone
+    if total_practice_count in (10, 20, 30, 50, 100):
+        return f"你今天完成了第 {total_practice_count} 次練習。"
+
+    # Stuck pattern — same tag appears 3+ times
+    if current_tag and tag_counts.get(current_tag, 0) >= 3:
+        count = tag_counts[current_tag]
+        return f"這個問題你已經碰了 {count} 次。卡住不是能力問題，是還沒找到那個說法。今天繼續。"
+
+    # General accumulation
+    if total_practice_count > 0:
+        return f"你已累計練習 {total_practice_count} 次。"
+
+    return ""
+
+
 def build_memory_block(weak_pattern_counts: dict[str, int], tag_counts: dict[str, int] | None = None) -> str:
     """
     Render the 【使用者歷史弱點】 block that gets stitched into the system prompt.
@@ -1625,7 +1643,9 @@ Output:
     "better_phrasing_zh": "上述英文版本的中文對照；最多 30 中文字；偏題時可為空字串",
     "next_task": "下一輪請學生試的具體任務；繁中；最多 80 字"
   },
-  "tag": "本次回答最主要的問題分類，只能從這五個值選一個：weak_vocab（用 very/good/interesting 等空泛詞）、safe_answer（回答太空泛）、lack_detail（缺乏細節）、grammar_minor（文法小錯）、off_topic（完全沒回答題目）。若同時有多個問題，選最嚴重的那一個；若是 off_topic 必定選 off_topic，優先於所有其他 tag。",
+  "tag": "本次回答最主要的問題。只能從這五個值選一個：weak_vocab、safe_answer、lack_detail、grammar_minor、off_topic。若有 off_topic 必定選 off_topic，優先於所有其他 tag。",
+  "tag_secondary": "本次回答第二嚴重的問題。從同一個五個值選一個，不可與 tag 相同。若只有一個問題則填空字串。",
+  "tag_tertiary": "本次回答第三嚴重的問題。從同一個五個值選一個，不可與 tag 或 tag_secondary 相同。若只有兩個以下問題則填空字串。",
   "progress_note": "First Touch 力道下必填（具體優點觀察）；看到 Tier-B 進步時必填（具體進步點）；其他情況填空字串。永遠不可省略此欄位。",
   "on_topic": true
 }
@@ -2019,6 +2039,23 @@ async def process(
                 )
             weakness_tag = ""
 
+        tag_secondary = (parsed.get("tag_secondary") or "").strip()
+        if tag_secondary not in ALLOWED_WEAKNESS_TAGS:
+            tag_secondary = ""
+        if tag_secondary == weakness_tag:
+            tag_secondary = ""
+
+        tag_tertiary = (parsed.get("tag_tertiary") or "").strip()
+        if tag_tertiary not in ALLOWED_WEAKNESS_TAGS:
+            tag_tertiary = ""
+        if tag_tertiary in (weakness_tag, tag_secondary):
+            tag_tertiary = ""
+
+        # witness_note depends on weakness_tag being validated, so it must be
+        # computed AFTER the validation block above (spec literal placed it
+        # after progress_note parse, but weakness_tag was undefined there).
+        witness_note = build_witness_note(total_practice_count, tag_counts or {}, weakness_tag)
+
         # Server-side persistence (was previously done client-side).
         # Uses supabase_admin (service_role) to bypass RLS. Failures are logged
         # but do NOT fail the response — the student still gets their feedback
@@ -2235,8 +2272,11 @@ async def process(
             "better_expression_zh": better_expression_zh,
             "on_topic":             on_topic,
             "weakness_tag":         weakness_tag,
+            "tag_secondary":        tag_secondary,
+            "tag_tertiary":         tag_tertiary,
             "memory_snapshot":      memory_snapshot,
             "progress_note":        progress_note,
+            "witness_note":         witness_note,
             "persisted":            persisted,
         }
         # Drill mode adds drill_score; non-drill turns return identical shape
