@@ -5220,7 +5220,7 @@
             document.getElementById('session-insight').textContent = getSessionInsight(data.weakness_tag);
 
             // 下一題
-            document.getElementById('next-question-text').textContent = '';
+            document.getElementById('next-question-text').textContent = data.next_question || '';
             renderSoftLockNote(data);
 
             feedbackSection.classList.add('visible');
@@ -5286,6 +5286,17 @@
         });
 
         nextBtn.addEventListener('click', () => {
+            // Prefer backend-suggested next question (topic-biased, server-side)
+            if (lastFeedbackData && lastFeedbackData.next_question && lastFeedbackData.next_question.trim()) {
+                setQuestion(lastFeedbackData.next_question.trim(), lastFeedbackData.topic || currentTopic || '');
+                lastFeedbackData = null;
+                isRetryingSameQuestion = false;
+                feedbackSection.classList.remove('visible');
+                const rc = document.getElementById('retry-context');
+                if (rc) rc.style.display = 'none';
+                return;
+            }
+
             const TOPIC_SESSION_LIMIT = 3;
             let pick;
 
