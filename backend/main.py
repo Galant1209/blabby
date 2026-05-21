@@ -3038,7 +3038,7 @@ async def diagnosis_timeline(
     authorization: Optional[str] = Header(None),
 ):
     """
-    Returns:
+    Returns (Pro):
     - first_session: earliest created_at
     - total_sessions: count of all practice_records
     - topics_seen: distinct topics
@@ -3047,10 +3047,19 @@ async def diagnosis_timeline(
     - weakness_last_seen: per tag, last created_at
     - weakness_counts: per tag, total count
     - recent_trend: last 14 days vs prior 14 days per tag (delta)
+    - capped: False
+
+    Returns (Free, server-side strip):
+    - first_session, total_sessions, topics_seen (kept)
+    - weakness_counts: only the single top tag
+    - capped: True
+    Timeline / first_seen / last_seen / recent_trend are NOT included
+    so the upgrade nudge in the frontend has a clear gap to point at.
     """
     user_id = verify_token(authorization)
     if supabase_admin is None:
         raise HTTPException(status_code=503, detail="Database not configured")
+    is_pro = get_user_pro_status(user_id)
     try:
         resp = (
             supabase_admin.table("practice_records")
@@ -3065,16 +3074,21 @@ async def diagnosis_timeline(
 
     rows = resp.data or []
     if not rows:
-        return {
+        empty_base = {
             "first_session": None,
             "total_sessions": 0,
             "topics_seen": [],
-            "weakness_timeline": {},
-            "weakness_first_seen": {},
-            "weakness_last_seen": {},
             "weakness_counts": {},
-            "recent_trend": {},
+            "capped": not is_pro,
         }
+        if is_pro:
+            empty_base.update({
+                "weakness_timeline": {},
+                "weakness_first_seen": {},
+                "weakness_last_seen": {},
+                "recent_trend": {},
+            })
+        return empty_base
 
     from collections import defaultdict
 
@@ -3118,15 +3132,30 @@ async def diagnosis_timeline(
         )
         recent_trend[tag] = {"recent": recent, "prior": prior, "delta": recent - prior}
 
+    if is_pro:
+        return {
+            "first_session": first_session,
+            "total_sessions": total_sessions,
+            "topics_seen": topics_seen,
+            "weakness_timeline": weakness_timeline,
+            "weakness_first_seen": weakness_first_seen,
+            "weakness_last_seen": weakness_last_seen,
+            "weakness_counts": weakness_counts,
+            "recent_trend": recent_trend,
+            "capped": False,
+        }
+
+    # Free user: strip everything except the top-1 weakness tag.
+    top_only = {}
+    if weakness_counts:
+        top_tag, top_count = max(weakness_counts.items(), key=lambda x: x[1])
+        top_only = {top_tag: top_count}
     return {
         "first_session": first_session,
         "total_sessions": total_sessions,
         "topics_seen": topics_seen,
-        "weakness_timeline": weakness_timeline,
-        "weakness_first_seen": weakness_first_seen,
-        "weakness_last_seen": weakness_last_seen,
-        "weakness_counts": weakness_counts,
-        "recent_trend": recent_trend,
+        "weakness_counts": top_only,
+        "capped": True,
     }
 
 
