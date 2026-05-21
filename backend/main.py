@@ -1767,6 +1767,47 @@ async def process(
     try:
         user_id = verify_token(authorization)
 
+        # Monthly feedback quota for free users — 20 sessions per UTC
+        # calendar month. Pro skip entirely. Placed BEFORE the drill
+        # gate and BEFORE Whisper / Groq / Claude calls so a quota-
+        # exceeded request never burns API credits.
+        # Fail-open on count query exception: better to over-serve than
+        # block a request whose monthly count we can't determine.
+        if not get_user_pro_status(user_id):
+            try:
+                month_start = datetime.now(timezone.utc).replace(
+                    day=1, hour=0, minute=0, second=0, microsecond=0
+                ).isoformat()
+                mq_resp = (
+                    supabase_admin.table("practice_records")
+                    .select("id", count="exact")
+                    .eq("user_id", user_id)
+                    .gte("created_at", month_start)
+                    .limit(1)
+                    .execute()
+                )
+                monthly_count = mq_resp.count or 0
+                if monthly_count >= 20:
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": "feedback_quota_reached",
+                            "limit": 20,
+                            "message": (
+                                "Free users may receive up to 20 feedback "
+                                "sessions per month. Upgrade to Pro for "
+                                "unlimited practice."
+                            ),
+                        },
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                logger.warning(
+                    "monthly feedback quota count failed; failing open",
+                    extra={"user_id": user_id},
+                )
+
         # Drill-mode validation: gate before any expensive op (recent records
         # pull, audio download, Groq call). 422 is the conventional FastAPI
         # status for request-shape validation failures.
