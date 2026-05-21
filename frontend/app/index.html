@@ -583,6 +583,38 @@
             cursor: pointer;
             user-select: none;
         }
+        .weakness-chip-secondary {
+            display: inline-block;
+            padding: 4px 8px;
+            border: 1px solid rgba(201, 168, 76, 0.5);
+            background: rgba(201, 168, 76, 0.04);
+            color: var(--green);
+            font-family: 'Libre Baskerville', serif;
+            font-size: 10px;
+            letter-spacing: 0.05em;
+            opacity: 0.75;
+            margin-left: 6px;
+        }
+        .weakness-chip-tertiary {
+            display: inline-block;
+            padding: 3px 7px;
+            border: 1px solid rgba(201, 168, 76, 0.3);
+            background: transparent;
+            color: var(--green);
+            font-family: 'Libre Baskerville', serif;
+            font-size: 9px;
+            letter-spacing: 0.04em;
+            opacity: 0.5;
+            margin-left: 4px;
+        }
+        .witness-note {
+            margin-top: 10px;
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 13px;
+            color: var(--ink);
+            opacity: 0.6;
+            font-style: italic;
+        }
         .weakness-chip::after {
             content: ' ↓';
             font-size: 9px;
@@ -2984,13 +3016,18 @@
                 </div>
                 <div class="feedback-item">
                     <div class="feedback-label">你這次卡住的類型</div>
-                    <div id="weakness-tag" class="weakness-chip"></div>
+                    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
+                        <div id="weakness-tag" class="weakness-chip"></div>
+                        <div id="weakness-tag-secondary" class="weakness-chip-secondary" style="display:none"></div>
+                        <div id="weakness-tag-tertiary" class="weakness-chip-tertiary" style="display:none"></div>
+                    </div>
                     <div id="weakness-explainer" class="weakness-explainer">
                         <div class="weakness-explainer-what" id="weakness-explainer-what"></div>
                         <div class="weakness-explainer-symptom" id="weakness-explainer-symptom"></div>
                         <div class="weakness-explainer-fix" id="weakness-explainer-fix"></div>
                     </div>
                     <div id="repeat-reminder" class="repeat-reminder" style="display:none"></div>
+                    <div id="witness-note" class="witness-note" style="display:none"></div>
                 </div>
                 <div class="feedback-next">
                     <div class="feedback-label">下一題</div>
@@ -5115,6 +5152,40 @@
 
             // 主要弱點標籤
             document.getElementById('weakness-tag').textContent = formatWeaknessTag(data.weakness_tag);
+
+            // Secondary tag chip
+            const _secChip = document.getElementById('weakness-tag-secondary');
+            if (_secChip) {
+                if (data.tag_secondary) {
+                    _secChip.textContent = getWeaknessLabel(data.tag_secondary);
+                    _secChip.style.display = '';
+                } else {
+                    _secChip.style.display = 'none';
+                }
+            }
+
+            // Tertiary tag chip
+            const _terChip = document.getElementById('weakness-tag-tertiary');
+            if (_terChip) {
+                if (data.tag_tertiary) {
+                    _terChip.textContent = getWeaknessLabel(data.tag_tertiary);
+                    _terChip.style.display = '';
+                } else {
+                    _terChip.style.display = 'none';
+                }
+            }
+
+            // Witness note
+            const _witnessEl = document.getElementById('witness-note');
+            if (_witnessEl) {
+                if (data.witness_note) {
+                    _witnessEl.textContent = data.witness_note;
+                    _witnessEl.style.display = '';
+                } else {
+                    _witnessEl.style.display = 'none';
+                }
+            }
+
             const _chip = document.getElementById('weakness-tag');
             const _explainer = document.getElementById('weakness-explainer');
             const _ex = WEAKNESS_EXPLAINER[data.weakness_tag];
