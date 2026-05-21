@@ -580,6 +580,43 @@
             font-size: 11px;
             letter-spacing: 0.06em;
             text-transform: none;
+            cursor: pointer;
+            user-select: none;
+        }
+        .weakness-chip::after {
+            content: ' ↓';
+            font-size: 9px;
+            opacity: 0.6;
+        }
+        .weakness-chip.is-open::after {
+            content: ' ↑';
+        }
+        .weakness-explainer {
+            display: none;
+            margin-top: 8px;
+            padding: 12px 14px;
+            border: 1px solid rgba(201, 168, 76, 0.3);
+            background: rgba(201, 168, 76, 0.05);
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--ink);
+        }
+        .weakness-explainer.is-open {
+            display: block;
+        }
+        .weakness-explainer-what {
+            margin-bottom: 6px;
+            color: var(--green);
+            font-style: italic;
+        }
+        .weakness-explainer-symptom {
+            margin-bottom: 6px;
+            opacity: 0.75;
+            font-size: 13px;
+        }
+        .weakness-explainer-fix {
+            font-weight: bold;
         }
         .repeat-reminder {
             margin-top: 12px;
@@ -2948,6 +2985,11 @@
                 <div class="feedback-item">
                     <div class="feedback-label">你這次卡住的類型</div>
                     <div id="weakness-tag" class="weakness-chip"></div>
+                    <div id="weakness-explainer" class="weakness-explainer">
+                        <div class="weakness-explainer-what" id="weakness-explainer-what"></div>
+                        <div class="weakness-explainer-symptom" id="weakness-explainer-symptom"></div>
+                        <div class="weakness-explainer-fix" id="weakness-explainer-fix"></div>
+                    </div>
                     <div id="repeat-reminder" class="repeat-reminder" style="display:none"></div>
                 </div>
                 <div class="feedback-next">
@@ -3269,6 +3311,39 @@
         };
 
         const SOFT_LOCK_TAGS = new Set(['weak_vocab', 'lack_detail', 'safe_answer', 'off_topic']);
+
+        const WEAKNESS_EXPLAINER = {
+            weak_vocab: {
+                title: '用字太安全',
+                what: '你講的詞考官都聽懂，但沒有畫面感。',
+                symptom: '常見症狀：very good、interesting、nice、I like it。',
+                fix: '怎麼修：把形容詞換成具體場景。不說「very good」，說「I still think about it」。'
+            },
+            safe_answer: {
+                title: '答得太保險',
+                what: '你沒有選邊，考官拿不到你的立場。',
+                symptom: '常見症狀：It depends、I think both are good、Maybe yes, maybe no。',
+                fix: '怎麼修：選一個立場，講一個真實經驗支撐它。'
+            },
+            lack_detail: {
+                title: '缺少具體細節',
+                what: '你說了什麼，但沒說為什麼或在哪裡。',
+                symptom: '常見症狀：答案正確但考官沒辦法想像畫面。',
+                fix: '怎麼修：補一個人、地點、時間或原因。'
+            },
+            grammar_minor: {
+                title: '小文法',
+                what: '句子結構有小錯，但意思還是清楚的。',
+                symptom: '常見症狀：there have、I very like、he go to school。',
+                fix: '怎麼修：把那一句重講一次，其他不用動。'
+            },
+            off_topic: {
+                title: '答非所問',
+                what: '你的答案沒有接到題目的核心。',
+                symptom: '常見症狀：題目問地點，你講了感受；題目問習慣，你講了看法。',
+                fix: '怎麼修：先說一個直接回答題目的句子，再補細節。'
+            }
+        };
 
         // Human-readable labels for the Practice Hub's "你上次卡在：..." copy.
         // Any weakness_tag outside this map deliberately falls back to Scenario B
@@ -5040,6 +5115,20 @@
 
             // 主要弱點標籤
             document.getElementById('weakness-tag').textContent = formatWeaknessTag(data.weakness_tag);
+            const _chip = document.getElementById('weakness-tag');
+            const _explainer = document.getElementById('weakness-explainer');
+            const _ex = WEAKNESS_EXPLAINER[data.weakness_tag];
+            if (_ex) {
+                document.getElementById('weakness-explainer-what').textContent = _ex.what;
+                document.getElementById('weakness-explainer-symptom').textContent = _ex.symptom;
+                document.getElementById('weakness-explainer-fix').textContent = _ex.fix;
+                _chip.onclick = () => {
+                    const open = _explainer.classList.toggle('is-open');
+                    _chip.classList.toggle('is-open', open);
+                };
+            } else {
+                _chip.onclick = null;
+            }
 
             const repeatReminder = document.getElementById('repeat-reminder');
             if (repeatReminder) {
