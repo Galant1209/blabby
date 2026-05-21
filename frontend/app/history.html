@@ -387,7 +387,9 @@ header.brand .subtitle {
     const SUPABASE_URL = cfg.supabaseUrl;
     const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
     const API_BASE = window.BLABBY_API_BASE || 'https://blabby-backend.onrender.com';
-    const FREE_LIMIT = 20;   // first 20 cards visible; rest get pro-lock overlay
+    // FREE_LIMIT removed — backend now enforces a 10-record cap server-side
+    // for free users. capped flag in /api/history response drives the
+    // upgrade nudge below; the historic data-locked overlay logic is inert.
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !window.supabase) {
         document.body.innerHTML = '<main class="page"><p class="error-state">Missing Supabase config or SDK.</p></main>';
@@ -499,11 +501,11 @@ header.brand .subtitle {
             }));
     }
 
-    // Spec: Part 2 records have mode === 'part2'; everything else (null,
-    // 'drill', other) is Part 1. Pro-lock is bound to the ORIGINAL index
-    // so filtering can't unlock cards past FREE_LIMIT.
+    // Spec: Part 2 records have mode === 'part2'; everything else
+    // (null, 'drill', other) is Part 1.
     let _allRecords = [];
     let _loaded = false;
+    let _capped = false;
     let _currentFilter = 'all';
 
     function matchesFilter(rec, key) {
@@ -530,7 +532,25 @@ header.brand .subtitle {
             : _allRecords.filter(r => matchesFilter(r, _currentFilter));
         if (filtered.length === 0) { renderFilteredEmpty(_currentFilter); return; }
         const list = document.getElementById('history-list');
-        list.innerHTML = filtered.map(r => renderCard(r, r._locked)).join('');
+        list.innerHTML = filtered.map(r => renderCard(r, false)).join('');
+        if (_capped) {
+            list.insertAdjacentHTML('beforeend', `<div style="
+                margin-top: 16px;
+                padding: 14px 16px;
+                border: 1px solid rgba(201,168,76,0.4);
+                background: rgba(201,168,76,0.05);
+                font-family: 'EB Garamond', serif;
+                font-size: 15px;
+                color: var(--ink);
+                text-align: center;
+                line-height: 1.7;
+            ">
+                顯示最近 10 筆。<br>
+                <a href="/upgrade.html?source=history" style="color:var(--gold);text-decoration:none;font-style:italic;">
+                    升級 Pro，查看完整紀錄 →
+                </a>
+            </div>`);
+        }
         wireCards(list);
     }
 
@@ -578,13 +598,14 @@ header.brand .subtitle {
         }
 
         const records = Array.isArray(body && body.records) ? body.records : [];
-        _allRecords = records.map((r, idx) => Object.assign({}, r, { _locked: idx >= FREE_LIMIT }));
+        _allRecords = records;
+        _capped = !!(body && body.capped);
         _loaded = true;
         renderList();
 
         window.analytics?.track('history_viewed', {
             total_records: records.length,
-            locked_count: Math.max(0, records.length - FREE_LIMIT),
+            capped: _capped,
         });
     }
 
