@@ -3762,6 +3762,33 @@ async def vocabulary_my_add(
         if existing and existing.data:
             return existing.data
 
+        # Pro gate: free users may save up to 30 vocabulary items total.
+        # Idempotent re-adds (handled by the existing-check above) do NOT
+        # consume quota; only genuinely new inserts. Pro skip the check
+        # via get_user_pro_status — same fail-safe helper used by
+        # /api/history and /api/diagnosis/timeline.
+        if not get_user_pro_status(user_id):
+            count_resp = (
+                supabase_admin.table("user_vocabulary")
+                .select("id", count="exact")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            total = count_resp.count or 0
+            if total >= 30:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "vocab_limit_reached",
+                        "limit": 30,
+                        "message": (
+                            "Free users may save up to 30 words. "
+                            "Upgrade to Pro for unlimited vocabulary."
+                        ),
+                    },
+                )
+
         # Verify the catalog item actually exists — fk would catch this on
         # insert, but a 404 is more useful than a Postgres error string.
         item_check = (
