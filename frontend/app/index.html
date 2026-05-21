@@ -5065,6 +5065,16 @@
                                 topic: item.topic,
                                 source: 'practice_suggestion'
                             });
+                        } else if (res.status === 403) {
+                            const body = await res.json().catch(() => ({}));
+                            if (body.error === 'vocab_limit_reached') {
+                                addBtn.textContent = '已達上限';
+                                addBtn.disabled = true;
+                                const nudge = document.createElement('div');
+                                nudge.style.cssText = 'font-size:12px;color:var(--gold);margin-top:4px;font-family:var(--serif);font-style:italic;';
+                                nudge.innerHTML = '免費版最多 30 個單字。<a href="/upgrade.html?source=vocab_limit" style="color:var(--gold)">升級 Pro →</a>';
+                                addBtn.parentNode.appendChild(nudge);
+                            }
                         }
                     } catch (_) { /* never block on add failure */ }
                 });
