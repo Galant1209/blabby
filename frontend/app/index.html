@@ -615,6 +615,18 @@
             opacity: 0.6;
             font-style: italic;
         }
+        .witness-note.is-milestone {
+            margin-top: 12px;
+            padding: 10px 14px;
+            border: 1px solid var(--gold);
+            background: rgba(201, 168, 76, 0.07);
+            font-family: 'Libre Baskerville', serif;
+            font-size: 13px;
+            color: var(--green);
+            opacity: 1;
+            font-style: normal;
+            letter-spacing: 0.03em;
+        }
         .weakness-chip::after {
             content: ' ↓';
             font-size: 9px;
@@ -5189,8 +5201,10 @@
                 if (data.witness_note) {
                     _witnessEl.textContent = data.witness_note;
                     _witnessEl.style.display = '';
+                    _witnessEl.classList.toggle('is-milestone', !!data.witness_is_milestone);
                 } else {
                     _witnessEl.style.display = 'none';
+                    _witnessEl.classList.remove('is-milestone');
                 }
             }
 
