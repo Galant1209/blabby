@@ -2336,6 +2336,11 @@ async def process(
                     extra={"user_id": user_id, "drill_tag": drill_tag},
                 )
 
+        # is_pro is conditionally set inside the drill branch above.
+        # Re-evaluate here so non-drill turns also have it for the
+        # tag_secondary / tag_tertiary gate below. Cheap RPC; for drill
+        # users the second call returns the same value as the first.
+        is_pro = get_user_pro_status(user_id)
         response_payload = {
             "text":                 user_text,
             "coach_response":       coach_response,
@@ -2344,8 +2349,8 @@ async def process(
             "better_expression_zh": better_expression_zh,
             "on_topic":             on_topic,
             "weakness_tag":         weakness_tag,
-            "tag_secondary":        tag_secondary,
-            "tag_tertiary":         tag_tertiary,
+            "tag_secondary":        tag_secondary if is_pro else "",
+            "tag_tertiary":         tag_tertiary if is_pro else "",
             "memory_snapshot":      memory_snapshot,
             "progress_note":        progress_note,
             "witness_note":         witness_note,
