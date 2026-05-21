@@ -140,6 +140,55 @@
   .plan__cta:hover { background: #244112; }
   .plan__cta:active { transform: scale(0.97); }
 
+  /* === Weakness distribution === */
+  .weakness-dist { padding-top: 14px; }
+  .weakness-bar-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+  }
+  .weakness-bar-label {
+    font-family: var(--sans); font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    min-width: 80px; flex-shrink: 0;
+  }
+  .weakness-bar-track {
+    flex: 1; height: 6px;
+    background: rgba(196,184,154,0.3);
+    position: relative;
+  }
+  .weakness-bar-fill {
+    height: 100%; background: var(--green);
+    transition: width 0.6s ease;
+  }
+  .weakness-bar-count {
+    font-family: var(--sans); font-size: 11px;
+    color: var(--muted); min-width: 24px; text-align: right;
+  }
+
+  /* === Action buttons === */
+  .actions {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 24px 0 8px;
+  }
+  .action-btn {
+    display: block; width: 100%; padding: 14px 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--serif); font-size: 15px;
+    text-align: left; text-decoration: none;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+    letter-spacing: 0.01em;
+  }
+  .action-btn:hover {
+    border-color: var(--gold);
+    background: rgba(201,168,76,0.05);
+  }
+  .action-btn__arrow {
+    float: right; color: var(--gold); font-style: normal;
+  }
+
   /* === Sign out === */
   .signout {
     text-align: center; padding-top: 28px;
@@ -226,6 +275,30 @@
 
   <section class="section plan" id="plan-section">
     <div class="stat__value empty">Loading…</div>
+  </section>
+
+  <section class="section">
+    <div class="stat__label" style="margin-bottom:14px">弱點分布</div>
+    <div class="weakness-dist" id="weakness-dist">
+      <div class="skel-line" style="width:100%;margin-bottom:10px"></div>
+      <div class="skel-line" style="width:80%;margin-bottom:10px"></div>
+      <div class="skel-line" style="width:60%"></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="stat__label" style="margin-bottom:14px">繼續</div>
+    <div class="actions">
+      <a href="/index.html" class="action-btn">
+        繼續練習 <span class="action-btn__arrow">→</span>
+      </a>
+      <a href="/progress.html" class="action-btn">
+        查看進步對比 <span class="action-btn__arrow">→</span>
+      </a>
+      <a href="/history.html" class="action-btn">
+        練習紀錄 <span class="action-btn__arrow">→</span>
+      </a>
+    </div>
   </section>
 
   <div class="signout">
@@ -377,6 +450,29 @@
       $('stat-weakness').textContent = label;
     } else {
       $('stat-weakness').innerHTML = '<span class="empty">無明顯模式</span>';
+    }
+
+    // Weakness distribution bar chart
+    const distEl = $('weakness-dist');
+    if (distEl) {
+      const entries = Object.entries(weaknessCounts).sort((a, b) => b[1] - a[1]);
+      if (entries.length === 0) {
+        distEl.innerHTML = '<span class="stat__value empty">尚無資料</span>';
+      } else {
+        const max = entries[0][1];
+        distEl.innerHTML = entries.map(([tag, count]) => {
+          const label = WEAKNESS_LABELS[tag] || tag;
+          const pct = max > 0 ? Math.round((count / max) * 100) : 0;
+          return `
+            <div class="weakness-bar-row">
+              <div class="weakness-bar-label">${escapeHtml(label)}</div>
+              <div class="weakness-bar-track">
+                <div class="weakness-bar-fill" style="width:${pct}%"></div>
+              </div>
+              <div class="weakness-bar-count">${count}</div>
+            </div>`;
+        }).join('');
+      }
     }
   }
 
