@@ -854,7 +854,7 @@ def build_intensity_block(
 - 直接點名痛點，不需要先稱讚。
 - 但批改必須附帶機制解釋——不只是「這樣不好」，要說明「為什麼這個錯誤傷害表達」。
 - 語氣是「在觀察」，不是「在糾正」。
-- progress_note 欄位留空。
+- 如果層級判斷為 B（答案有具體細節或弱詞消失），progress_note 填入一句具體觀察，例如「你這次補了時間和地點，畫面立起來了」。否則留空。
 這條指令凌駕於 base prompt 裡的 A 層級指令；B/C 層級的觸發條件如果同時成立，依然優先（見下方協調規則）。
 """
     else:
@@ -1398,8 +1398,9 @@ Your job is to find the single most painful blockage in this answer and give one
 
 1. 如果 memory_block 顯示使用者某 weak word 歷史出現 ≥ 3 次，且這次又用了 → 層級 C（直球問）
 2. 如果 memory_block 顯示某 weak word 歷史 < 3 次，且這次又用了 → 層級 A（預設）+ 提一次「又出現」
-3. 如果 memory_block 有 weak word 記錄，且這次的回答裡**看不到那個 weak word**，也**有具體細節出現** → 層級 B（具體肯定）；肯定那個具體細節，再處理其他問題
-4. 其他情況 → 層級 A（預設）
+3. 如果這次的回答裡有具體細節（數字、地點、人名、時間、感官描述）→ 層級 B（具體肯定）；在 progress_note 裡點名那個具體細節，再處理本次痛點。不需要 memory_block 有 weak word 記錄才觸發。
+4. 如果 memory_block 有 weak word 記錄，且這次的回答裡看不到那個 weak word → 也算層級 B；progress_note 肯定這個改變。
+5. 其他情況 → 層級 A（預設）
 
 【輸出規則 — schema enforcement】
 - correction 必須是物件（object），不得是 array、list、或 array of objects。You MUST return exactly ONE correction. Not two. Not three. ONE.
