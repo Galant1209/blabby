@@ -819,22 +819,33 @@ def pick_next_question(current_topic: str, current_question: str, user_id: str) 
         return ""
 
 
-def build_witness_note(total_practice_count: int, tag_counts: dict, current_tag: str) -> str:
-    """Generate a one-line witness note based on practice history. No LLM call."""
-    # Milestone
-    if total_practice_count in (10, 20, 30, 50, 100):
-        return f"你今天完成了第 {total_practice_count} 次練習。"
+def build_witness_note(total_practice_count: int, tag_counts: dict, current_tag: str) -> dict:
+    """
+    Returns {"text": str, "is_milestone": bool}.
+    text is empty string when there is nothing to say.
+    """
+    MILESTONES = {10, 20, 30, 50, 100}
 
-    # Stuck pattern — same tag appears 3+ times
+    if total_practice_count in MILESTONES:
+        return {
+            "text": f"你今天完成了第 {total_practice_count} 次練習。",
+            "is_milestone": True,
+        }
+
     if current_tag and tag_counts.get(current_tag, 0) >= 3:
         count = tag_counts[current_tag]
-        return f"這個問題你已經碰了 {count} 次。卡住不是能力問題，是還沒找到那個說法。今天繼續。"
+        return {
+            "text": f"這個問題你已經碰了 {count} 次。卡住不是能力問題，是還沒找到那個說法。今天繼續。",
+            "is_milestone": False,
+        }
 
-    # General accumulation
     if total_practice_count > 0:
-        return f"你已累計練習 {total_practice_count} 次。"
+        return {
+            "text": f"你已累計練習 {total_practice_count} 次。",
+            "is_milestone": False,
+        }
 
-    return ""
+    return {"text": "", "is_milestone": False}
 
 
 def build_memory_block(weak_pattern_counts: dict[str, int], tag_counts: dict[str, int] | None = None) -> str:
@@ -2115,7 +2126,9 @@ async def process(
         # witness_note depends on weakness_tag being validated, so it must be
         # computed AFTER the validation block above (spec literal placed it
         # after progress_note parse, but weakness_tag was undefined there).
-        witness_note = build_witness_note(total_practice_count, tag_counts or {}, weakness_tag)
+        _witness = build_witness_note(total_practice_count, tag_counts or {}, weakness_tag)
+        witness_note = _witness["text"]
+        witness_is_milestone = _witness["is_milestone"]
 
         # Server-side persistence (was previously done client-side).
         # Uses supabase_admin (service_role) to bypass RLS. Failures are logged
@@ -2336,6 +2349,7 @@ async def process(
             "memory_snapshot":      memory_snapshot,
             "progress_note":        progress_note,
             "witness_note":         witness_note,
+            "witness_is_milestone": witness_is_milestone,
             "persisted":            persisted,
         }
         # Drill mode adds drill_score; non-drill turns return identical shape
