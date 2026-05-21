@@ -1287,7 +1287,6 @@ def classify_quality(transcript: str, weakness_tag: str) -> dict:
 async def classify_quality_background(
     record_id: str,
     transcript: str,
-    coach_response: str,
     weakness_tag: str,
 ) -> None:
     """
@@ -2168,7 +2167,6 @@ async def process(
                     asyncio.create_task(classify_quality_background(
                         new_record_id,
                         user_text or "",
-                        coach_response or "",
                         drill_tag or "",
                     ))
             else:
@@ -2202,7 +2200,6 @@ async def process(
                     asyncio.create_task(classify_quality_background(
                         new_record_id,
                         user_text or "",
-                        coach_response or "",
                         weakness_tag or "",
                     ))
 
