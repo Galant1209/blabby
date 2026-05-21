@@ -1189,7 +1189,7 @@ def classify_quality(transcript: str, coach_response: str, weakness_tag: str) ->
                     f"Transcript: {transcript[:500]}\n"
                     f"Weakness tag: {weakness_tag}\n\n"
                     "valid = substantive answer with at least 2 sentences of real content\n"
-                    "partial = attempted but too short, off-topic, or incomplete\n"
+                    "partial = attempted but too short, off-topic, or incomplete (note: lack_detail tag means missing reasons or examples, NOT short length — a 5-sentence answer can be lack_detail)\n"
                     "invalid = non-answer, recording failure, single word, profanity only, or completely unrelated"
                 ),
             }],
