@@ -4741,24 +4741,32 @@
         }
 
         function shouldShowRepeatReminder(data) {
-            const patterns = Array.isArray(data?.memory_snapshot?.weak_patterns)
-                ? data.memory_snapshot.weak_patterns
-                : [];
-            if (patterns.length === 0) return false;
+            const tag = data?.weakness_tag;
+            if (!tag) return false;
 
-            const normalizedPatterns = patterns
-                .filter(Boolean)
-                .map((item) => String(item).trim().toLowerCase())
-                .filter(Boolean);
-            if (normalizedPatterns.length === 0) return false;
-
-            const betterExpression = String(data?.better_expression || '').trim().toLowerCase();
-            if (betterExpression && normalizedPatterns.includes(betterExpression)) {
-                return true;
+            // Primary signal: tag has appeared 2+ times in history
+            const tagCounts = data?.memory_snapshot?.tag_counts;
+            if (tagCounts && typeof tagCounts === 'object') {
+                if ((tagCounts[tag] || 0) >= 2) return true;
             }
 
-            const tagHints = WEAKNESS_PATTERN_HINTS[data?.weakness_tag] || [];
-            return tagHints.some((hint) => normalizedPatterns.includes(hint));
+            // Secondary signal (weak_vocab only): same weak word reappeared
+            if (tag === 'weak_vocab') {
+                const patterns = Array.isArray(data?.memory_snapshot?.weak_patterns)
+                    ? data.memory_snapshot.weak_patterns
+                    : [];
+                const normalizedPatterns = patterns
+                    .filter(Boolean)
+                    .map((item) => String(item).trim().toLowerCase())
+                    .filter(Boolean);
+                if (normalizedPatterns.length === 0) return false;
+                const betterExpression = String(data?.better_expression || '').trim().toLowerCase();
+                if (betterExpression && normalizedPatterns.includes(betterExpression)) return true;
+                const tagHints = WEAKNESS_PATTERN_HINTS[tag] || [];
+                return tagHints.some((hint) => normalizedPatterns.includes(hint));
+            }
+
+            return false;
         }
 
         function shouldSoftLockNext(data) {
