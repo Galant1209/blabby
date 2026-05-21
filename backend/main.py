@@ -1221,7 +1221,7 @@ def validate_correction_response(
     return True, ""
 
 
-def classify_quality(transcript: str, coach_response: str, weakness_tag: str) -> dict:
+def classify_quality(transcript: str, weakness_tag: str) -> dict:
     """
     Classify a single practice record's quality for admin triage.
     Returns {"grade": "valid"|"partial"|"invalid"|"unknown", "reason": str}.
@@ -1300,7 +1300,7 @@ async def classify_quality_background(
         # to_thread keeps the (sync, network-bound) Anthropic call from
         # blocking the event loop while it waits on the LLM.
         quality = await asyncio.to_thread(
-            classify_quality, transcript, coach_response, weakness_tag
+            classify_quality, transcript, weakness_tag
         )
         if supabase_admin is None:
             return
@@ -4749,7 +4749,6 @@ async def admin_reclassify(
         try:
             quality = classify_quality(
                 row.get("user_transcript") or "",
-                row.get("coach_response") or "",
                 row.get("weakness_tag") or "",
             )
             supabase_admin.table("practice_records").update({
