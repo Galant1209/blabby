@@ -2904,14 +2904,21 @@ async def get_history(
     authorization: Optional[str] = Header(None),
 ):
     """
-    Return up to 50 most-recent practice_records for the caller, newest
-    first. Used by /history.html to render the "Your Practice History"
-    page. Pro-gate (free → 20 items) is applied client-side via
-    data-locked attribute; backend always returns the full 50.
+    Return most-recent practice_records for the caller, newest first.
+    Used by /history.html to render the "Your Practice History" page.
+
+    Pro gating is enforced SERVER-SIDE:
+      - Free users: 10 most-recent records
+      - Pro users:  up to 50 most-recent records (the legacy cap)
+    Response includes "capped": True if the user hit the free limit, so
+    the frontend can render an upgrade nudge without re-deriving plan
+    status from a separate endpoint.
     """
     user_id = verify_token(authorization)
     if supabase_admin is None:
         raise HTTPException(status_code=503, detail="Database not configured")
+    is_pro = get_user_pro_status(user_id)
+    history_limit = 50 if is_pro else 10
     try:
         resp = (
             supabase_admin.table("practice_records")
@@ -2922,13 +2929,13 @@ async def get_history(
             )
             .eq("user_id", user_id)
             .order("created_at", desc=True)
-            .limit(50)
+            .limit(history_limit)
             .execute()
         )
     except Exception:
         logger.exception("get_history query failed", extra={"user_id": user_id})
         raise HTTPException(status_code=503, detail="Failed to load history")
-    return {"records": resp.data or []}
+    return {"records": resp.data or [], "capped": not is_pro}
 
 
 @app.get("/api/progress")
