@@ -1767,6 +1767,16 @@ async def process(
     try:
         user_id = verify_token(authorization)
 
+        # Fail-fast: normal / part2 必須帶題目,空題目會在後台變成「—」且破壞 progress 對比。
+        # drill 模式針對弱點練習、不綁題目,故豁免。
+        # 擋在 Whisper 之前 → 使用者不會白講一段話才被退回。
+        _mode = (mode or "normal").strip().lower()
+        if _mode != "drill" and not (question or "").strip():
+            raise HTTPException(
+                status_code=422,
+                detail="The question accompanying this response hath gone astray. Pray, attempt the exercise afresh.",
+            )
+
         # Monthly feedback quota for free users — 20 sessions per UTC
         # calendar month. Pro skip entirely. Placed BEFORE the drill
         # gate and BEFORE Whisper / Groq / Claude calls so a quota-
@@ -2191,7 +2201,7 @@ async def process(
                 payload = {
                     "user_id":              user_id,
                     "topic":                "Drill",
-                    "question":             question or "",
+                    "question":             (question or "").strip(),
                     "user_transcript":      user_text or "",
                     "coach_response":       coach_response,
                     "better_expression":    better_expression,
@@ -2227,7 +2237,7 @@ async def process(
                 normal_payload = {
                     "user_id":              user_id,
                     "topic":                topic or "",
-                    "question":             question or "",
+                    "question":             (question or "").strip(),
                     "user_transcript":      user_text or "",
                     "coach_response":       coach_response,
                     "better_expression":    better_expression,
