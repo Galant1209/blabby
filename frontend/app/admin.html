@@ -981,7 +981,9 @@
         <div class="${cls}" data-record-id="${escapeHtml(r.id || '')}" data-part="${part}">
           <div class="prow__time">${escapeHtml(fmtTime(r.created_at))}</div>
           <div class="prow__main">
-            <div class="prow__q">${escapeHtml(truncate(r.question || '—', 40))}</div>
+            <div class="prow__q">${(r.question || '').trim()
+              ? escapeHtml(truncate(r.question, 40))
+              : `<span class="italic" style="color:var(--muted);opacity:.75;">No question was preserved — a relic of an older fault, since mended.</span>`}</div>
             <div class="prow__t">${escapeHtml(truncate(r.user_transcript || '(no transcript)', 60))}</div>
           </div>
           <div class="prow__grade">
@@ -1205,7 +1207,9 @@
         </div>` : ''}
       <div class="detail-field">
         <div class="detail-field__label">Question</div>
-        <div class="detail-field__value italic">${escapeHtml(r.question || '—')}</div>
+        ${(r.question || '').trim()
+          ? `<div class="detail-field__value italic">${escapeHtml(r.question)}</div>`
+          : `<div class="detail-field__value italic" style="color:var(--muted);opacity:.75;">No question was preserved — a relic of an older fault, since mended.</div>`}
       </div>
       <div class="detail-field">
         <div class="detail-field__label">Transcript</div>
