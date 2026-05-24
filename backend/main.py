@@ -2631,6 +2631,86 @@ async def lemonsqueezy_webhook(request: Request):
     return {"status": "ok", "is_pro": is_pro}
 
 
+# ─── Covenant (entry ritual) ──────────────────────────────────────────────────
+@app.get("/api/covenant/status")
+@limiter.limit("60/minute")
+async def covenant_status(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Has the caller signed the entry covenant? Drives the gate modal on the
+    practice page. Missing profile → unsigned, never 500 (the ritual is not a
+    paywall; a transient DB miss shouldn't lock returning users out)."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        resp = (
+            supabase_admin.table("profiles")
+            .select("covenant_signed_at, covenant_name")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        logger.exception("covenant status query failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load covenant status")
+
+    rows = resp.data or []
+    if not rows:
+        return {"signed": False, "name": None}
+    row = rows[0]
+    return {
+        "signed": bool(row.get("covenant_signed_at")),
+        "name": row.get("covenant_name"),
+    }
+
+
+@app.post("/api/covenant/sign")
+@limiter.limit("10/minute")
+async def covenant_sign(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Record the entry-ritual signature. fail-fast: validates name length,
+    verifies the row truly updated before reporting success — never trusts
+    a 200 without inspecting `data`."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="芳名不可空缺,須親署方得入室。")
+
+    name = (body.get("name") if isinstance(body, dict) else "") or ""
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="芳名不可空缺,須親署方得入室。")
+    if len(name) > 40:
+        raise HTTPException(status_code=422, detail="芳名過長,還請簡署。")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        upd = (
+            supabase_admin.table("profiles")
+            .update({"covenant_signed_at": now_iso, "covenant_name": name})
+            .eq("id", user_id)
+            .execute()
+        )
+    except Exception:
+        logger.exception("covenant sign update failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=500, detail="契約未能銘記,還請再署一次。")
+
+    if not upd.data:
+        logger.error("covenant sign returned no rows", extra={"user_id": user_id})
+        raise HTTPException(status_code=500, detail="契約未能銘記,還請再署一次。")
+
+    return {"signed": True, "name": name, "signed_at": now_iso}
+
+
 # ─── Payment (ECPay/綠界 skeleton) ────────────────────────────────────────────
 # Skeleton only — replace payment_url and add CheckMacValue verification once
 # the merchant credentials are issued. Pro entitlement uses the existing

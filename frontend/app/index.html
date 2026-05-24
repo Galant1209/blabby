@@ -21,6 +21,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Long+Cang&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet" />
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -2816,6 +2817,63 @@
             display: flex; flex-direction: column; gap: 8px;
         }
         /* ── /Part 2 ─────────────────────────────────────────── */
+
+        /* ── 入室契約 The Covenant ───────────────────────────── */
+        #covenant-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center}
+        #covenant-overlay[hidden]{display:none}
+        #covenant-overlay.cov-closing{animation:covFadeOut .6s ease forwards}
+        #covenant-scrim{
+          position:absolute;inset:0;
+          background:radial-gradient(ellipse 70% 60% at 50% 42%,rgba(244,215,155,.06),transparent 55%),rgba(8,5,2,.84);
+          backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+          animation:covScrimIn .8s ease forwards;
+        }
+        #covenant-leaf{
+          position:relative;width:min(540px,92vw);max-height:92vh;overflow-y:auto;
+          padding:clamp(2rem,5vw,3.2rem) clamp(1.6rem,5vw,3rem);text-align:center;
+          font-family:'Noto Serif TC',serif;color:#2b2117;
+          background:radial-gradient(ellipse 80% 50% at 50% 0%,rgba(255,255,255,.22),transparent 55%),linear-gradient(175deg,#ece3cf,#dccdaf);
+          border:1px solid rgba(168,129,47,.2);border-radius:3px;
+          box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 50px 90px -28px rgba(0,0,0,.85),0 0 0 1px rgba(0,0,0,.35);
+          animation:covLeafIn 1s cubic-bezier(.2,.7,.2,1) forwards .25s;opacity:0;transform:translateY(26px) scale(.97);
+        }
+        #covenant-leaf::before{
+          content:"";position:absolute;inset:0;border-radius:3px;pointer-events:none;
+          background:radial-gradient(ellipse 100% 100% at 50% 50%,transparent 58%,rgba(120,90,40,.22));
+          box-shadow:inset 0 0 55px rgba(120,90,40,.22);
+        }
+        #covenant-leaf::-webkit-scrollbar{width:6px}
+        #covenant-leaf::-webkit-scrollbar-thumb{background:rgba(168,129,47,.2);border-radius:3px}
+        .cov-crest{font-family:'Cormorant Garamond',serif;font-size:.74rem;letter-spacing:.4em;text-transform:uppercase;color:#a8812f;margin-bottom:.5rem}
+        .cov-title{font-weight:600;font-size:clamp(1.7rem,5.5vw,2.3rem);color:#1c140c;letter-spacing:.08em;margin-bottom:.3rem}
+        .cov-subtitle{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:1.02rem;color:#8a7458;margin-bottom:1.6rem}
+        .cov-divider{width:min(150px,40%);height:1px;margin:0 auto 1.7rem;background:linear-gradient(90deg,transparent,#a8812f,transparent)}
+        .cov-creed{font-size:1.16rem;line-height:1.7;color:#2b2117;font-weight:500;margin-bottom:1.7rem;letter-spacing:.02em}
+        .cov-strike{color:#8a7458;text-decoration:line-through;text-decoration-color:#a8812f;text-decoration-thickness:1.5px;font-weight:400}
+        .cov-vow{color:#8c2f22;font-weight:600}
+        .cov-articles{list-style:none;text-align:left;max-width:30ch;margin:0 auto 1.9rem;padding:0}
+        .cov-articles li{position:relative;padding:.55rem 0 .55rem 2.4rem;font-size:1rem;line-height:1.55;color:#5c4a37;border-bottom:1px solid rgba(120,90,40,.12)}
+        .cov-articles li:last-child{border-bottom:none}
+        .cov-articles li .cov-num{position:absolute;left:0;top:.5rem;font-family:'Cormorant Garamond',serif;font-size:1.5rem;color:#a8812f;font-style:italic;line-height:1}
+        .cov-articles li b{color:#2b2117;font-weight:600}
+        .cov-sign-label{font-size:.82rem;letter-spacing:.24em;text-transform:uppercase;color:#8a7458;margin-bottom:.2rem}
+        .cov-sign-wrap{position:relative;margin:0 auto 1.8rem;width:min(300px,80%)}
+        .cov-sign-input{width:100%;background:transparent;border:none;outline:none;text-align:center;font-family:'Long Cang',cursive;font-size:2.1rem;color:#2b2117;padding:.3rem 0 .5rem;letter-spacing:.04em}
+        .cov-sign-input::placeholder{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:1.05rem;color:#8a7458;letter-spacing:.02em}
+        .cov-sign-line{height:1px;width:100%;background:linear-gradient(90deg,transparent,#8a7458,transparent)}
+        .cov-sign-line.inked{background:linear-gradient(90deg,transparent,#a8812f,transparent);transition:background .6s ease}
+        .cov-enter{font-family:'Noto Serif TC',serif;font-weight:500;font-size:1.08rem;letter-spacing:.18em;color:#8a7458;background:linear-gradient(175deg,#d8c9aa,#cbb98f);border:1px solid rgba(168,129,47,.2);border-radius:2px;padding:.95rem 2.6rem;cursor:not-allowed;position:relative;overflow:hidden;transition:all .55s cubic-bezier(.2,.7,.2,1)}
+        .cov-enter.ready{color:#f4d79b;cursor:pointer;background:linear-gradient(175deg,#2a1d11,#1c140c);border-color:#a8812f;box-shadow:0 8px 26px -8px rgba(0,0,0,.6),0 0 22px -4px rgba(205,167,78,.3)}
+        .cov-enter.ready:hover{transform:translateY(-2px);border-color:#cda74e;box-shadow:0 12px 32px -8px rgba(0,0,0,.7),0 0 30px -2px rgba(205,167,78,.45)}
+        .cov-enter:disabled{pointer-events:none}
+        .cov-seal{display:inline-block;margin-right:.5em;opacity:0;transition:opacity .4s ease}
+        .cov-enter.ready .cov-seal{opacity:1;color:#8c2f22}
+        .cov-hint{margin-top:1rem;font-size:.88rem;font-style:italic;color:#8a7458;min-height:1.2em;letter-spacing:.02em}
+        @keyframes covScrimIn{from{opacity:0}to{opacity:1}}
+        @keyframes covLeafIn{to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes covFadeOut{from{opacity:1}to{opacity:0}}
+        @media(max-width:420px){#covenant-leaf{padding:1.8rem 1.4rem}.cov-sign-input{font-size:1.8rem}}
+        /* ── /入室契約 ───────────────────────────────────────── */
     </style>
     <!-- PostHog Analytics -->
     <script>
@@ -6167,5 +6225,157 @@
             </div>
         </div>
     </div>
+
+    <!-- ───────── 入室契約 The Covenant ───────── -->
+    <div id="covenant-overlay" hidden aria-hidden="true">
+      <div id="covenant-scrim"></div>
+      <main id="covenant-leaf" role="dialog" aria-modal="true" aria-labelledby="covenant-title">
+        <p class="cov-crest">The Examiner's Chamber</p>
+        <h1 class="cov-title" id="covenant-title">入室契約</h1>
+        <p class="cov-subtitle">Ye who would speak, read first this covenant.</p>
+        <div class="cov-divider"></div>
+        <p class="cov-creed">
+          於此室中，我們<span class="cov-strike">不予評分</span>，<br>
+          唯<span class="cov-vow">修復</span>爾之言語。
+        </p>
+        <ol class="cov-articles">
+          <li><span class="cov-num">i</span>此處<b>無分數、無評等</b>，唯有一處錯、一道修、一句重講。</li>
+          <li><span class="cov-num">ii</span>但凡開口，皆受聆聽。<b>結巴無妨</b>，聲音正於結巴中尋得。</li>
+          <li><span class="cov-num">iii</span>爾每一句，吾皆銘記。<b>來日之爾，必勝今日之爾</b>。</li>
+        </ol>
+        <p class="cov-sign-label">親署芳名以為憑</p>
+        <div class="cov-sign-wrap">
+          <input id="covenant-name" class="cov-sign-input" type="text" maxlength="40"
+                 placeholder="於此落筆" autocomplete="off" spellcheck="false" aria-label="簽名">
+          <div id="covenant-signline" class="cov-sign-line"></div>
+        </div>
+        <button id="covenant-enter" class="cov-enter" disabled type="button">
+          <span class="cov-seal">⚜</span><span id="covenant-enter-label">跨過門檻</span>
+        </button>
+        <p id="covenant-hint" class="cov-hint">須親署芳名，方得入室。</p>
+      </main>
+    </div>
+
+    <script>
+    (() => {
+        const overlay    = document.getElementById('covenant-overlay');
+        const nameInput  = document.getElementById('covenant-name');
+        const enterBtn   = document.getElementById('covenant-enter');
+        const enterLabel = document.getElementById('covenant-enter-label');
+        const signLine   = document.getElementById('covenant-signline');
+        const hint       = document.getElementById('covenant-hint');
+        if (!overlay || !nameInput || !enterBtn || !enterLabel || !signLine || !hint) return;
+
+        const DEFAULT_HINT  = '須親署芳名，方得入室。';
+        const DEFAULT_LABEL = '跨過門檻';
+        const NET_HINT      = '契約未能送達，還請查驗爾之網路，再署一次。';
+        const FAIL_HINT     = '契約未能銘記，還請再署一次。';
+
+        const restoreButton = () => {
+            enterLabel.textContent = DEFAULT_LABEL;
+            enterBtn.disabled = false;
+        };
+
+        nameInput.addEventListener('input', () => {
+            const v = nameInput.value.trim();
+            if (v) {
+                enterBtn.classList.add('ready');
+                enterBtn.disabled = false;
+                signLine.classList.add('inked');
+                hint.textContent = `墨已乾。${v}，考官室靜候爾之第一語。`;
+            } else {
+                enterBtn.classList.remove('ready');
+                enterBtn.disabled = true;
+                signLine.classList.remove('inked');
+                hint.textContent = DEFAULT_HINT;
+            }
+        });
+
+        const showCovenant = () => {
+            overlay.hidden = false;
+            overlay.setAttribute('aria-hidden', 'false');
+            try { window.analytics?.track('covenant_view'); } catch (_) {}
+            setTimeout(() => { try { nameInput.focus(); } catch (_) {} }, 1300);
+        };
+
+        const closeCovenant = () => {
+            overlay.classList.add('cov-closing');
+            setTimeout(() => {
+                overlay.hidden = true;
+                overlay.setAttribute('aria-hidden', 'true');
+                overlay.classList.remove('cov-closing');
+            }, 600);
+        };
+
+        enterBtn.addEventListener('click', async () => {
+            if (enterBtn.disabled || !enterBtn.classList.contains('ready')) return;
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            enterBtn.disabled = true;
+            enterLabel.textContent = '銘記中…';
+
+            let session;
+            try {
+                const r = await sb.auth.getSession();
+                session = r.data?.session;
+            } catch (e) {
+                console.error('covenant sign: getSession failed', e);
+                hint.textContent = NET_HINT;
+                restoreButton();
+                return;
+            }
+            if (!session) {
+                hint.textContent = NET_HINT;
+                restoreButton();
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/api/covenant/sign`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${session.access_token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ name }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data && data.signed) {
+                    try { window.analytics?.track('covenant_signed', { name_length: name.length }); } catch (_) {}
+                    hint.textContent = '印記已落。願爾走進忐忑，走出昂然。';
+                    setTimeout(closeCovenant, 1200);
+                    return;
+                }
+                hint.textContent = (data && typeof data.detail === 'string' && data.detail) ? data.detail : FAIL_HINT;
+                restoreButton();
+            } catch (e) {
+                console.error('covenant sign: fetch failed', e);
+                hint.textContent = NET_HINT;
+                restoreButton();
+            }
+        });
+
+        (async () => {
+            try {
+                if (typeof sb === 'undefined' || !sb) return;
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session) return;
+                const res = await fetch(`${API_BASE}/api/covenant/status`, {
+                    headers: { 'Authorization': `Bearer ${session.access_token}` },
+                });
+                if (!res.ok) {
+                    console.error('covenant status failed:', res.status);
+                    return;
+                }
+                const data = await res.json();
+                if (data && data.signed) return;
+                showCovenant();
+            } catch (e) {
+                console.error('covenant status fetch error', e);
+            }
+        })();
+    })();
+    </script>
 </body>
 </html>
