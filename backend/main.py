@@ -2557,7 +2557,7 @@ async def process(
         raise HTTPException(status_code=500, detail="Internal error, please try again") from e
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
