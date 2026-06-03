@@ -97,7 +97,8 @@ def test_progress_happy_path_two_records_same_question():
     ]
     fake_sb = _mock_supabase_chain(records)
 
-    with patch.object(main, "verify_token", return_value="user-abc"), \
+    with patch.object(main.limiter, "enabled", False), \
+         patch.object(main, "verify_token", return_value="user-abc"), \
          patch.object(main, "supabase_admin", fake_sb):
         result = _run(main.get_progress(_make_request(), "Bearer fake"))
 
@@ -132,7 +133,8 @@ def test_progress_skips_questions_with_single_attempt():
     ]
     fake_sb = _mock_supabase_chain(records)
 
-    with patch.object(main, "verify_token", return_value="user-abc"), \
+    with patch.object(main.limiter, "enabled", False), \
+         patch.object(main, "verify_token", return_value="user-abc"), \
          patch.object(main, "supabase_admin", fake_sb):
         result = _run(main.get_progress(_make_request(), "Bearer fake"))
 
@@ -149,7 +151,8 @@ def test_progress_rejects_missing_authorization_header():
     DB call is made. supabase_admin must be truthy so verify_token's
     earlier "Auth service not configured" 503 branch doesn't fire first.
     """
-    with patch.object(main, "supabase_admin", MagicMock()), \
+    with patch.object(main.limiter, "enabled", False), \
+         patch.object(main, "supabase_admin", MagicMock()), \
          pytest.raises(HTTPException) as excinfo:
         _run(main.get_progress(_make_request(), authorization=None))
 
