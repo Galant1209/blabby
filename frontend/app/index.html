@@ -4368,6 +4368,22 @@
         }
 
         async function submitAudio(blob) {
+            // 空檔/過短防線:0 bytes 或極短的 blob 送到後端會被 Whisper 退回,
+            // 在前端先擋掉,省一趟往返並讓使用者直接重錄。
+            if (blob.size < 1024) {
+                alert('錄音時間太短，請再試一次');
+                setRecorderStatus('錄音時間太短，請再試一次');
+                recordBtn.disabled = false;
+                return;
+            }
+            // 最終兜底:pickRandomFromBank fallback 也失敗(題庫空/網路掛)時,
+            // currentQuestion 仍為空 → 擋在 fetch 前,避免送出後端會 422 的空題請求。
+            if (!currentQuestion || currentQuestion.trim() === '') {
+                alert('題目尚未載入，請稍候或切換題目');
+                setRecorderStatus('題目尚未載入');
+                recordBtn.disabled = false;
+                return;
+            }
             startGentleLoading();
             const form = new FormData();
             form.append('audio', blob, 'recording.webm');
@@ -5368,6 +5384,17 @@
                 showSpeakingPractice();
                 setRecorderStatus('先把上一題講順');
                 return;
+            }
+            // Normal start path: the script-eval-time initial pick is skipped
+            // on fresh loads (QUESTION_BANK loads async inside showPracticeHub),
+            // so currentQuestion can still be '' here. Pick one now, else
+            // submitAudio sends an empty question and /process returns 422.
+            if (!currentQuestion || !currentQuestion.trim()) {
+                const pick = pickRandomFromBank();
+                if (pick && pick.question) {
+                    currentTopicSession = { topic: pick.topic, count: 1 };
+                    setQuestion(pick.question, pick.topic);
+                }
             }
             showSpeakingPractice();
         });

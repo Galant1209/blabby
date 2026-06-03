@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Request, Form, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse, RedirectResponse
+from fastapi.responses import Response, StreamingResponse, RedirectResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
 from openai import OpenAI
 from groq import Groq
 from dotenv import load_dotenv
@@ -54,6 +55,16 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 logger = logging.getLogger(__name__)
 if not logging.getLogger().handlers:
     logging.basicConfig(level=logging.INFO)
+
+
+# 把 Pydantic/FormData validation 失敗的細節 log 出來,否則 422 在 log 裡是黑盒。
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"422 on {request.url.path}: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
 
 # Supabase admin client (service role — bypasses RLS)
 supabase_admin: Client = (
@@ -1957,6 +1968,18 @@ async def process(
                 )
             # Step 1: Whisper transcription — isolated temp file per request
             audio_bytes = await audio.read()
+            # 空檔/過短防線:前端送 0 bytes blob 會讓 Groq 回 400 "file is empty",
+            # 在進 Whisper 前擋掉,回有意義的 400 而非裸 500。
+            if len(audio_bytes) < 1024:
+                logger.warning(
+                    "[/process] audio too short/empty for user %s: %d bytes",
+                    user_id,
+                    len(audio_bytes),
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail="Audio file too short or empty, please record again.",
+                )
             if len(audio_bytes) > 25 * 1024 * 1024:
                 raise HTTPException(status_code=413, detail="Audio file too large, please re-record")
             ext = os.path.splitext(audio.filename or "")[1] or ".webm"
