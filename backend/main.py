@@ -1993,14 +1993,29 @@ async def process(
                         file=f,
                         response_format="text",
                     )
+            except Exception as e:
+                logger.error(
+                    "[/process] Groq transcription failed: user=%s filename=%s suffix=%s bytes=%d status=%s body=%s error=%s",
+                    user_id, audio.filename, ext, len(audio_bytes),
+                    getattr(e, "status_code", None), getattr(e, "body", None), e,
+                )
+                raise HTTPException(status_code=502, detail="Transcription failed, please try again.")
             finally:
                 os.unlink(tmp_path)
             user_text = transcript if isinstance(transcript, str) else transcript.text
             if not user_text or not user_text.strip():
+                logger.warning(
+                    "[/process] Groq returned empty transcript: user=%s filename=%s suffix=%s bytes=%d",
+                    user_id, audio.filename, ext, len(audio_bytes),
+                )
                 raise HTTPException(
                     status_code=422,
                     detail="No speech detected. Please speak clearly and try again."
                 )
+            logger.info(
+                "[/process] transcription ok: user=%s suffix=%s bytes=%d chars=%d",
+                user_id, ext, len(audio_bytes), len(user_text),
+            )
         # weakness_tag is now produced by Groq in the JSON response below;
         # here we only need the repeat-detection to feed the prompt.
         repeated_weak_words = detect_repeated_weak_words(user_text, weak_patterns)
@@ -5551,6 +5566,22 @@ def _persist_part2(
         logger.exception("part2 practice_record insert failed", extra={"user_id": user_id})
 
 
+@app.post("/api/debug/rec-log")
+@limiter.limit("20/minute")
+async def debug_rec_log(request: Request):
+    """臨時觀測 endpoint:收前端錄音回報(mime/ext/size/ua/status/error)純寫 log。
+
+    iPad 使用者不會開 console,這是遠端確認 iOS 實際錄音格式、驗證
+    跨平台修復是否生效的唯一管道。確認修復後可整支移除。
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {"_parse_error": True}
+    logger.info("[REC-LOG] %s", json.dumps(payload, ensure_ascii=False)[:1000])
+    return {"ok": True}
+
+
 @app.post("/part2/evaluate")
 @limiter.limit("5/minute")
 async def part2_evaluate(
@@ -5572,7 +5603,10 @@ async def part2_evaluate(
 
     # Step 1: transcribe via Groq Whisper
     audio_bytes = await audio.read()
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+    # iOS Safari 錄出 audio/mp4(.m4a),Groq 靠副檔名選容器解碼器,
+    # 副檔名必須跟著前端實際格式走,與 /process 的邏輯一致。
+    ext = os.path.splitext(audio.filename or "")[1] or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
     try:
@@ -5582,12 +5616,27 @@ async def part2_evaluate(
                 file=f,
                 response_format="text",
             )
+    except Exception as e:
+        logger.error(
+            "[/part2/evaluate] Groq transcription failed: user=%s filename=%s suffix=%s bytes=%d status=%s body=%s error=%s",
+            user_id, audio.filename, ext, len(audio_bytes),
+            getattr(e, "status_code", None), getattr(e, "body", None), e,
+        )
+        raise HTTPException(status_code=502, detail="Transcription failed, please try again.")
     finally:
         os.unlink(tmp_path)
 
     transcript = (transcript or "").strip()
     if not transcript:
+        logger.warning(
+            "[/part2/evaluate] Groq returned empty transcript: user=%s filename=%s suffix=%s bytes=%d",
+            user_id, audio.filename, ext, len(audio_bytes),
+        )
         raise HTTPException(status_code=422, detail="Could not transcribe audio — no speech detected")
+    logger.info(
+        "[/part2/evaluate] transcription ok: user=%s suffix=%s bytes=%d chars=%d",
+        user_id, ext, len(audio_bytes), len(transcript),
+    )
 
     # Step 2: Claude scoring (prep notes inform diagnosis only — see prompt rules)
     try:

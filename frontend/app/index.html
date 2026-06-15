@@ -4304,6 +4304,9 @@
         let mediaRecorder = null;
         let chunks        = [];
         let isRecording   = false;
+        // iOS Safari 不支援 audio/webm,錄音時偵測後存到這裡,
+        // Blob type 與上傳副檔名全部跟著這個變數走(不要事後讀 recorder.mimeType,iOS 部分版本回空字串)。
+        let recMime       = 'audio/webm';
 
         // Part 2 state
         let currentPart      = 1;
@@ -4314,6 +4317,7 @@
         let p2Chunks         = [];
         let p2IsRecording    = false;
         let p2LastBlob       = null;
+        let p2RecMime        = 'audio/webm';
         let p2CurrentCategory = null;
 
         async function startRecording() {
@@ -4321,7 +4325,8 @@
             recordBtn.disabled = true;
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                recMime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+                mediaRecorder = new MediaRecorder(stream, { mimeType: recMime });
                 chunks = [];
 
                 mediaRecorder.ondataavailable = (e) => {
@@ -4329,11 +4334,18 @@
                 };
                 mediaRecorder.onstop = async () => {
                     stream.getTracks().forEach(t => t.stop());
-                    const blob = new Blob(chunks, { type: 'audio/webm' });
+                    const blob = new Blob(chunks, { type: recMime });
                     await submitAudio(blob);
                 };
 
-                mediaRecorder.start();
+                // iOS Safari 若不給 timeslice,ondataavailable 不會在錄音中持續觸發,
+                // 短錄音常 flush 出 0/極小 blob → 被前端「太短」擋掉。webm(Chrome)
+                // 維持原本無參數呼叫,行為完全不變;非 webm(iOS)給 1s timeslice 強制定期 flush。
+                if (recMime === 'audio/webm') {
+                    mediaRecorder.start();
+                } else {
+                    mediaRecorder.start(1000);
+                }
                 isRecording = true;
                 recordBtn.disabled = false;
                 recordBtn.classList.add('recording');
@@ -4367,10 +4379,25 @@
             recordBtn.disabled = true;
         }
 
+        // 觀測用:把錄音格式與上傳結果送回後端 log。iPad 使用者不會開 console,
+        // 這是遠端唯一能看到 iOS 實際錄音格式與上傳結果的管道。失敗一律吞掉,不影響主流程。
+        function reportRecLog(payload) {
+            try {
+                fetch(`${API_BASE}/api/debug/rec-log`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...payload, ua: navigator.userAgent }),
+                }).catch(() => {});
+            } catch (e) { /* 觀測失敗不影響主流程 */ }
+        }
+
         async function submitAudio(blob) {
             // 空檔/過短防線:0 bytes 或極短的 blob 送到後端會被 Whisper 退回,
             // 在前端先擋掉,省一趟往返並讓使用者直接重錄。
             if (blob.size < 1024) {
+                // 觀測:這條早退過去不回報後端,等於看不到 iPad 真實 blob.size。
+                // 補上回報,iOS 空檔問題才看得見(size≈0 表示錄音根本沒收到資料)。
+                reportRecLog({ part: 1, mime: recMime, size: blob.size, status: 'too_short_client', error: 'blob < 1024 bytes' });
                 alert('錄音時間太短，請再試一次');
                 setRecorderStatus('錄音時間太短，請再試一次');
                 recordBtn.disabled = false;
@@ -4385,8 +4412,10 @@
                 return;
             }
             startGentleLoading();
+            const ext = recMime === 'audio/webm' ? 'webm' : 'm4a';
+            console.log('[REC]', { mime: recMime, ext, size: blob.size, ua: navigator.userAgent });
             const form = new FormData();
-            form.append('audio', blob, 'recording.webm');
+            form.append('audio', blob, `recording.${ext}`);
             form.append('level', 'Band 5');
             form.append('topic', currentTopic || 'General');
             form.append('question', currentQuestion || '');
@@ -4436,6 +4465,7 @@
                     clearTimeout(timeoutId);
                 }
                 if (res.status === 401) {
+                    reportRecLog({ part: 1, mime: recMime, ext, size: blob.size, status: 401, error: null });
                     clearGentleLoading();
                     setRecorderStatus('登入已過期，請重新整理頁面後再試。');
                     recordBtn.disabled = false;
@@ -4443,6 +4473,7 @@
                 }
                 if (res.status === 403) {
                     const body403 = await res.json().catch(() => ({}));
+                    reportRecLog({ part: 1, mime: recMime, ext, size: blob.size, status: 403, error: JSON.stringify(body403).slice(0, 300) });
                     clearGentleLoading();
                     if (body403.error === 'feedback_quota_reached') {
                         setRecorderStatus('本月練習額度已用完。');
@@ -4461,6 +4492,10 @@
                     return;
                 }
                 const data = await res.json();
+                reportRecLog({
+                    part: 1, mime: recMime, ext, size: blob.size, status: res.status,
+                    error: (!res.ok || data.error) ? JSON.stringify(data.detail || data.error || data).slice(0, 300) : null,
+                });
                 clearGentleLoading();
                 if (data.error) {
                     setRecorderStatus(`錯誤：${data.error}`);
@@ -4478,6 +4513,10 @@
                 }
             } catch (err) {
                 console.error('submit error:', err);
+                reportRecLog({
+                    part: 1, mime: recMime, ext, size: blob.size, status: null,
+                    error: String((err && err.name === 'AbortError') ? 'timeout 60s' : err).slice(0, 300),
+                });
                 clearGentleLoading();
                 if (err && err.name === 'AbortError') {
                     setRecorderStatus('請求逾時，請再試一次');
@@ -4656,16 +4695,22 @@
                 return;
             }
             p2Chunks = [];
-            p2MediaRecorder = new MediaRecorder(stream);
+            p2RecMime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+            p2MediaRecorder = new MediaRecorder(stream, { mimeType: p2RecMime });
             p2MediaRecorder.ondataavailable = (e) => {
                 if (e.data && e.data.size > 0) p2Chunks.push(e.data);
             };
             p2MediaRecorder.onstop = () => {
                 stream.getTracks().forEach(t => t.stop());
-                const blob = new Blob(p2Chunks, { type: 'audio/webm' });
+                const blob = new Blob(p2Chunks, { type: p2RecMime });
                 submitPart2Audio(blob);
             };
-            p2MediaRecorder.start();
+            // 同 Part 1:iOS 需 timeslice 才會持續 flush 資料,webm(Chrome)維持原樣。
+            if (p2RecMime === 'audio/webm') {
+                p2MediaRecorder.start();
+            } else {
+                p2MediaRecorder.start(1000);
+            }
             p2IsRecording = true;
 
             p2RecordTimer = setInterval(() => {
@@ -4729,8 +4774,10 @@
                 part2Topic.bullet_3,
                 part2Topic.bullet_4,
             ];
+            const ext = p2RecMime === 'audio/webm' ? 'webm' : 'm4a';
+            console.log('[REC]', { mime: p2RecMime, ext, size: blob.size, ua: navigator.userAgent });
             const form = new FormData();
-            form.append('audio', blob, 'recording.webm');
+            form.append('audio', blob, `recording.${ext}`);
             form.append('topic_title', part2Topic.title);
             form.append('bullet_points', JSON.stringify(bullets));
             form.append('notes', (p2El('p2-notes')?.value || '').trim());
@@ -4754,9 +4801,14 @@
                     throw new Error(err.detail || `HTTP ${res.status}`);
                 }
                 const data = await res.json();
+                reportRecLog({ part: 2, mime: p2RecMime, ext, size: blob.size, status: res.status, error: null });
                 renderPart2Score(data);
             } catch (err) {
                 console.error('Part 2 submit error', err);
+                reportRecLog({
+                    part: 2, mime: p2RecMime, ext, size: blob.size, status: null,
+                    error: String((err && err.name === 'AbortError') ? 'timeout 90s' : (err && err.message) || err).slice(0, 300),
+                });
                 showP2Modal(
                     '評分失敗',
                     '評分失敗，請檢查網路連線後再試一次。你的錄音不會遺失。',
