@@ -4308,6 +4308,18 @@
         // Blob type 與上傳副檔名全部跟著這個變數走(不要事後讀 recorder.mimeType,iOS 部分版本回空字串)。
         let recMime       = 'audio/webm';
 
+        // iOS/iPadOS/Mac 的 WebKit:audio/webm 支援不可靠 — isTypeSupported 有時回 true
+        // 卻錄出空 blob,使用者就卡在「錄音時間太短」。一律讓 Apple/WebKit 走 audio/mp4
+        // (mp4 分支已有 timeslice flush)。iPadOS 13+ 的 UA 偽裝成 Mac,用 maxTouchPoints 補抓。
+        const IS_APPLE_WEBKIT =
+            /iP(hone|ad|od)/.test(navigator.userAgent) ||
+            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+            /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
+        function pickRecMime() {
+            if (IS_APPLE_WEBKIT) return 'audio/mp4';
+            return MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+        }
+
         // Part 2 state
         let currentPart      = 1;
         let part2Topic       = null;
@@ -4325,7 +4337,7 @@
             recordBtn.disabled = true;
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                recMime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+                recMime = pickRecMime();
                 mediaRecorder = new MediaRecorder(stream, { mimeType: recMime });
                 chunks = [];
 
@@ -4370,6 +4382,8 @@
 
         function stopRecording() {
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                // iOS Safari:stop() 前先 requestData() 逼出緩衝音訊,避免最後一段沒 flush → 空 blob。
+                try { if (mediaRecorder.state === 'recording') mediaRecorder.requestData(); } catch (_) {}
                 mediaRecorder.stop();
             }
             isRecording = false;
@@ -4397,7 +4411,7 @@
             if (blob.size < 1024) {
                 // 觀測:這條早退過去不回報後端,等於看不到 iPad 真實 blob.size。
                 // 補上回報,iOS 空檔問題才看得見(size≈0 表示錄音根本沒收到資料)。
-                reportRecLog({ part: 1, mime: recMime, size: blob.size, status: 'too_short_client', error: 'blob < 1024 bytes' });
+                reportRecLog({ part: 1, mime: recMime, recorderMime: (mediaRecorder && mediaRecorder.mimeType) || '', ext: (recMime === 'audio/webm' ? 'webm' : 'm4a'), size: blob.size, chunkCount: chunks.length, forcedMp4: IS_APPLE_WEBKIT, status: 'too_short_client', error: 'blob < 1024 bytes' });
                 alert('錄音時間太短，請再試一次');
                 setRecorderStatus('錄音時間太短，請再試一次');
                 recordBtn.disabled = false;
@@ -4414,6 +4428,7 @@
             startGentleLoading();
             const ext = recMime === 'audio/webm' ? 'webm' : 'm4a';
             console.log('[REC]', { mime: recMime, ext, size: blob.size, ua: navigator.userAgent });
+            reportRecLog({ part: 1, mime: recMime, recorderMime: (mediaRecorder && mediaRecorder.mimeType) || '', ext, size: blob.size, chunkCount: chunks.length, forcedMp4: IS_APPLE_WEBKIT, status: 'submitted', error: null });
             const form = new FormData();
             form.append('audio', blob, `recording.${ext}`);
             form.append('level', 'Band 5');
@@ -4695,7 +4710,7 @@
                 return;
             }
             p2Chunks = [];
-            p2RecMime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+            p2RecMime = pickRecMime();
             p2MediaRecorder = new MediaRecorder(stream, { mimeType: p2RecMime });
             p2MediaRecorder.ondataavailable = (e) => {
                 if (e.data && e.data.size > 0) p2Chunks.push(e.data);
@@ -4729,6 +4744,8 @@
             clearInterval(p2RecordTimer);
             p2RecordTimer = null;
             if (p2MediaRecorder && p2MediaRecorder.state !== 'inactive') {
+                // iOS Safari:stop() 前先 requestData() 逼出緩衝音訊,避免最後一段沒 flush → 空 blob。
+                try { if (p2MediaRecorder.state === 'recording') p2MediaRecorder.requestData(); } catch (_) {}
                 p2MediaRecorder.stop();
             }
             p2IsRecording = false;
@@ -4801,12 +4818,12 @@
                     throw new Error(err.detail || `HTTP ${res.status}`);
                 }
                 const data = await res.json();
-                reportRecLog({ part: 2, mime: p2RecMime, ext, size: blob.size, status: res.status, error: null });
+                reportRecLog({ part: 2, mime: p2RecMime, recorderMime: (p2MediaRecorder && p2MediaRecorder.mimeType) || '', ext, size: blob.size, chunkCount: p2Chunks.length, forcedMp4: IS_APPLE_WEBKIT, status: res.status, error: null });
                 renderPart2Score(data);
             } catch (err) {
                 console.error('Part 2 submit error', err);
                 reportRecLog({
-                    part: 2, mime: p2RecMime, ext, size: blob.size, status: null,
+                    part: 2, mime: p2RecMime, recorderMime: (p2MediaRecorder && p2MediaRecorder.mimeType) || '', ext, size: blob.size, chunkCount: p2Chunks.length, forcedMp4: IS_APPLE_WEBKIT, status: null,
                     error: String((err && err.name === 'AbortError') ? 'timeout 90s' : (err && err.message) || err).slice(0, 300),
                 });
                 showP2Modal(

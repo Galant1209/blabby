@@ -5579,6 +5579,25 @@ async def debug_rec_log(request: Request):
     except Exception:
         payload = {"_parse_error": True}
     logger.info("[REC-LOG] %s", json.dumps(payload, ensure_ascii=False)[:1000])
+    # 同步寫進 Supabase rec_log:沒有 Render log 存取權的人(含開發者本機工具)才查得到
+    # iPad 使用者真實的錄音格式/大小。純觀測,任何失敗(表不存在、Supabase 異常)一律吞掉,
+    # 絕不影響回傳 — 確認 iOS 修復後可連同此 endpoint 一起移除。
+    if supabase_admin is not None and isinstance(payload, dict):
+        try:
+            supabase_admin.table("rec_log").insert({
+                "part":          payload.get("part"),
+                "mime":          payload.get("mime"),
+                "recorder_mime": payload.get("recorderMime"),
+                "ext":           payload.get("ext"),
+                "size":          payload.get("size"),
+                "chunk_count":   payload.get("chunkCount"),
+                "forced_mp4":    payload.get("forcedMp4"),
+                "status":        None if payload.get("status") is None else str(payload.get("status")),
+                "error":         payload.get("error"),
+                "ua":            payload.get("ua"),
+            }).execute()
+        except Exception:
+            logger.exception("rec_log insert failed (non-fatal)")
     return {"ok": True}
 
 
