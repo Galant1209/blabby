@@ -7768,7 +7768,10 @@ CALCULATION RULES:
 - Map data values to y: y = 340 - ((value - min) / (max - min)) * 300
 - Scale y-axis with 10% padding above max value
 - Compute all positions mathematically from actual data — no placeholder coordinates
-- Round all coordinates to 1 decimal place
+- Round all coordinates to integers
+
+COMPACTNESS (the complete SVG must finish within the token budget):
+Keep the SVG compact. Do not add decorative elements, gradients, drop shadows, or redundant markup. Round all coordinates to integers. The complete SVG including </svg> must fit well within the token budget — prioritise completeness over visual flourish. A complete simple chart beats a truncated elaborate one.
 
 Return ONLY raw SVG. Start exactly with: <svg viewBox="0 0 600 420" xmlns="http://www.w3.org/2000/svg">
 End with: </svg>
@@ -7789,7 +7792,7 @@ Chart type: {task1_subtype}"""
         try:
             response = anthropic_client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=4000,
+                max_tokens=8000,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
             )
