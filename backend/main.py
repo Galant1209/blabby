@@ -24,6 +24,8 @@ import hmac
 import hashlib
 from collections import Counter
 from pathlib import Path
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 load_dotenv()
 
@@ -48,6 +50,41 @@ from reading_prompts import build_passage_prompt, build_questions_prompt
 from reading_validator import validate_passage, validate_questions
 
 app = FastAPI()
+
+# ── Background scheduler (APScheduler) ────────────────────────────────────────
+_scheduler = BackgroundScheduler(daemon=True)
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    On startup: prime the writing question bank in a background thread
+    (non-blocking — server accepts requests immediately).
+    Nightly at 03:00 UTC: top up to target_per_subtype.
+    """
+    _scheduler.start()
+    # Nightly top-up
+    _scheduler.add_job(
+        pregenerate_writing_questions,
+        CronTrigger(hour=3, minute=0, timezone="UTC"),
+        id="nightly_writing_pregen",
+        replace_existing=True,
+    )
+    # Startup prime (30s delay so DB connections are ready)
+    _scheduler.add_job(
+        pregenerate_writing_questions,
+        "date",
+        run_date=datetime.now(timezone.utc) + timedelta(seconds=30),
+        id="startup_writing_pregen",
+        replace_existing=True,
+    )
+    logger.info("APScheduler started: writing pregeneration scheduled")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    if _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        logger.info("APScheduler shut down")
+
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -7562,6 +7599,174 @@ async def debug_sse_test():
     )
 
 
+def generate_chart_svg(task1_subtype: str, chart_description: str) -> str:
+    """Render an SVG chart for a Task 1 question from its plain-text data.
+    Enhancement only — returns "" on any failure so question generation is
+    never blocked."""
+    try:
+        system_prompt = (
+            "You are an SVG chart generator. Generate a clean, print-friendly SVG chart "
+            "for an IELTS Writing Task 1 question. Requirements:\n"
+            '- viewBox="0 0 600 400"\n'
+            "- Background: white (#ffffff)\n"
+            '- All text: black (#000000), font-family="Georgia, serif"\n'
+            "- Black and white only — NO colour fills, NO colour strokes\n"
+            "- Distinguish data series using LINE STYLE, not colour:\n"
+            "   - Series 1: solid line, filled circle markers (r=4)\n"
+            '   - Series 2: dashed line (stroke-dasharray="8,4"), diamond markers\n'
+            '   - Series 3: dotted line (stroke-dasharray="2,4"), square markers (4×4)\n'
+            '   - Series 4: dash-dot line (stroke-dasharray="8,4,2,4"), triangle markers\n'
+            '- All lines: stroke="#000000", stroke-width="1.5"\n'
+            '- Grid lines: stroke="#cccccc", stroke-width="0.5", stroke-dasharray="2,2"\n'
+            '- Include: title (font-size="16"), axis labels (font-size="11"), tick labels (font-size="10"), legend with line style samples (font-size="11")\n'
+            "- Legend must show the actual line style (dashed/dotted etc) next to the label, not a colour swatch\n"
+            "- Chart area: left margin 60px, right 20px, top 60px, bottom 60px (for labels)\n"
+            "- Data must match the chart_description exactly\n"
+            "- For bar charts: use hatching patterns (lines/crosshatch) instead of fills to distinguish bars\n"
+            "- For pie charts: use hatching patterns instead of colour fills\n"
+            "- For process diagrams: boxes with solid borders, arrows in black, no fills\n"
+            "- For maps: use different stroke patterns and text labels, no colour fills\n"
+            "- Return ONLY the raw SVG string starting with <svg and ending with </svg>\n"
+            "- No preamble, no markdown, no explanation\n"
+            f"Chart type: {task1_subtype}"
+        )
+        response = anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": f"Chart description:\n{chart_description}\n\nGenerate the SVG now."}],
+        )
+        content = (response.content[0].text or "").strip()
+        if content.startswith("```"):
+            content = re.sub(r"^```(?:svg|html|xml|json)?\s*", "", content)
+            content = re.sub(r"\s*```$", "", content)
+        content = content.strip()
+        if not content.startswith("<svg"):
+            raise ValueError("SVG generation failed")
+        return content
+    except Exception:
+        logger.warning("generate_chart_svg failed; returning empty string", exc_info=True)
+        return ""
+
+
+TASK1_SUBTYPES = ["bar_chart", "line_graph", "pie_chart", "table", "process", "map"]
+
+def pregenerate_writing_questions(target_per_subtype: int = 5):
+    """
+    Ensure the writing_questions table has at least target_per_subtype
+    pregenerated questions per Task 1 subtype, plus target_per_subtype * 3
+    Task 2 questions total.
+    Called by APScheduler on startup and nightly.
+    Fails silently — never crashes the server.
+    """
+    if supabase_admin is None:
+        logger.warning("pregenerate_writing_questions: supabase_admin not configured")
+        return
+
+    # --- Task 1 ---
+    for subtype in TASK1_SUBTYPES:
+        try:
+            existing = (
+                supabase_admin.table("writing_questions")
+                .select("id", count="exact")
+                .eq("task_type", "task1")
+                .eq("task1_subtype", subtype)
+                .eq("is_pregenerated", True)
+                .execute()
+            )
+            current_count = existing.count or 0
+            needed = target_per_subtype - current_count
+            if needed <= 0:
+                logger.info(f"pregenerate: task1/{subtype} has {current_count}, skipping")
+                continue
+
+            logger.info(f"pregenerate: generating {needed} task1/{subtype} questions")
+            for _ in range(needed):
+                try:
+                    # Generate question text
+                    system_prompt = f"""You are an IELTS examiner. Generate one authentic IELTS Academic Writing Task 1 question. Chart type: {subtype}. The chart_description must be a readable plain-text table with real-looking data on a plausible topic (education, environment, economy, health, or technology). Return ONLY valid JSON with no preamble and no markdown fences: {{"prompt": "The {subtype.replace('_',' ')} below shows...", "chart_description": "Year | Category A | Category B\\n2000 | 45% | 30%\\n2005 | 52% | 28%\\n2010 | 61% | 24%"}}"""
+                    resp = anthropic_client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=800,
+                        system=system_prompt,
+                        messages=[{"role": "user", "content": "Generate the question now."}],
+                    )
+                    content = resp.content[0].text.strip()
+                    if content.startswith("```"):
+                        content = re.sub(r"^```(?:json)?\s*", "", content)
+                        content = re.sub(r"\s*```$", "", content)
+                    parsed = json.loads(content)
+                    if "prompt" not in parsed:
+                        raise ValueError("missing prompt key")
+
+                    # Generate SVG
+                    chart_svg = ""
+                    if parsed.get("chart_description"):
+                        chart_svg = generate_chart_svg(subtype, parsed["chart_description"])
+
+                    ins = supabase_admin.table("writing_questions").insert({
+                        "task_type": "task1",
+                        "task1_subtype": subtype,
+                        "prompt": parsed["prompt"],
+                        "chart_description": parsed.get("chart_description"),
+                        "chart_svg": chart_svg if chart_svg else None,
+                        "is_pregenerated": True,
+                        "used_count": 0,
+                    }).execute()
+                    if not ins.data:
+                        logger.error(f"pregenerate: insert failed for task1/{subtype}")
+                    else:
+                        logger.info(f"pregenerate: created task1/{subtype} id={ins.data[0]['id']}")
+                except Exception:
+                    logger.exception(f"pregenerate: failed one task1/{subtype} question")
+        except Exception:
+            logger.exception(f"pregenerate: outer loop failed for task1/{subtype}")
+
+    # --- Task 2 ---
+    try:
+        existing_t2 = (
+            supabase_admin.table("writing_questions")
+            .select("id", count="exact")
+            .eq("task_type", "task2")
+            .eq("is_pregenerated", True)
+            .execute()
+        )
+        current_t2 = existing_t2.count or 0
+        needed_t2 = (target_per_subtype * 3) - current_t2
+        if needed_t2 > 0:
+            logger.info(f"pregenerate: generating {needed_t2} task2 questions")
+            for _ in range(needed_t2):
+                try:
+                    resp = anthropic_client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=800,
+                        system="""You are an IELTS examiner. Generate one authentic IELTS Academic Writing Task 2 prompt suitable for Band 5-6 Taiwanese candidates. Choose one type: opinion, discussion, problem_solution, or advantages_disadvantages. Return ONLY valid JSON with no preamble and no markdown fences: {"prompt": "...", "essay_type": "opinion|discussion|problem_solution|advantages_disadvantages"}""",
+                        messages=[{"role": "user", "content": "Generate the question now."}],
+                    )
+                    content = resp.content[0].text.strip()
+                    if content.startswith("```"):
+                        content = re.sub(r"^```(?:json)?\s*", "", content)
+                        content = re.sub(r"\s*```$", "", content)
+                    parsed = json.loads(content)
+                    if "prompt" not in parsed:
+                        raise ValueError("missing prompt key")
+                    ins = supabase_admin.table("writing_questions").insert({
+                        "task_type": "task2",
+                        "prompt": parsed["prompt"],
+                        "essay_type": parsed.get("essay_type"),
+                        "is_pregenerated": True,
+                        "used_count": 0,
+                    }).execute()
+                    if not ins.data:
+                        logger.error("pregenerate: task2 insert failed")
+                    else:
+                        logger.info(f"pregenerate: created task2 id={ins.data[0]['id']}")
+                except Exception:
+                    logger.exception("pregenerate: failed one task2 question")
+    except Exception:
+        logger.exception("pregenerate: task2 outer loop failed")
+
+
 # ─── Writing Module ───────────────────────────────────────────────────────────
 @app.get("/api/writing/question")
 @limiter.limit("20/minute")
@@ -7592,6 +7797,50 @@ async def writing_get_question(
                 status_code=403,
                 detail={"error": "pro_required", "message": "Task 1 practice is available to Pro members only."},
             )
+
+    # ── Pool-first: serve a pregenerated question if one exists (no AI call) ──
+    try:
+        pool_query = (
+            supabase_admin.table("writing_questions")
+            .select("id, prompt, chart_description, chart_svg, essay_type, task1_subtype, used_count")
+            .eq("task_type", task_type)
+            .eq("is_pregenerated", True)
+        )
+        if task_type == "task1":
+            pool_query = pool_query.eq("task1_subtype", task1_subtype)
+        pool_resp = (
+            pool_query.order("used_count", desc=False)
+            .order("created_at", desc=False)
+            .limit(1)
+            .execute()
+        )
+        if pool_resp.data:
+            row = pool_resp.data[0]
+            try:
+                supabase_admin.table("writing_questions").update(
+                    {"used_count": (row.get("used_count") or 0) + 1}
+                ).eq("id", row["id"]).execute()
+            except Exception:
+                logger.warning(
+                    "writing pool used_count increment failed",
+                    extra={"question_id": row["id"]},
+                )
+            logger.info(f"writing question served from pool: {row['id']}")
+            return {
+                "question_id": row["id"],
+                "task_type": task_type,
+                "task1_subtype": row.get("task1_subtype"),
+                "prompt": row["prompt"],
+                "chart_description": row.get("chart_description"),
+                "chart_svg": row.get("chart_svg"),
+                "essay_type": row.get("essay_type"),
+            }
+    except Exception:
+        logger.exception("writing pool lookup failed; falling back to live generation")
+
+    logger.warning(
+        f"writing question pool miss: task_type={task_type} subtype={task1_subtype}, generating live"
+    )
 
     if task_type == "task2":
         system_prompt = (
@@ -7632,12 +7881,19 @@ async def writing_get_question(
     if not isinstance(parsed, dict) or "prompt" not in parsed:
         raise HTTPException(status_code=500, detail="Question generation failed: invalid response from AI")
 
+    chart_svg = ""
+    if task_type == "task1" and parsed.get("chart_description"):
+        chart_svg = generate_chart_svg(task1_subtype, parsed["chart_description"])
+
     insert_data = {
         "task_type": task_type,
         "prompt": parsed["prompt"],
         "essay_type": parsed.get("essay_type"),
         "task1_subtype": task1_subtype,
         "chart_description": parsed.get("chart_description"),
+        "chart_svg": chart_svg if chart_svg else None,
+        "is_pregenerated": False,
+        "used_count": 0,
     }
     ins = supabase_admin.table("writing_questions").insert(insert_data).execute()
     if not ins.data:
@@ -7649,6 +7905,7 @@ async def writing_get_question(
         "task1_subtype": task1_subtype,
         "prompt": parsed["prompt"],
         "chart_description": parsed.get("chart_description"),
+        "chart_svg": chart_svg if chart_svg else None,
         "essay_type": parsed.get("essay_type"),
     }
 
@@ -7889,6 +8146,20 @@ async def writing_submission_detail(
         raise HTTPException(status_code=404, detail="Submission not found")
 
     return {"submission": resp.data[0]}
+
+
+@app.post("/api/admin/writing/pregen")
+@limiter.limit("5/minute")
+async def admin_trigger_pregen(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Manually trigger writing question pregeneration. Admin only."""
+    verify_admin(authorization)
+    import threading
+    t = threading.Thread(target=pregenerate_writing_questions, kwargs={"target_per_subtype": 5}, daemon=True)
+    t.start()
+    return {"status": "pregeneration started in background"}
 
 
 if __name__ == "__main__":
