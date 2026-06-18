@@ -1111,6 +1111,49 @@
     });
   }
 
+  // 後端把結構化診斷放在 body.data(summary / weaknesses[] / next_step);
+  // body.diagnosis_markdown 其實是原始 JSON 字串,直接 render 會把整包 JSON 倒給管理員。
+  // 優先讀 structured;退而求其次自己 parse 一次;真的解析不出也絕不倒原始 JSON。
+  function renderAdminDiagnosis(body) {
+    let d = (body && body.format === 'structured' && body.data && Array.isArray(body.data.weaknesses))
+      ? body.data : null;
+    if (!d) {
+      const t = String((body && (body.raw || body.diagnosis_markdown)) || '').trim();
+      if (t.startsWith('{')) {
+        try { const p = JSON.parse(t); if (p && Array.isArray(p.weaknesses)) d = p; } catch (_) {}
+      }
+    }
+    if (!d) {
+      const txt = String((body && (body.diagnosis_markdown || body.raw)) || '');
+      if (txt.trim().startsWith('{')) {
+        return '<p style="color:var(--muted,#8A7E6E)">診斷結果解析失敗（模型回傳的 JSON 格式異常）。請重新生成。</p>';
+      }
+      return renderMarkdown(txt || '(empty)');
+    }
+    const summary = d.summary
+      ? `<p style="font-size:15px;line-height:1.7;margin:0 0 16px">${escapeHtml(d.summary)}</p>` : '';
+    const cards = (Array.isArray(d.weaknesses) ? d.weaknesses : []).map(w => {
+      const ev = Array.isArray(w.evidence) ? w.evidence : [];
+      const evHtml = ev.length
+        ? `<ul style="margin:8px 0 0;padding-left:18px;color:var(--muted,#8A7E6E);font-size:13px">${ev.map(e => `<li style="margin:2px 0">${escapeHtml(e)}</li>`).join('')}</ul>`
+        : '';
+      return `<div style="border-left:3px solid var(--gold,#C9A84C);padding:8px 14px;margin:10px 0;background:rgba(0,0,0,0.02)">
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <span style="color:var(--green,#2D5016);font-weight:700">#${escapeHtml(w.rank)}</span>
+          <strong>${escapeHtml(w.title || '')}</strong>
+          <span style="font-size:12px;color:var(--muted,#8A7E6E)">${escapeHtml(w.tag || '')}</span>
+          ${w.drill_available === true ? '<span style="font-size:11px;color:var(--green,#2D5016)">· drill 可用</span>' : ''}
+        </div>
+        ${w.description ? `<p style="margin:6px 0 0;font-size:14px;line-height:1.6">${escapeHtml(w.description)}</p>` : ''}
+        ${evHtml}
+      </div>`;
+    }).join('');
+    const next = d.next_step
+      ? `<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border,#C4B89A)"><strong>下一步</strong><p style="margin:6px 0 0;font-size:14px;line-height:1.6">${escapeHtml(d.next_step)}</p></div>`
+      : '';
+    return summary + cards + next;
+  }
+
   async function loadDiagnosis() {
     const sec = $('diag-section');
     const block = $('diag-content');
@@ -1133,7 +1176,7 @@
       }
       block.classList.remove('loading');
       block.classList.add('md');
-      block.innerHTML = renderMarkdown(body.diagnosis_markdown || '(empty)');
+      block.innerHTML = renderAdminDiagnosis(body);
     } catch (err) {
       console.error('loadDiagnosis failed', err);
       block.textContent = 'Network error';
