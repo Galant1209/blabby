@@ -7562,6 +7562,335 @@ async def debug_sse_test():
     )
 
 
+# ─── Writing Module ───────────────────────────────────────────────────────────
+@app.get("/api/writing/question")
+@limiter.limit("20/minute")
+async def writing_get_question(
+    request: Request,
+    task_type: str = Query(...),
+    task1_subtype: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Generate one IELTS Writing question via Claude and cache it in
+    writing_questions. Task 1 is Pro-only; Task 2 is open to all."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    if task_type not in ("task1", "task2"):
+        raise HTTPException(status_code=422, detail="task_type must be 'task1' or 'task2'")
+
+    valid_subtypes = ("bar_chart", "line_graph", "pie_chart", "table", "process", "map")
+    if task_type == "task1":
+        if not task1_subtype or task1_subtype not in valid_subtypes:
+            raise HTTPException(
+                status_code=422,
+                detail="task1_subtype is required for Task 1 and must be one of: bar_chart, line_graph, pie_chart, table, process, map",
+            )
+        if not await is_user_pro(user_id):
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "pro_required", "message": "Task 1 practice is available to Pro members only."},
+            )
+
+    if task_type == "task2":
+        system_prompt = (
+            "You are an IELTS examiner. Generate one authentic IELTS Academic Writing "
+            "Task 2 prompt suitable for Band 5-6 Taiwanese candidates. Choose one type: "
+            "opinion (To what extent do you agree or disagree?), discussion (Discuss both "
+            "views and give your opinion.), problem_solution, or advantages_disadvantages. "
+            "Return ONLY valid JSON with no preamble and no markdown fences: "
+            '{"prompt": "...", "essay_type": "opinion|discussion|problem_solution|advantages_disadvantages"}'
+        )
+    else:
+        system_prompt = (
+            "You are an IELTS examiner. Generate one authentic IELTS Academic Writing "
+            f"Task 1 question. Chart type: {task1_subtype}. The chart_description must be "
+            "a readable plain-text table with real-looking data on a plausible topic "
+            "(education, environment, economy, health, or technology). Return ONLY valid "
+            "JSON with no preamble and no markdown fences: "
+            '{"prompt": "The {chart_type} below shows...", "chart_description": '
+            '"Year | Category A | Category B\\n2000 | 45% | 30%\\n2005 | 52% | 28%\\n2010 | 61% | 24%"}'
+        )
+
+    try:
+        response = anthropic_client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            system=system_prompt,
+            messages=[{"role": "user", "content": "Generate the question now."}],
+        )
+        content = (response.content[0].text or "").strip()
+        if content.startswith("```"):
+            content = re.sub(r"^```(?:json)?\s*", "", content)
+            content = re.sub(r"\s*```$", "", content)
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        logger.exception("writing question generation parse failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=500, detail="Question generation failed: invalid response from AI") from exc
+
+    if not isinstance(parsed, dict) or "prompt" not in parsed:
+        raise HTTPException(status_code=500, detail="Question generation failed: invalid response from AI")
+
+    insert_data = {
+        "task_type": task_type,
+        "prompt": parsed["prompt"],
+        "essay_type": parsed.get("essay_type"),
+        "task1_subtype": task1_subtype,
+        "chart_description": parsed.get("chart_description"),
+    }
+    ins = supabase_admin.table("writing_questions").insert(insert_data).execute()
+    if not ins.data:
+        raise HTTPException(status_code=500, detail="Question could not be stored")
+
+    return {
+        "question_id": ins.data[0]["id"],
+        "task_type": task_type,
+        "task1_subtype": task1_subtype,
+        "prompt": parsed["prompt"],
+        "chart_description": parsed.get("chart_description"),
+        "essay_type": parsed.get("essay_type"),
+    }
+
+
+@app.post("/api/writing/submit")
+@limiter.limit("10/minute")
+async def writing_submit(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Grade a submitted essay against the four IELTS criteria via Claude and
+    persist the result. Free members are capped at 3 submissions per day."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Request body must be valid JSON") from exc
+
+    question_id = (body.get("question_id") or "").strip()
+    if not question_id:
+        raise HTTPException(status_code=422, detail="question_id is required")
+    essay_text = (body.get("essay_text") or "").strip()
+    if not essay_text:
+        raise HTTPException(status_code=422, detail="Essay must not be empty")
+    task_type = (body.get("task_type") or "").strip()
+    if task_type not in ("task1", "task2"):
+        raise HTTPException(status_code=422, detail="task_type must be 'task1' or 'task2'")
+    is_retry = bool(body.get("is_retry", False))
+
+    word_count = len(essay_text.split())
+    if task_type == "task2" and word_count < 50:
+        raise HTTPException(
+            status_code=422,
+            detail="Your essay is too brief to evaluate. Please write at least 50 words.",
+        )
+    if task_type == "task1" and word_count < 30:
+        raise HTTPException(
+            status_code=422,
+            detail="Your response is too brief to evaluate. Please write at least 30 words.",
+        )
+
+    q_resp = (
+        supabase_admin.table("writing_questions")
+        .select("prompt, task_type, chart_description")
+        .eq("id", question_id)
+        .limit(1)
+        .execute()
+    )
+    if not q_resp.data:
+        raise HTTPException(status_code=404, detail="The specified question could not be found")
+    question_row = q_resp.data[0]
+    question_prompt = question_row["prompt"]
+
+    if task_type == "task1" and not await is_user_pro(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "pro_required", "message": "Task 1 practice is available to Pro members only."},
+        )
+
+    if not await is_user_pro(user_id):
+        try:
+            today_start = datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ).isoformat()
+            quota_resp = (
+                supabase_admin.table("writing_submissions")
+                .select("id", count="exact")
+                .eq("user_id", user_id)
+                .gte("submitted_at", today_start)
+                .limit(1)
+                .execute()
+            )
+            daily_count = quota_resp.count or 0
+            if daily_count >= 3:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "daily_quota_reached",
+                        "limit": 3,
+                        "message": "Free members may submit 3 writing tasks per day. Upgrade to Pro for unlimited practice.",
+                    },
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            logger.warning(
+                "writing daily quota check failed; failing open",
+                extra={"user_id": user_id},
+            )
+
+    grading_system = (
+        "You are a strict but constructive IELTS Writing examiner specialising in "
+        "Band 5-6 Taiwanese learners. Grade the submitted essay against official IELTS "
+        "band descriptors. Band range for this cohort: 4.0 to 7.0. Return ONLY valid "
+        "JSON with no preamble and no markdown fences:\n"
+        '{"band_ta": <float>, "feedback_ta": "<2-3 sentences diagnosing Task Achievement/Response>", '
+        '"fix_ta": "<single most important fix for TA>", "band_cc": <float>, '
+        '"feedback_cc": "<Coherence & Cohesion diagnosis>", "fix_cc": "<single fix>", '
+        '"band_lr": <float>, "feedback_lr": "<Lexical Resource diagnosis>", "fix_lr": "<single fix>", '
+        '"band_gra": <float>, "feedback_gra": "<Grammatical Range & Accuracy diagnosis>", "fix_gra": "<single fix>", '
+        '"band_overall": <float>, "priority_fix": "<the single most impactful improvement this student must make — max 2 sentences>"}'
+    )
+    grading_user = f"Task type: {task_type}\nQuestion: {question_prompt}\n\nStudent essay:\n{essay_text}"
+
+    grading = None
+    grading_error = None
+    for _attempt in range(2):
+        try:
+            response = anthropic_client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=1500,
+                system=grading_system,
+                messages=[{"role": "user", "content": grading_user}],
+            )
+            content = (response.content[0].text or "").strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*", "", content)
+                content = re.sub(r"\s*```$", "", content)
+            grading = json.loads(content)
+            break
+        except json.JSONDecodeError as exc:
+            grading_error = exc
+            continue
+
+    if grading is None:
+        logger.error(
+            "writing grading parse failed after retry: %s",
+            grading_error,
+            extra={"user_id": user_id},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Grading could not be completed. Pray attempt submission once more.",
+        )
+
+    if not isinstance(grading, dict) or "band_overall" not in grading or "priority_fix" not in grading:
+        raise HTTPException(
+            status_code=500,
+            detail="Grading could not be completed. Pray attempt submission once more.",
+        )
+
+    sub_data = {
+        "user_id": user_id,
+        "question_id": question_id,
+        "task_type": task_type,
+        "essay_text": essay_text,
+        "word_count": word_count,
+        "is_retry": is_retry,
+        "feedback_ta": grading.get("feedback_ta"),
+        "feedback_cc": grading.get("feedback_cc"),
+        "feedback_lr": grading.get("feedback_lr"),
+        "feedback_gra": grading.get("feedback_gra"),
+        "fix_ta": grading.get("fix_ta"),
+        "fix_cc": grading.get("fix_cc"),
+        "fix_lr": grading.get("fix_lr"),
+        "fix_gra": grading.get("fix_gra"),
+        "band_ta": grading.get("band_ta"),
+        "band_cc": grading.get("band_cc"),
+        "band_lr": grading.get("band_lr"),
+        "band_gra": grading.get("band_gra"),
+        "band_overall": grading.get("band_overall"),
+        "priority_fix": grading.get("priority_fix"),
+    }
+    ins = supabase_admin.table("writing_submissions").insert(sub_data).execute()
+    if not ins.data:
+        raise HTTPException(status_code=500, detail="Submission could not be recorded")
+
+    return {
+        "submission_id": ins.data[0]["id"],
+        "word_count": word_count,
+        "band_overall": grading.get("band_overall"),
+        "priority_fix": grading.get("priority_fix"),
+        "criteria": {
+            "task_achievement": {"band": grading.get("band_ta"), "feedback": grading.get("feedback_ta"), "fix": grading.get("fix_ta")},
+            "coherence_cohesion": {"band": grading.get("band_cc"), "feedback": grading.get("feedback_cc"), "fix": grading.get("fix_cc")},
+            "lexical_resource": {"band": grading.get("band_lr"), "feedback": grading.get("feedback_lr"), "fix": grading.get("fix_lr")},
+            "grammatical_range": {"band": grading.get("band_gra"), "feedback": grading.get("feedback_gra"), "fix": grading.get("fix_gra")},
+        },
+    }
+
+
+@app.get("/api/writing/history")
+@limiter.limit("20/minute")
+async def writing_history(
+    request: Request,
+    limit: int = Query(10, ge=1, le=20),
+    authorization: Optional[str] = Header(None),
+):
+    """Recent writing submissions for the caller. Free members see at most 5."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    is_pro = await is_user_pro(user_id)
+    effective_limit = limit if is_pro else min(limit, 5)
+
+    try:
+        resp = (
+            supabase_admin.table("writing_submissions")
+            .select("id, task_type, band_overall, priority_fix, submitted_at, word_count, question_id")
+            .eq("user_id", user_id)
+            .order("submitted_at", desc=True)
+            .limit(effective_limit)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("writing history query failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load writing history") from exc
+
+    return {"submissions": resp.data or [], "is_pro": is_pro}
+
+
+@app.get("/api/writing/submission/{submission_id}")
+@limiter.limit("20/minute")
+async def writing_submission_detail(
+    request: Request,
+    submission_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Full detail of one submission. Ownership failure returns 404 (not 403)
+    so the existence of other users' submissions is never disclosed."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    resp = (
+        supabase_admin.table("writing_submissions")
+        .select("*")
+        .eq("id", submission_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    return {"submission": resp.data[0]}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=10000)

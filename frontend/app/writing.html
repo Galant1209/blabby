@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<!--
+  Writing Examination — Sprint Writing-1.
+
+  Single-file page (inline CSS + inline JS) to match the project's existing
+  convention (index.html, reading.html, vocabulary.html). Boilerplate (config,
+  auth, topbar, palette) mirrors reading.html so the page sits consistently
+  beside its siblings.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blabby · The Writing Examination</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z' fill='none' stroke='%23C9A84C' stroke-width='2' stroke-linejoin='round'/><line x1='4' y1='26' x2='28' y2='26' stroke='%23C9A84C' stroke-width='2'/><circle cx='16' cy='7' r='2' fill='%23C9A84C'/><circle cx='4' cy='13' r='2' fill='%23C9A84C'/><circle cx='28' cy='13' r='2' fill='%23C9A84C'/></svg>">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500;600&display=swap" rel="stylesheet" />
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./config.js"></script>
+
+    <!-- PostHog tracking — initialised identically to index.html so events
+         land on the same analytics surface. -->
+    <script>
+        !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys getNextSurveyStep onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+        posthog.init('phc_yx3H55CAUHfsKFabX4ZQ5JHxTijKzHdyCiKzxvddaLTt', {
+            api_host: 'https://us.i.posthog.com',
+            person_profiles: 'identified_only',
+        });
+        window.analytics = {
+            track: function(event, props) {
+                try { posthog.capture(event, props || {}); } catch(_) {}
+            },
+            identify: function(userId, traits) {
+                try { posthog.identify(userId, traits || {}); } catch(_) {}
+            }
+        };
+    </script>
+
+    <style>
+        :root {
+            --bg:         #F5F0E8;
+            --surface:    #FDFAF4;
+            --paper:      #F1E9D6;
+            --ink:        #2C2416;
+            --ink-soft:   #3a3022;
+            --navy:       #1A3550;
+            --green:      #2D5016;
+            --green-dark: #1f3810;
+            --gold:       #C9A84C;
+            --gold-warm:  #E8C866;
+            --wine:       #6B1A1A;
+            --border:     #C4B89A;
+            --muted:      #8A7E6E;
+            --serif:      'EB Garamond', 'Cormorant Garamond', Georgia, serif;
+            --sans:       'Inter Tight', 'Inter', -apple-system, sans-serif;
+            /* Page-local additions (absent from the shared palette). */
+            --accent:      var(--navy);
+            --surface-alt: var(--paper);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            background: var(--bg);
+            color: var(--ink);
+            font-family: var(--sans);
+            font-size: 16px;
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.45;
+            z-index: 0;
+            background-image:
+                radial-gradient(circle at 22% 18%, rgba(196, 184, 154, 0.18) 0%, transparent 38%),
+                radial-gradient(circle at 78% 72%, rgba(201, 168, 76, 0.07) 0%, transparent 36%);
+        }
+
+        .page-shell {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 32px 24px 120px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 14px;
+            margin-bottom: 28px;
+        }
+        .topbar__crest {
+            font-family: var(--serif);
+            font-size: 22px;
+            letter-spacing: 0.04em;
+            color: var(--green-dark);
+            font-weight: 500;
+        }
+        .topbar__return {
+            font-family: var(--serif);
+            font-style: italic;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 15px;
+        }
+        .topbar__return:hover { color: var(--ink); }
+
+        .austere-prose {
+            font-family: var(--serif);
+            font-size: 18px;
+            color: var(--ink-soft);
+        }
+
+        /* ── Writing-specific ──────────────────────────────────────────────── */
+        #tab-switcher { display: flex; gap: 8px; margin-bottom: 24px; }
+        .tab-btn { padding: 8px 20px; border: 1px solid var(--border); background: transparent; cursor: pointer; font-family: var(--serif); font-size: 15px; color: var(--ink); }
+        .tab-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+        #pro-badge { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); margin-left: 4px; }
+        #task1-controls { margin-bottom: 16px; }
+        #task1-subtype { font-family: var(--serif); font-size: 15px; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
+        #task1-lock { padding: 24px; border: 1px solid var(--border); text-align: center; }
+        #task1-lock p { font-family: var(--serif); font-size: 17px; margin-bottom: 12px; }
+        #task1-lock a { color: var(--accent); }
+        #question-display { padding: 20px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 16px; }
+        #question-prompt { font-family: var(--serif); font-size: 18px; line-height: 1.6; }
+        #chart-description { background: var(--surface-alt, #f5f5f5); padding: 12px; font-size: 13px; overflow-x: auto; margin-top: 12px; white-space: pre; font-family: var(--sans); }
+        #question-loading, #submit-loading { font-family: var(--serif); font-style: italic; color: var(--muted); margin: 12px 0; }
+        #essay-input { width: 100%; box-sizing: border-box; padding: 12px; font-size: 15px; line-height: 1.6; border: 1px solid var(--border); resize: vertical; min-height: 300px; font-family: var(--sans); background: var(--surface); color: var(--ink); }
+        #word-count-display { margin: 8px 0; font-size: 13px; color: var(--muted); }
+        #word-count-warning { color: #c0392b; }
+        #priority-fix-callout { border-left: 3px solid var(--accent); padding: 12px 16px; margin-bottom: 16px; background: var(--surface); }
+        #priority-fix-callout strong { font-family: var(--serif); font-size: 15px; letter-spacing: 0.04em; }
+        #priority-fix-callout p { margin-top: 6px; }
+        #band-display { font-size: 24px; font-weight: 600; margin: 16px 0; font-family: var(--serif); }
+        #band-display small { font-size: 12px; font-weight: 400; color: var(--muted); display: block; }
+        .criterion-card { border: 1px solid var(--border); padding: 16px; margin-bottom: 12px; background: var(--surface); }
+        .criterion-card h3 { margin: 0 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .band-badge { display: inline-block; padding: 2px 8px; background: var(--accent); color: white; border-radius: 3px; font-size: 13px; }
+        .fix-line { margin-top: 8px; font-size: 13px; }
+        #feedback-actions { display: flex; gap: 12px; margin-top: 20px; }
+        #timer-display { display: none; align-items: center; gap: 12px; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+        #timer-value { font-family: var(--serif); font-size: 20px; color: var(--green-dark); }
+        #error-display { margin-top: 16px; padding: 12px 16px; border: 1px solid var(--wine); background: var(--surface); }
+        #error-message { color: var(--wine); font-family: var(--serif); }
+
+        /* Action buttons — leave .tab-btn / #btn-dismiss-timer to their own rules. */
+        #btn-get-question, #btn-submit, #feedback-actions button {
+            font-family: var(--serif); font-size: 15px; padding: 10px 22px;
+            border: 1px solid var(--navy); background: var(--navy); color: #fff;
+            cursor: pointer; border-radius: 2px;
+        }
+        #btn-get-question:hover, #btn-submit:hover, #feedback-actions button:hover { background: var(--green-dark); }
+        #btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+        #btn-dismiss-timer { font-family: var(--serif); font-style: italic; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; }
+        #btn-dismiss-timer:hover { color: var(--ink); }
+    </style>
+</head>
+<body>
+    <div class="page-shell">
+        <header class="topbar">
+            <span class="topbar__crest">Blabby · The Writing Examination</span>
+            <a class="topbar__return" href="/index.html">Return to the Hall</a>
+        </header>
+
+        <main id="main-content" style="display:none">
+
+            <!-- Tab switcher -->
+            <div id="tab-switcher">
+                <button id="tab-task2" class="tab-btn active" onclick="switchTab('task2')">Task 2 — Essay</button>
+                <button id="tab-task1" class="tab-btn" onclick="switchTab('task1')">Task 1 — Chart  <span id="pro-badge" style="display:none">Pro</span></button>
+            </div>
+
+            <!-- Task 1 subtype selector -->
+            <div id="task1-controls" style="display:none">
+                <select id="task1-subtype">
+                    <option value="bar_chart">Bar Chart</option>
+                    <option value="line_graph">Line Graph</option>
+                    <option value="pie_chart">Pie Chart</option>
+                    <option value="table">Table</option>
+                    <option value="process">Process Diagram</option>
+                    <option value="map">Map</option>
+                </select>
+            </div>
+
+            <!-- Task 1 Pro lock overlay -->
+            <div id="task1-lock" style="display:none">
+                <p>Task 1 practice is reserved for Pro members.</p>
+                <a href="/upgrade.html">Enquire about Pro membership</a>
+            </div>
+
+            <!-- Question panel -->
+            <div id="question-panel">
+                <button id="btn-get-question" onclick="getQuestion()">Request a Question</button>
+                <div id="question-loading" style="display:none">Preparing your task…</div>
+                <div id="question-display" style="display:none">
+                    <p id="question-prompt"></p>
+                    <pre id="chart-description" style="display:none"></pre>
+                </div>
+            </div>
+
+            <!-- Writing panel -->
+            <div id="writing-panel" style="display:none">
+                <div id="timer-display">
+                    <span id="timer-value"></span>
+                    <button onclick="dismissTimer()" id="btn-dismiss-timer">Dismiss</button>
+                </div>
+                <div id="word-count-display">
+                    <span id="word-count">0</span> words
+                    <span id="word-count-warning" style="display:none">— minimum <span id="min-words"></span> words required</span>
+                </div>
+                <textarea id="essay-input" placeholder="Compose your response here." rows="15" oninput="onEssayInput()"></textarea>
+                <button id="btn-submit" onclick="submitEssay()" disabled>Submit for Correction</button>
+                <div id="submit-loading" style="display:none">Examining your essay…</div>
+            </div>
+
+            <!-- Feedback panel -->
+            <div id="feedback-panel" style="display:none">
+                <div id="priority-fix-callout">
+                    <strong>Primary Counsel</strong>
+                    <p id="priority-fix-text"></p>
+                </div>
+                <div id="band-display">
+                    Estimated Band: <span id="band-overall"></span>
+                    <small>This estimate is for practice guidance only.</small>
+                </div>
+                <div id="criteria-cards"></div>
+                <div id="feedback-actions">
+                    <button onclick="writeAgain()">Write Again</button>
+                    <button onclick="getQuestion()">New Question</button>
+                </div>
+            </div>
+
+            <!-- Error display -->
+            <div id="error-display" style="display:none">
+                <p id="error-message"></p>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        // ── Config ──────────────────────────────────────────────────────────
+        const cfg = window.BLABBY_CONFIG || {};
+        const SUPABASE_URL = cfg.supabaseUrl;
+        const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
+        const API_BASE = window.BLABBY_API_BASE || 'https://blabby-backend.onrender.com';
+
+        let sb = null;
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !window.supabase) {
+            document.body.innerHTML =
+                '<div class="page-shell"><p class="austere-prose">' +
+                'The examination chamber is currently unfurnished. Please return shortly.' +
+                '</p></div>';
+        } else {
+            sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        }
+
+        // ── State ────────────────────────────────────────────────────────────
+        let currentSession = null;
+        let currentTaskType = 'task2';
+        let currentQuestionId = null;
+        let currentQuestionPrompt = null;
+        let isProUser = false;
+        let timerInterval = null;
+        let timerSeconds = 0;
+
+        // ── Auth init ──────────────────────────────────────────────────────────
+        // Mirrors reading.html: confirm the Supabase session, redirect to the
+        // hall if unauthenticated, then reveal the page.
+        (async () => {
+            if (!sb) return;
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session) { window.location.href = '/index.html'; return; }
+                currentSession = session;
+                document.getElementById('main-content').style.display = '';
+                try { window.analytics?.identify(session.user.id); } catch (e) {}
+                try { window.analytics?.track('writing_page_viewed'); } catch (e) {}
+                await initPage();
+            } catch (e) {
+                window.location.href = '/index.html';
+            }
+        })();
+
+        async function initPage() {
+            await checkProStatus();
+            renderTabState();
+        }
+
+        async function checkProStatus() {
+            // For this sprint, an active subscription is treated as Pro. The
+            // backend (is_user_pro RPC) remains the authoritative gate.
+            try {
+                const res = await fetch(`${API_BASE}/api/user/subscription`, {
+                    headers: { Authorization: `Bearer ${currentSession.access_token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const sub = data.subscription;
+                    isProUser = !!(sub && sub.status === 'active');
+                }
+            } catch (e) {
+                isProUser = false;
+            }
+            document.getElementById('pro-badge').style.display = isProUser ? 'none' : 'inline';
+        }
+
+        function renderTabState() {
+            if (currentTaskType === 'task1') {
+                document.getElementById('task1-controls').style.display = 'block';
+                if (!isProUser) {
+                    document.getElementById('task1-lock').style.display = 'block';
+                    document.getElementById('question-panel').style.display = 'none';
+                    document.getElementById('writing-panel').style.display = 'none';
+                    try { window.analytics?.track('writing_task1_upgrade_prompt_shown', {}); } catch (e) {}
+                } else {
+                    document.getElementById('task1-lock').style.display = 'none';
+                    document.getElementById('question-panel').style.display = 'block';
+                }
+            } else {
+                document.getElementById('task1-controls').style.display = 'none';
+                document.getElementById('task1-lock').style.display = 'none';
+                document.getElementById('question-panel').style.display = 'block';
+            }
+        }
+
+        function switchTab(taskType) {
+            currentTaskType = taskType;
+            document.getElementById('tab-task2').classList.toggle('active', taskType === 'task2');
+            document.getElementById('tab-task1').classList.toggle('active', taskType === 'task1');
+            resetAll();
+            renderTabState();
+        }
+
+        async function getQuestion() {
+            resetWritingPanel();
+            showElement('question-loading');
+            hideElement('question-display');
+            hideElement('error-display');
+
+            const task1Subtype = document.getElementById('task1-subtype').value;
+            let url = `${API_BASE}/api/writing/question?task_type=${currentTaskType}`;
+            if (currentTaskType === 'task1') url += `&task1_subtype=${task1Subtype}`;
+
+            try {
+                const res = await fetch(url, {
+                    headers: { Authorization: `Bearer ${currentSession.access_token}` }
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    showError(data.detail?.message || data.detail || "The question could not be retrieved.");
+                    return;
+                }
+                currentQuestionId = data.question_id;
+                currentQuestionPrompt = data.prompt;
+
+                document.getElementById('question-prompt').textContent = data.prompt;
+                if (data.chart_description) {
+                    document.getElementById('chart-description').textContent = data.chart_description;
+                    showElement('chart-description');
+                } else {
+                    hideElement('chart-description');
+                }
+                showElement('question-display');
+                showElement('writing-panel');
+                startTimer(currentTaskType === 'task2' ? 40 : 20);
+
+                try { window.analytics?.track('writing_question_requested', { task_type: currentTaskType }); } catch (e) {}
+            } catch (e) {
+                showError("A difficulty was encountered whilst retrieving the question. Pray attempt again.");
+            } finally {
+                hideElement('question-loading');
+            }
+        }
+
+        function onEssayInput() {
+            const text = document.getElementById('essay-input').value;
+            const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+            document.getElementById('word-count').textContent = words;
+            const minWords = currentTaskType === 'task2' ? 50 : 30;
+            const displayMin = currentTaskType === 'task2' ? 250 : 150;
+            document.getElementById('min-words').textContent = displayMin;
+            document.getElementById('word-count-warning').style.display = words < displayMin ? 'inline' : 'none';
+            document.getElementById('btn-submit').disabled = words < minWords;
+        }
+
+        async function submitEssay() {
+            const essayText = document.getElementById('essay-input').value.trim();
+            hideElement('error-display');
+            showElement('submit-loading');
+            document.getElementById('btn-submit').disabled = true;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/writing/submit`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${currentSession.access_token}`
+                    },
+                    body: JSON.stringify({
+                        question_id: currentQuestionId,
+                        essay_text: essayText,
+                        task_type: currentTaskType,
+                        is_retry: false,
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    const msg = data.detail?.message || data.detail || "Submission could not be processed.";
+                    showError(msg);
+                    document.getElementById('btn-submit').disabled = false;
+                    return;
+                }
+                stopTimer();
+                renderFeedback(data);
+                hideElement('writing-panel');
+                showElement('feedback-panel');
+
+                try { window.analytics?.track('writing_submitted', { task_type: currentTaskType, word_count: data.word_count, band_overall: data.band_overall }); } catch (e) {}
+            } catch (e) {
+                showError("Your submission could not be processed. Pray attempt again.");
+                document.getElementById('btn-submit').disabled = false;
+            } finally {
+                hideElement('submit-loading');
+            }
+        }
+
+        function renderFeedback(data) {
+            document.getElementById('priority-fix-text').textContent = data.priority_fix || '';
+            document.getElementById('band-overall').textContent = data.band_overall ?? '—';
+
+            const CRITERIA_LABELS = {
+                task_achievement: 'Task Achievement',
+                coherence_cohesion: 'Coherence & Cohesion',
+                lexical_resource: 'Lexical Resource',
+                grammatical_range: 'Grammatical Range & Accuracy',
+            };
+            const container = document.getElementById('criteria-cards');
+            container.innerHTML = '';
+            for (const [key, label] of Object.entries(CRITERIA_LABELS)) {
+                const c = data.criteria?.[key];
+                if (!c) continue;
+                const card = document.createElement('div');
+                card.className = 'criterion-card';
+                const h = document.createElement('h3');
+                h.textContent = label + ' ';
+                const badge = document.createElement('span');
+                badge.className = 'band-badge';
+                badge.textContent = c.band ?? '—';
+                h.appendChild(badge);
+                const feedback = document.createElement('p');
+                feedback.textContent = c.feedback || '';
+                const fix = document.createElement('p');
+                fix.className = 'fix-line';
+                const fixLabel = document.createElement('strong');
+                fixLabel.textContent = 'Correction: ';
+                fix.appendChild(fixLabel);
+                fix.appendChild(document.createTextNode(c.fix || ''));
+                card.appendChild(h);
+                card.appendChild(feedback);
+                card.appendChild(fix);
+                container.appendChild(card);
+            }
+        }
+
+        function writeAgain() {
+            document.getElementById('essay-input').value = '';
+            document.getElementById('word-count').textContent = '0';
+            document.getElementById('btn-submit').disabled = true;
+            hideElement('feedback-panel');
+            showElement('writing-panel');
+            showElement('question-display');
+        }
+
+        // ── Timer ────────────────────────────────────────────────────────────
+        function startTimer(minutes) {
+            stopTimer();
+            timerSeconds = minutes * 60;
+            document.getElementById('timer-display').style.display = 'flex';
+            renderTimer();
+            timerInterval = setInterval(() => {
+                timerSeconds--;
+                if (timerSeconds <= 0) { stopTimer(); return; }
+                renderTimer();
+            }, 1000);
+        }
+
+        function renderTimer() {
+            const m = Math.floor(timerSeconds / 60).toString().padStart(2, '0');
+            const s = (timerSeconds % 60).toString().padStart(2, '0');
+            document.getElementById('timer-value').textContent = `${m}:${s}`;
+        }
+
+        function stopTimer() {
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        }
+
+        function dismissTimer() {
+            stopTimer();
+            hideElement('timer-display');
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+        function showElement(id) { const el = document.getElementById(id); if (el) el.style.display = 'block'; }
+        function hideElement(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+
+        function showError(msg) {
+            document.getElementById('error-message').textContent = msg;
+            showElement('error-display');
+        }
+
+        function resetWritingPanel() {
+            hideElement('writing-panel');
+            hideElement('feedback-panel');
+            hideElement('error-display');
+            document.getElementById('essay-input').value = '';
+            document.getElementById('word-count').textContent = '0';
+            document.getElementById('btn-submit').disabled = true;
+            stopTimer();
+        }
+
+        function resetAll() {
+            resetWritingPanel();
+            hideElement('question-display');
+            currentQuestionId = null;
+            currentQuestionPrompt = null;
+        }
+    </script>
+</body>
+</html>
