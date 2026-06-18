@@ -87,9 +87,12 @@
         .page-shell {
             max-width: 860px;
             margin: 0 auto;
-            padding: 32px 24px 120px;
+            padding: 48px 32px 140px;
             position: relative;
             z-index: 1;
+        }
+        @media (max-width: 640px) {
+            .page-shell { padding: 28px 16px 100px; }
         }
 
         .topbar {
@@ -124,35 +127,175 @@
 
         /* ── Writing-specific ──────────────────────────────────────────────── */
         #tab-switcher { display: flex; gap: 8px; margin-bottom: 24px; }
-        .tab-btn { padding: 8px 20px; border: 1px solid var(--border); background: transparent; cursor: pointer; font-family: var(--serif); font-size: 15px; color: var(--ink); }
-        .tab-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+        .tab-btn {
+            padding: 10px 24px;
+            border: 1px solid var(--border);
+            background: transparent;
+            cursor: pointer;
+            font-family: var(--serif);
+            font-size: 15px;
+            color: var(--muted);
+            letter-spacing: 0.02em;
+            transition: all 0.15s ease;
+            border-radius: 1px;
+        }
+        .tab-btn:hover:not(.active) {
+            background: var(--surface);
+            color: var(--ink);
+            border-color: var(--ink-soft);
+        }
+        .tab-btn.active {
+            background: var(--navy);
+            color: #fff;
+            border-color: var(--navy);
+            font-weight: 500;
+        }
         #pro-badge { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); margin-left: 4px; }
         #task1-controls { margin-bottom: 16px; }
         #task1-subtype { font-family: var(--serif); font-size: 15px; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
         #task1-lock { padding: 24px; border: 1px solid var(--border); text-align: center; }
         #task1-lock p { font-family: var(--serif); font-size: 17px; margin-bottom: 12px; }
         #task1-lock a { color: var(--accent); }
-        #question-display { padding: 20px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 16px; }
+        #question-display { padding: 28px 28px 24px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 16px; border-radius: 2px; }
+        .question-label { font-family: var(--sans); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+        #writing-panel { margin-top: 20px; }
         #question-prompt { font-family: var(--serif); font-size: 18px; line-height: 1.6; }
         #chart-description { background: var(--surface-alt, #f5f5f5); padding: 12px; font-size: 13px; overflow-x: auto; margin-top: 12px; white-space: pre; font-family: var(--sans); }
         #question-loading, #submit-loading { font-family: var(--serif); font-style: italic; color: var(--muted); margin: 12px 0; }
-        #essay-input { width: 100%; box-sizing: border-box; padding: 12px; font-size: 15px; line-height: 1.6; border: 1px solid var(--border); resize: vertical; min-height: 300px; font-family: var(--sans); background: var(--surface); color: var(--ink); }
-        #word-count-display { margin: 8px 0; font-size: 13px; color: var(--muted); }
+        #essay-input {
+            width: 100%;
+            padding: 20px 24px;
+            font-size: 16px;
+            line-height: 1.75;
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            resize: vertical;
+            min-height: 360px;
+            font-family: var(--serif);
+            background: var(--surface);
+            color: var(--ink);
+            transition: border-color 0.15s ease;
+        }
+        #essay-input:focus {
+            outline: none;
+            border-color: var(--navy);
+        }
+        #word-count-display { margin: 12px 0 16px; font-size: 14px; color: var(--muted); font-family: var(--sans); }
+        #word-count { font-size: 18px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+        .submit-row { display: flex; align-items: center; gap: 16px; margin-top: 16px; }
         #word-count-warning { color: #c0392b; }
-        #priority-fix-callout { border-left: 3px solid var(--accent); padding: 12px 16px; margin-bottom: 16px; background: var(--surface); }
-        #priority-fix-callout strong { font-family: var(--serif); font-size: 15px; letter-spacing: 0.04em; }
-        #priority-fix-callout p { margin-top: 6px; }
-        #band-display { font-size: 24px; font-weight: 600; margin: 16px 0; font-family: var(--serif); }
-        #band-display small { font-size: 12px; font-weight: 400; color: var(--muted); display: block; }
-        .criterion-card { border: 1px solid var(--border); padding: 16px; margin-bottom: 12px; background: var(--surface); }
-        .criterion-card h3 { margin: 0 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; }
-        .band-badge { display: inline-block; padding: 2px 8px; background: var(--accent); color: white; border-radius: 3px; font-size: 13px; }
-        .fix-line { margin-top: 8px; font-size: 13px; }
+        #priority-fix-callout {
+            border-left: 3px solid var(--gold);
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            background: var(--surface);
+            border-radius: 0 2px 2px 0;
+        }
+        #priority-fix-callout strong {
+            font-family: var(--serif);
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--gold);
+        }
+        #priority-fix-callout p {
+            margin-top: 8px;
+            font-family: var(--serif);
+            font-size: 17px;
+            line-height: 1.65;
+            color: var(--ink);
+        }
+        #band-display {
+            font-family: var(--serif);
+            font-size: 28px;
+            font-weight: 500;
+            margin: 24px 0 20px;
+            color: var(--ink);
+            letter-spacing: 0.01em;
+        }
+        #band-display small {
+            display: block;
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--muted);
+            font-family: var(--sans);
+            margin-top: 4px;
+            letter-spacing: 0.02em;
+        }
+        .criterion-card { border: 1px solid var(--border); padding: 20px 24px; margin-bottom: 12px; background: var(--surface); border-radius: 2px; }
+        .criterion-card h3 {
+            margin: 0 0 10px;
+            font-family: var(--sans);
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .criterion-card p {
+            font-family: var(--serif);
+            font-size: 16px;
+            line-height: 1.65;
+            color: var(--ink-soft);
+        }
+        .band-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            background: var(--navy);
+            color: #fff;
+            border-radius: 2px;
+            font-size: 13px;
+            font-family: var(--sans);
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+        .fix-line {
+            margin-top: 10px;
+            font-size: 14px;
+            color: var(--ink);
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+            font-family: var(--sans);
+        }
+        .fix-line strong {
+            font-weight: 600;
+            color: var(--navy);
+        }
         #feedback-actions { display: flex; gap: 12px; margin-top: 20px; }
-        #timer-display { display: none; align-items: center; gap: 12px; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
-        #timer-value { font-family: var(--serif); font-size: 20px; color: var(--green-dark); }
-        #error-display { margin-top: 16px; padding: 12px 16px; border: 1px solid var(--wine); background: var(--surface); }
-        #error-message { color: var(--wine); font-family: var(--serif); }
+        #timer-display {
+            display: none;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+            padding: 10px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            width: fit-content;
+        }
+        #timer-value {
+            font-family: var(--serif);
+            font-size: 22px;
+            color: var(--green-dark);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.04em;
+        }
+        #error-display {
+            margin-top: 20px;
+            padding: 14px 18px;
+            border: 1px solid var(--wine);
+            border-left-width: 3px;
+            background: var(--surface);
+            border-radius: 0 2px 2px 0;
+        }
+        #error-message {
+            color: var(--wine);
+            font-family: var(--serif);
+            font-size: 16px;
+        }
 
         /* Action buttons — leave .tab-btn / #btn-dismiss-timer to their own rules. */
         #btn-get-question, #btn-submit, #feedback-actions button {
@@ -204,6 +347,7 @@
                 <button id="btn-get-question" onclick="getQuestion()">Request a Question</button>
                 <div id="question-loading" style="display:none">Preparing your task…</div>
                 <div id="question-display" style="display:none">
+                    <p class="question-label">The Question</p>
                     <p id="question-prompt"></p>
                     <pre id="chart-description" style="display:none"></pre>
                 </div>
@@ -220,8 +364,10 @@
                     <span id="word-count-warning" style="display:none">— minimum <span id="min-words"></span> words required</span>
                 </div>
                 <textarea id="essay-input" placeholder="Compose your response here." rows="15" oninput="onEssayInput()"></textarea>
-                <button id="btn-submit" onclick="submitEssay()" disabled>Submit for Correction</button>
-                <div id="submit-loading" style="display:none">Examining your essay…</div>
+                <div class="submit-row">
+                    <button id="btn-submit" onclick="submitEssay()" disabled>Submit for Correction</button>
+                    <div id="submit-loading" style="display:none">Examining your essay…</div>
+                </div>
             </div>
 
             <!-- Feedback panel -->
