@@ -161,6 +161,7 @@
         #writing-panel { margin-top: 20px; }
         #question-prompt { font-family: var(--serif); font-size: 18px; line-height: 1.6; }
         #chart-description { background: var(--surface-alt, #f5f5f5); padding: 12px; font-size: 13px; overflow-x: auto; margin-top: 12px; white-space: pre; font-family: var(--sans); }
+        #chart-svg-container svg { max-width: 100%; height: auto; display: block; }
         #question-loading, #submit-loading { font-family: var(--serif); font-style: italic; color: var(--muted); margin: 12px 0; }
         #essay-input {
             width: 100%;
@@ -350,6 +351,7 @@
                     <p class="question-label">The Question</p>
                     <p id="question-prompt"></p>
                     <pre id="chart-description" style="display:none"></pre>
+                    <div id="chart-svg-container" style="display:none; margin-top: 16px; overflow-x: auto;"></div>
                 </div>
             </div>
 
@@ -512,11 +514,20 @@
                 currentQuestionPrompt = data.prompt;
 
                 document.getElementById('question-prompt').textContent = data.prompt;
-                if (data.chart_description) {
+                if (data.chart_svg) {
+                    // Render SVG chart
+                    const svgContainer = document.getElementById('chart-svg-container');
+                    svgContainer.innerHTML = data.chart_svg;
+                    showElement('chart-svg-container');
+                    hideElement('chart-description');
+                } else if (data.chart_description) {
+                    // Fallback: text description
                     document.getElementById('chart-description').textContent = data.chart_description;
                     showElement('chart-description');
+                    hideElement('chart-svg-container');
                 } else {
                     hideElement('chart-description');
+                    hideElement('chart-svg-container');
                 }
                 showElement('question-display');
                 showElement('writing-panel');
@@ -679,6 +690,8 @@
         function resetAll() {
             resetWritingPanel();
             hideElement('question-display');
+            hideElement('chart-svg-container');
+            document.getElementById('chart-svg-container').innerHTML = '';
             currentQuestionId = null;
             currentQuestionPrompt = null;
         }
