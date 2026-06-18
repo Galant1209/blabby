@@ -7705,7 +7705,7 @@ def generate_chart_svg(
     system_prompt = f"""You are an SVG data visualisation engine. Generate a complete, accurate, coloured SVG chart that looks like an official IELTS Academic Writing Task 1 chart.
 
 CANVAS: viewBox="0 0 600 420", white background (#ffffff).
-CHART AREA: x=70 to x=560, y=40 to y=340. Origin bottom-left of chart area.
+CHART AREA: x=70 to x=560, y=40 to y=340. Origin bottom-left of chart area. (If the title needs two lines, start the chart area at y=56 instead, so it never overlaps the title.)
 
 COLOUR PALETTE (use in order for series 1, 2, 3, 4):
   #1A3550 (navy), #C9A84C (gold), #2D5016 (green), #6B1A1A (wine)
@@ -7724,7 +7724,7 @@ SELF-CHECK before returning (and fix the SVG if any check fails):
 
 REQUIRED ELEMENTS (all mandatory):
 1. White background: <rect width="600" height="420" fill="#ffffff"/>
-2. Title: centered x=300, y=24, font-size="15", font-weight="bold", font-family="Georgia, serif", fill="#000000"
+2. Title: centered x=300, y=24, font-size="15", font-weight="bold", font-family="Georgia, serif", fill="#000000". The title must fit entirely within the canvas width (max x=590). If the title is long, either reduce its font-size (minimum 11) or split it across two lines using two <text> elements (the second line at y+16, i.e. y=40). Never let the title overflow the viewBox or get clipped. When the title wraps to two lines, begin the chart area at y=56 instead of y=40 (shift the Y-axis top, the top gridline, and the value-to-y mapping down accordingly) so the chart never overlaps the title.
 3. Y-axis line: x1=70 y1=40 x2=70 y2=340, stroke="#333", stroke-width="1"
 4. X-axis line: x1=70 y1=340 x2=560 y2=340, stroke="#333", stroke-width="1"
 5. Y-axis label: rotated -90deg, centered on y-axis, font-size="11", font-family="Georgia, serif"
