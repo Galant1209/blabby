@@ -7642,6 +7642,7 @@ def _norm_text(s: str) -> str:
 
 
 _CHART_DATA_LABEL_MIN_RATIO = 0.5  # gate 3: at least half the data groups must appear in the SVG
+_CHART_TITLE_MIN_WORD_COVERAGE = 0.7  # gate 2 (soft): >=70% of title words must appear in the SVG
 
 
 def _validate_chart_svg(svg: str, chart_title: str, data_labels: list) -> tuple:
@@ -7655,9 +7656,11 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list) -> tuple:
         label wrongly killed valid charts. Dropping over half the groups is still
         a real BUG-2 regression and hard-fails.
     SOFT gate is logged but never rejects:
-      - gate 2: title reproduced verbatim. A mis-derived _derive_chart_title must
-        not kill an otherwise-correct, data-complete chart, so a title mismatch is
-        warned (with evidence) rather than failed.
+      - gate 2: title word-coverage. Counts how many title words survive into the
+        SVG rather than requiring full-string containment (a title legitimately
+        split across two <text> lines would always fail containment). Below
+        _CHART_TITLE_MIN_WORD_COVERAGE → soft warning only; a mis-derived or
+        genuinely rewritten title still never kills the chart.
     Every reason carries actual values so production logs can tell a real model
     error apart from an over-strict validator."""
     # Gate 1 — structure (HARD)
@@ -7675,12 +7678,19 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list) -> tuple:
         if present_ratio < _CHART_DATA_LABEL_MIN_RATIO:
             return False, f"insufficient_data_labels: {present_ratio:.0%} present, missing={missing!r} (expected={data_labels!r})"
 
-    # Gate 2 — title (SOFT: log only, never reject)
-    if chart_title and _norm_text(chart_title) not in norm_svg:
-        logger.warning(
-            "chart_svg soft check: %s",
-            f"title_mismatch: expected={chart_title!r} not found in svg_text",
-        )
+    # Gate 2 — title word-coverage (SOFT: log only, never reject). Full-string
+    # containment would always fail a title split across two <text> lines, so we
+    # measure how many title words survive into the SVG instead.
+    if chart_title:
+        title_words = [w for w in _norm_text(chart_title).split() if len(w) >= 3]
+        if title_words:
+            missing_words = [w for w in title_words if w not in norm_svg]
+            coverage = (len(title_words) - len(missing_words)) / len(title_words)
+            if coverage < _CHART_TITLE_MIN_WORD_COVERAGE:
+                logger.warning(
+                    "chart_svg soft check: %s",
+                    f"title_low_coverage: {coverage:.0%} words present, missing={missing_words!r}",
+                )
 
     return True, ""
 
