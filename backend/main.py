@@ -7604,32 +7604,66 @@ def generate_chart_svg(task1_subtype: str, chart_description: str) -> str:
     Enhancement only — returns "" on any failure so question generation is
     never blocked."""
     try:
-        system_prompt = (
-            "You are an SVG chart generator. Generate a clean, print-friendly SVG chart "
-            "for an IELTS Writing Task 1 question. Requirements:\n"
-            '- viewBox="0 0 600 400"\n'
-            "- Background: white (#ffffff)\n"
-            '- All text: black (#000000), font-family="Georgia, serif"\n'
-            "- Black and white only — NO colour fills, NO colour strokes\n"
-            "- Distinguish data series using LINE STYLE, not colour:\n"
-            "   - Series 1: solid line, filled circle markers (r=4)\n"
-            '   - Series 2: dashed line (stroke-dasharray="8,4"), diamond markers\n'
-            '   - Series 3: dotted line (stroke-dasharray="2,4"), square markers (4×4)\n'
-            '   - Series 4: dash-dot line (stroke-dasharray="8,4,2,4"), triangle markers\n'
-            '- All lines: stroke="#000000", stroke-width="1.5"\n'
-            '- Grid lines: stroke="#cccccc", stroke-width="0.5", stroke-dasharray="2,2"\n'
-            '- Include: title (font-size="16"), axis labels (font-size="11"), tick labels (font-size="10"), legend with line style samples (font-size="11")\n'
-            "- Legend must show the actual line style (dashed/dotted etc) next to the label, not a colour swatch\n"
-            "- Chart area: left margin 60px, right 20px, top 60px, bottom 60px (for labels)\n"
-            "- Data must match the chart_description exactly\n"
-            "- For bar charts: use hatching patterns (lines/crosshatch) instead of fills to distinguish bars\n"
-            "- For pie charts: use hatching patterns instead of colour fills\n"
-            "- For process diagrams: boxes with solid borders, arrows in black, no fills\n"
-            "- For maps: use different stroke patterns and text labels, no colour fills\n"
-            "- Return ONLY the raw SVG string starting with <svg and ending with </svg>\n"
-            "- No preamble, no markdown, no explanation\n"
-            f"Chart type: {task1_subtype}"
-        )
+        system_prompt = f"""You are an SVG data visualisation engine. Generate a complete, accurate, coloured SVG chart that looks like an official IELTS Academic Writing Task 1 chart.
+
+CANVAS: viewBox="0 0 600 420", white background (#ffffff).
+CHART AREA: x=70 to x=560, y=40 to y=340. Origin bottom-left of chart area.
+
+COLOUR PALETTE (use in order for series 1, 2, 3, 4):
+  #1A3550 (navy), #C9A84C (gold), #2D5016 (green), #6B1A1A (wine)
+
+REQUIRED ELEMENTS (all mandatory):
+1. White background: <rect width="600" height="420" fill="#ffffff"/>
+2. Title: centered x=300, y=24, font-size="15", font-weight="bold", font-family="Georgia, serif", fill="#000000"
+3. Y-axis line: x1=70 y1=40 x2=70 y2=340, stroke="#333", stroke-width="1"
+4. X-axis line: x1=70 y1=340 x2=560 y2=340, stroke="#333", stroke-width="1"
+5. Y-axis label: rotated -90deg, centered on y-axis, font-size="11", font-family="Georgia, serif"
+6. X-axis label: centered x=315, y=412, font-size="11", font-family="Georgia, serif"
+7. Horizontal grid lines: at least 5 evenly spaced, stroke="#e0e0e0", stroke-width="0.5"
+8. Y-axis tick labels: right-aligned at x=65, font-size="10", font-family="Georgia, serif"
+9. X-axis tick labels: centered below axis, font-size="10", font-family="Georgia, serif"
+10. ALL DATA plotted — never leave chart area empty
+11. LEGEND: at y=360-415, horizontal row, line/swatch + label per series, font-size="11", font-family="Georgia, serif"
+
+CHART TYPE RULES:
+BAR CHARTS:
+  - Filled bars, each series gets its colour from palette, opacity="0.85"
+  - Thin black stroke: stroke="#333" stroke-width="0.5"
+  - Calculate bar width mathematically from number of groups and series
+  - Add value labels above each bar, font-size="9"
+
+LINE CHARTS:
+  - stroke-width="2", each series uses palette colour
+  - Circle markers r=4, filled with series colour
+  - Connect all data points with straight lines
+
+PIE CHARTS:
+  - Each slice filled with palette colour
+  - Percentage label inside each slice, font-size="10", fill="#fff"
+  - Category label outside each slice
+
+PROCESS DIAGRAMS:
+  - Boxes: fill="#F5F0E8", stroke="#1A3550", stroke-width="1.5", rx="3"
+  - Arrows: stroke="#1A3550", stroke-width="1.5", marker-end arrowhead
+  - Step text inside boxes, font-size="11"
+
+MAPS (before/after):
+  - Simple floor plan style
+  - Buildings/areas as rectangles with labels
+  - "Before" left side, "After" right side with dividing line
+  - Use fill colours from palette at opacity="0.3"
+
+CALCULATION RULES:
+- Map data values to y: y = 340 - ((value - min) / (max - min)) * 300
+- Scale y-axis with 10% padding above max value
+- Compute all positions mathematically from actual data — no placeholder coordinates
+- Round all coordinates to 1 decimal place
+
+Return ONLY raw SVG. Start exactly with: <svg viewBox="0 0 600 420" xmlns="http://www.w3.org/2000/svg">
+End with: </svg>
+No markdown. No explanation. No preamble.
+
+Chart type: {task1_subtype}"""
         response = anthropic_client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2000,
