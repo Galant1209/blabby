@@ -7828,6 +7828,68 @@ Chart type: {task1_subtype}"""
 
 TASK1_SUBTYPES = ["bar_chart", "line_graph", "pie_chart", "table", "process", "map"]
 
+
+def _writing_question_prompt(subtype: str) -> str:
+    """System prompt to generate one Task 1 question of the given chart subtype.
+    Shared by live generation and pregeneration so both stay identical. Injects
+    data-realism constraints; for bar/line charts it randomises the structure so
+    the bank is not exclusively grouped multi-series charts."""
+    readable = subtype.replace("_", " ")
+
+    realism = (
+        "DATA REALISM (mandatory):\n"
+        "- All data values must be realistic and substantial. Avoid near-zero or zero "
+        "values that would render as invisible bars. Each value should generally fall "
+        "between 5 and 95 for percentages, unless the topic genuinely demands otherwise.\n"
+        "- Values must show a plausible, gradual trend — no implausible jumps from "
+        "near-zero to high values between adjacent periods.\n"
+        "- Choose a plausible topic: education, environment, economy, health, or technology."
+    )
+
+    if subtype == "bar_chart":
+        if random.choice(["single_series", "grouped"]) == "single_series":
+            structure = (
+                "STRUCTURE: a single data series across 4-6 categories or years. "
+                "chart_description format: 'Category | Value' with one value column only."
+            )
+            example = '"Sector | Value\\nEducation | 62\\nHealth | 48\\nTransport | 35\\nHousing | 27"'
+        else:
+            structure = (
+                "STRUCTURE: 2-3 data series across 4-6 categories (at most 3 series, at most 6 categories). "
+                "chart_description format: 'Category | Series A | Series B [| Series C]'."
+            )
+            example = '"Year | Urban | Rural\\n2000 | 45 | 30\\n2005 | 52 | 38\\n2010 | 61 | 44"'
+    elif subtype == "line_graph":
+        if random.choice(["single_line", "multi_line"]) == "single_line":
+            structure = (
+                "STRUCTURE: a single line across 4-6 time periods. "
+                "chart_description format: 'Period | Value' with one value column only."
+            )
+            example = '"Year | Value\\n2000 | 22\\n2005 | 34\\n2010 | 41\\n2015 | 58"'
+        else:
+            structure = (
+                "STRUCTURE: 2-3 lines across 4-6 time periods (at most 3 series). "
+                "chart_description format: 'Period | Series A | Series B [| Series C]'."
+            )
+            example = '"Year | Urban | Rural\\n2000 | 22 | 15\\n2005 | 34 | 29\\n2010 | 41 | 38\\n2015 | 58 | 47"'
+    else:
+        # pie_chart / table / process / map — original plain-text table format.
+        structure = (
+            "STRUCTURE: a readable plain-text table with real-looking data — a header "
+            "row plus 4-6 data rows, columns separated by ' | '."
+        )
+        example = '"Year | Category A | Category B\\n2000 | 45 | 30\\n2005 | 52 | 28\\n2010 | 61 | 24"'
+
+    return (
+        "You are an IELTS examiner. Generate one authentic IELTS Academic Writing "
+        f"Task 1 question. Chart type: {readable}.\n"
+        f"{realism}\n"
+        f"{structure}\n"
+        "Return ONLY valid JSON with no preamble and no markdown fences: "
+        '{"prompt": "The ' + readable + ' below shows...", "chart_description": ' + example + "}"
+    )
+
+
 def pregenerate_writing_questions(target_per_subtype: int = 5):
     """
     Ensure the writing_questions table has at least target_per_subtype
@@ -7861,7 +7923,7 @@ def pregenerate_writing_questions(target_per_subtype: int = 5):
             for _ in range(needed):
                 try:
                     # Generate question text
-                    system_prompt = f"""You are an IELTS examiner. Generate one authentic IELTS Academic Writing Task 1 question. Chart type: {subtype}. The chart_description must be a readable plain-text table with real-looking data on a plausible topic (education, environment, economy, health, or technology). Return ONLY valid JSON with no preamble and no markdown fences: {{"prompt": "The {subtype.replace('_',' ')} below shows...", "chart_description": "Year | Category A | Category B\\n2000 | 45% | 30%\\n2005 | 52% | 28%\\n2010 | 61% | 24%"}}"""
+                    system_prompt = _writing_question_prompt(subtype)
                     resp = anthropic_client.messages.create(
                         model="claude-haiku-4-5-20251001",
                         max_tokens=800,
@@ -8029,15 +8091,7 @@ async def writing_get_question(
             '{"prompt": "...", "essay_type": "opinion|discussion|problem_solution|advantages_disadvantages"}'
         )
     else:
-        system_prompt = (
-            "You are an IELTS examiner. Generate one authentic IELTS Academic Writing "
-            f"Task 1 question. Chart type: {task1_subtype}. The chart_description must be "
-            "a readable plain-text table with real-looking data on a plausible topic "
-            "(education, environment, economy, health, or technology). Return ONLY valid "
-            "JSON with no preamble and no markdown fences: "
-            '{"prompt": "The {chart_type} below shows...", "chart_description": '
-            '"Year | Category A | Category B\\n2000 | 45% | 30%\\n2005 | 52% | 28%\\n2010 | 61% | 24%"}'
-        )
+        system_prompt = _writing_question_prompt(task1_subtype)
 
     try:
         response = anthropic_client.messages.create(
