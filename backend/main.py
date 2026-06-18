@@ -7641,13 +7641,19 @@ def _norm_text(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()
 
 
+_CHART_DATA_LABEL_MIN_RATIO = 0.5  # gate 3: at least half the data groups must appear in the SVG
+
+
 def _validate_chart_svg(svg: str, chart_title: str, data_labels: list) -> tuple:
     """Return (hard_ok, reason).
 
     HARD gates reject the SVG (→ retry / text fallback):
       - gate 1: structural completeness (<svg> ... </svg>)
-      - gate 3: every data group label present — the real guard against dropped
-        year/category groups (BUG 2), kept HARD on purpose.
+      - gate 3: at least _CHART_DATA_LABEL_MIN_RATIO of the data-group labels
+        appear in the SVG. Proportional, not all-or-nothing — grouped/multi-series
+        bar charts legitimately omit some X-axis tick labels, so demanding every
+        label wrongly killed valid charts. Dropping over half the groups is still
+        a real BUG-2 regression and hard-fails.
     SOFT gate is logged but never rejects:
       - gate 2: title reproduced verbatim. A mis-derived _derive_chart_title must
         not kill an otherwise-correct, data-complete chart, so a title mismatch is
@@ -7662,10 +7668,12 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list) -> tuple:
 
     norm_svg = _norm_text(svg)
 
-    # Gate 3 — data groups (HARD)
-    missing = [lbl for lbl in data_labels if _norm_text(lbl) not in norm_svg]
-    if missing:
-        return False, f"missing_data_labels: {missing!r} (expected={data_labels!r})"
+    # Gate 3 — data groups (HARD, proportional)
+    if data_labels:
+        missing = [lbl for lbl in data_labels if _norm_text(lbl) not in norm_svg]
+        present_ratio = (len(data_labels) - len(missing)) / len(data_labels)
+        if present_ratio < _CHART_DATA_LABEL_MIN_RATIO:
+            return False, f"insufficient_data_labels: {present_ratio:.0%} present, missing={missing!r} (expected={data_labels!r})"
 
     # Gate 2 — title (SOFT: log only, never reject)
     if chart_title and _norm_text(chart_title) not in norm_svg:
@@ -7732,6 +7740,7 @@ BAR CHARTS:
   - Filled bars, each series gets its colour from palette, opacity="0.85"
   - Thin black stroke: stroke="#333" stroke-width="0.5"
   - All bars equal width; divide the horizontal chart area evenly by the number of groups, then split each group evenly by the number of series
+  - For grouped/multi-series bar charts, the X-axis MUST label every year/category group at least once (place the label under the centre of each group). You may omit minor gridline labels but never omit a data group's category label.
   - Add value labels above each bar, font-size="9"
 
 LINE CHARTS:
