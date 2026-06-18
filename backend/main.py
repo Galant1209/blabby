@@ -7599,18 +7599,120 @@ async def debug_sse_test():
     )
 
 
-def generate_chart_svg(task1_subtype: str, chart_description: str) -> str:
-    """Render an SVG chart for a Task 1 question from its plain-text data.
-    Enhancement only — returns "" on any failure so question generation is
-    never blocked."""
-    try:
-        system_prompt = f"""You are an SVG data visualisation engine. Generate a complete, accurate, coloured SVG chart that looks like an official IELTS Academic Writing Task 1 chart.
+def _derive_chart_title(question_prompt: str) -> str:
+    """Best-effort chart title from the question's first sentence, stripping the
+    'The <chart> below shows ...' lead-in so it reads like a heading, not an
+    instruction. Used only when the caller supplies no explicit title."""
+    parts = re.split(r"(?<=[.?!])\s+", (question_prompt or "").strip())
+    first = parts[0].strip() if parts else ""
+    m = re.match(
+        r"^the\s+.*?\b(?:show|shows|illustrate|illustrates|depict|depicts|give|gives|compare|compares|present|presents|provide|provides)\b\s+(.*)$",
+        first,
+        flags=re.IGNORECASE,
+    )
+    title = (m.group(1).strip() if m else first).rstrip(".").strip()
+    if title:
+        title = title[0].upper() + title[1:]
+    return title or first
+
+
+def _chart_data_labels(chart_description: str) -> list:
+    """Row labels (first column, e.g. years/categories) of a pipe-delimited
+    table, excluding the header. Returns [] when the description is not a
+    parseable table, so the group-presence check is simply skipped there."""
+    lines = [ln for ln in (chart_description or "").splitlines() if ln.strip()]
+    pipe_lines = [ln for ln in lines if "|" in ln]
+    if len(pipe_lines) < 2:
+        return []
+    labels = []
+    for i, ln in enumerate(pipe_lines):
+        if i == 0:
+            continue  # header row
+        first = ln.split("|")[0].strip()
+        if first:
+            labels.append(first)
+    return labels
+
+
+def _norm_text(s: str) -> str:
+    """Lowercase, collapse whitespace, unify dash variants — tolerant matching
+    against text the model rendered into the SVG."""
+    s = re.sub(r"[‐-―]", "-", s or "")
+    return re.sub(r"\s+", " ", s).strip().lower()
+
+
+def _validate_chart_svg(svg: str, chart_title: str, data_labels: list) -> tuple:
+    """Return (hard_ok, reason).
+
+    HARD gates reject the SVG (→ retry / text fallback):
+      - gate 1: structural completeness (<svg> ... </svg>)
+      - gate 3: every data group label present — the real guard against dropped
+        year/category groups (BUG 2), kept HARD on purpose.
+    SOFT gate is logged but never rejects:
+      - gate 2: title reproduced verbatim. A mis-derived _derive_chart_title must
+        not kill an otherwise-correct, data-complete chart, so a title mismatch is
+        warned (with evidence) rather than failed.
+    Every reason carries actual values so production logs can tell a real model
+    error apart from an over-strict validator."""
+    # Gate 1 — structure (HARD)
+    has_open = "<svg" in (svg or "")
+    has_close = "</svg>" in (svg or "")
+    if not svg or not has_open or not has_close:
+        return False, f"incomplete_svg: has_open={has_open}, has_close={has_close}, len={len(svg or '')}"
+
+    norm_svg = _norm_text(svg)
+
+    # Gate 3 — data groups (HARD)
+    missing = [lbl for lbl in data_labels if _norm_text(lbl) not in norm_svg]
+    if missing:
+        return False, f"missing_data_labels: {missing!r} (expected={data_labels!r})"
+
+    # Gate 2 — title (SOFT: log only, never reject)
+    if chart_title and _norm_text(chart_title) not in norm_svg:
+        logger.warning(
+            "chart_svg soft check: %s",
+            f"title_mismatch: expected={chart_title!r} not found in svg_text",
+        )
+
+    return True, ""
+
+
+def generate_chart_svg(
+    task1_subtype: str,
+    chart_description: str,
+    question_prompt: str,
+    chart_title: Optional[str] = None,
+) -> Optional[str]:
+    """Render a coloured SVG chart for a Task 1 question.
+
+    The question text and the chart are produced by two separate model calls, so
+    the chart model is handed the verbatim title and the exact data and forbidden
+    to invent either. The result is validated (complete tags, title reproduced,
+    every data group present); on failure we retry once (max 2 attempts) and then
+    return None so the caller falls back to the plain-text description.
+    Enhancement only — never raises."""
+    title = (chart_title or "").strip() or _derive_chart_title(question_prompt)
+    data_labels = _chart_data_labels(chart_description)
+
+    system_prompt = f"""You are an SVG data visualisation engine. Generate a complete, accurate, coloured SVG chart that looks like an official IELTS Academic Writing Task 1 chart.
 
 CANVAS: viewBox="0 0 600 420", white background (#ffffff).
 CHART AREA: x=70 to x=560, y=40 to y=340. Origin bottom-left of chart area.
 
 COLOUR PALETTE (use in order for series 1, 2, 3, 4):
   #1A3550 (navy), #C9A84C (gold), #2D5016 (green), #6B1A1A (wine)
+
+DATA INTEGRITY (mandatory):
+- Use ONLY the data supplied in the user message. Never invent, add, omit, or alter any data point or value.
+- The chart title MUST be exactly the title supplied in the user message. Do not paraphrase, summarise, or invent a new title. Reproduce it verbatim.
+- Before drawing, emit one SVG comment listing every data point you will plot, e.g. <!-- data: 2000=45, 2005=52, 2010=61 -->
+- Then draw exactly one visual element per listed data point. The number of bars / line points / pie slices MUST equal the number of data points. Never truncate.
+- Every row label (year/category) from the data MUST appear as an axis tick label. No group may be missing.
+
+SELF-CHECK before returning (and fix the SVG if any check fails):
+- bar / point / slice count == number of data points
+- every year/category label is present as a tick label
+- the title text matches the supplied title verbatim
 
 REQUIRED ELEMENTS (all mandatory):
 1. White background: <rect width="600" height="420" fill="#ffffff"/>
@@ -7629,7 +7731,7 @@ CHART TYPE RULES:
 BAR CHARTS:
   - Filled bars, each series gets its colour from palette, opacity="0.85"
   - Thin black stroke: stroke="#333" stroke-width="0.5"
-  - Calculate bar width mathematically from number of groups and series
+  - All bars equal width; divide the horizontal chart area evenly by the number of groups, then split each group evenly by the number of series
   - Add value labels above each bar, font-size="9"
 
 LINE CHARTS:
@@ -7664,23 +7766,52 @@ End with: </svg>
 No markdown. No explanation. No preamble.
 
 Chart type: {task1_subtype}"""
-        response = anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=2000,
-            system=system_prompt,
-            messages=[{"role": "user", "content": f"Chart description:\n{chart_description}\n\nGenerate the SVG now."}],
-        )
-        content = (response.content[0].text or "").strip()
-        if content.startswith("```"):
-            content = re.sub(r"^```(?:svg|html|xml|json)?\s*", "", content)
-            content = re.sub(r"\s*```$", "", content)
-        content = content.strip()
-        if not content.startswith("<svg"):
-            raise ValueError("SVG generation failed")
-        return content
-    except Exception:
-        logger.warning("generate_chart_svg failed; returning empty string", exc_info=True)
-        return ""
+    user_message = (
+        f"Chart type: {task1_subtype}\n"
+        f"CHART TITLE (reproduce verbatim, do not change a single character):\n{title}\n\n"
+        f"Original question (context only — do not use it as the title):\n{question_prompt}\n\n"
+        f"Data — plot every single point listed, drop nothing:\n{chart_description}\n\n"
+        "Generate the SVG now."
+    )
+
+    max_attempts = 2
+    last_reason = "unknown"
+    for attempt in range(max_attempts):
+        try:
+            response = anthropic_client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=4000,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            content = (response.content[0].text or "").strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:svg|html|xml|json)?\s*", "", content)
+                content = re.sub(r"\s*```$", "", content)
+            content = content.strip()
+            hard_ok, reason = _validate_chart_svg(content, title, data_labels)
+            if hard_ok:
+                logger.info(
+                    "generate_chart_svg ok (attempt %d): title=%r, data_points=%d",
+                    attempt + 1, title, len(data_labels),
+                )
+                return content
+            last_reason = reason
+            logger.warning(
+                "generate_chart_svg validation failed (attempt %d/%d): %s",
+                attempt + 1, max_attempts, reason,
+            )
+        except Exception as exc:
+            last_reason = f"exception: {exc}"
+            logger.warning(
+                "generate_chart_svg call failed (attempt %d/%d)",
+                attempt + 1, max_attempts, exc_info=True,
+            )
+    logger.warning(
+        "generate_chart_svg giving up after %d attempts; last reason: %s",
+        max_attempts, last_reason,
+    )
+    return None
 
 
 TASK1_SUBTYPES = ["bar_chart", "line_graph", "pie_chart", "table", "process", "map"]
@@ -7736,7 +7867,7 @@ def pregenerate_writing_questions(target_per_subtype: int = 5):
                     # Generate SVG
                     chart_svg = ""
                     if parsed.get("chart_description"):
-                        chart_svg = generate_chart_svg(subtype, parsed["chart_description"])
+                        chart_svg = generate_chart_svg(subtype, parsed["chart_description"], parsed["prompt"])
 
                     ins = supabase_admin.table("writing_questions").insert({
                         "task_type": "task1",
@@ -7917,7 +8048,7 @@ async def writing_get_question(
 
     chart_svg = ""
     if task_type == "task1" and parsed.get("chart_description"):
-        chart_svg = generate_chart_svg(task1_subtype, parsed["chart_description"])
+        chart_svg = generate_chart_svg(task1_subtype, parsed["chart_description"], parsed["prompt"])
 
     insert_data = {
         "task_type": task_type,
