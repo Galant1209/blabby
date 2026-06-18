@@ -447,20 +447,27 @@
         }
 
         async function checkProStatus() {
-            // For this sprint, an active subscription is treated as Pro. The
-            // backend (is_user_pro RPC) remains the authoritative gate.
             try {
-                const res = await fetch(`${API_BASE}/api/user/subscription`, {
+                const res = await fetch(`${API_BASE}/reading/quota`, {
                     headers: { Authorization: `Bearer ${currentSession.access_token}` }
                 });
                 if (res.ok) {
                     const data = await res.json();
-                    const sub = data.subscription;
-                    isProUser = !!(sub && sub.status === 'active');
+                    isProUser = !!(data.is_pro);
+                    document.getElementById('pro-badge').style.display = isProUser ? 'none' : 'inline';
+                    return;
                 }
-            } catch (e) {
-                isProUser = false;
-            }
+            } catch (e) {}
+            // Fallback: check subscription
+            try {
+                const res2 = await fetch(`${API_BASE}/api/user/subscription`, {
+                    headers: { Authorization: `Bearer ${currentSession.access_token}` }
+                });
+                if (res2.ok) {
+                    const data2 = await res2.json();
+                    isProUser = !!(data2.subscription && data2.subscription.status === 'active');
+                }
+            } catch (e) {}
             document.getElementById('pro-badge').style.display = isProUser ? 'none' : 'inline';
         }
 
