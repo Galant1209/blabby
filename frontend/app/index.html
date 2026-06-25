@@ -403,31 +403,6 @@
             line-height: 1.5;
         }
 
-        .skill-entry-list {
-            display: grid;
-            gap: 8px;
-            margin-top: 22px;
-        }
-        .skill-entry {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 10px 0;
-            border-top: 1px dashed var(--border);
-            font-family: 'EB Garamond', 'Noto Serif TC', serif;
-            font-size: 15px;
-            color: var(--ink);
-        }
-        .skill-entry-status {
-            flex-shrink: 0;
-            color: var(--muted);
-            font-style: italic;
-        }
-        .skill-entry-open .skill-entry-status {
-            color: var(--green);
-            font-style: normal;
-        }
-
         .speaking-practice {
             display: none;
             flex-direction: column;
@@ -1975,53 +1950,37 @@
             margin-top: 14px;
         }
 
-        /* Skill modules — 4-column grid (2x2 below 380px), vertical layout per cell */
-        .skill-entry-list-v3 {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 10px;
-            margin-top: 18px;
-            padding: 12px 0;
-            border-top: 1px solid var(--border);
-            border-bottom: 1px solid var(--border);
+        /* Module cards — Speaking / Writing / Reading equalized entries. */
+        .module-card-tagline {
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-style: italic;
+            font-size: 15px;
+            color: var(--ink-soft);
+            line-height: 1.6;
+            margin: 2px 0 18px;
         }
-        @media (max-width: 380px) {
-            .skill-entry-list-v3 { grid-template-columns: repeat(2, 1fr); }
-        }
-        .skill-entry-list-v3 .skill-entry {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-            gap: 4px;
-            background: transparent;
-            border: none;
-            padding: 6px 4px;
-            color: var(--muted);
-        }
-        .skill-entry-list-v3 .skill-entry-open { color: var(--green); }
-        .skill-entry__icon { display: inline-flex; }
-        .skill-entry__label {
-            font-family: var(--sans);
-            font-size: 12px;
-            font-weight: 500;
-            color: inherit;
-        }
-        .skill-entry__indicator {
+        .module-card-btn {
             display: block;
-            width: 24px;
-            height: 2px;
-            background: var(--border);
-            border-radius: 1px;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: center;
+            text-decoration: none;
+            background: var(--green);
+            color: var(--gold);
+            border: none;
+            border-radius: 6px;
+            padding: 13px 18px;
+            font-family: var(--serif);
+            font-weight: 700;
+            font-size: 15px;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            transition: background 0.2s ease, color 0.2s ease;
         }
-        .skill-entry__indicator--active { background: var(--green); }
-        .skill-entry-list-v3 .skill-entry-status {
-            font-size: 9px;
-            letter-spacing: 0.06em;
-            color: var(--muted);
-            text-transform: uppercase;
+        .module-card-btn:hover {
+            background: var(--green-dark);
+            color: var(--gold-warm);
         }
-        .skill-entry-list-v3 .skill-entry-open .skill-entry-status { color: var(--green); }
 
         /* Weakness block — gold left border + ::after quill (lightbulb
            badge removed; ℞ rx-mark inside the rendered hero is the
@@ -3163,24 +3122,10 @@
 
         </section>
 
-        <section id="quick-start" class="practice-hub card-v3" style="margin-bottom: 16px;">
-            <button class="practice-hub-btn" id="quick-start-btn">
-                開始今日練習
-            </button>
-        </section>
-
-        <section id="diagnosis-entry" class="practice-hub card-v3 fade-in" style="margin-bottom: 16px;">
-            <div class="card-v3__icon-badge" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
-            </div>
-            <h2>Behold Thy Progress</h2>
-            <p class="practice-hub-copy">An honest examination of thy speaking patterns, drawn from every practice thou hast undertaken.</p>
-            <button id="diagnosis-entry-btn" class="practice-hub-btn">查看我的診斷報告 ›</button>
-        </section>
-
-        <section id="practice-hub" class="practice-hub card-v3 fade-in">
+        <section id="practice-hub" class="practice-hub card-v3 fade-in module-card" style="margin-bottom: 16px;">
             <div class="practice-deco" aria-hidden="true"></div>
-            <h2><span class="card-v3__head-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>今天的口說練習</h2>
+            <h2><span class="card-v3__head-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>Speaking</h2>
+            <p class="module-card-tagline">Practise thy tongue, one mended sentence at a time.</p>
             <p class="practice-hub-copy" id="practice-hub-copy">先把一個卡點修掉，再往下一題走。</p>
             <div class="practice-hub-weakness">
                 <div class="practice-hub-label" id="practice-hub-label">今天我們先抓：</div>
@@ -3197,32 +3142,27 @@
                 </div>
                 <button id="daily-question-btn" class="practice-hub-btn daily-question__cta">開始練習</button>
             </section>
-            <div class="skill-entry-list skill-entry-list-v3" aria-label="技能入口">
-                <div class="skill-entry skill-entry-open">
-                    <span class="skill-entry__icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></span>
-                    <span class="skill-entry__label">Speaking</span>
-                    <span class="skill-entry__indicator skill-entry__indicator--active"></span>
-                    <span class="skill-entry-status">已開放</span>
-                </div>
-                <div class="skill-entry">
-                    <span class="skill-entry__icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg></span>
-                    <span class="skill-entry__label">Writing</span>
-                    <span class="skill-entry__indicator"></span>
-                    <span class="skill-entry-status">即將推出</span>
-                </div>
-                <a href="/reading.html" class="skill-entry skill-entry-open" style="text-decoration:none; color:inherit;" onclick="try{window.analytics&&window.analytics.track('reading_hub_clicked')}catch(_){}">
-                    <span class="skill-entry__icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
-                    <span class="skill-entry__label">Reading</span>
-                    <span class="skill-entry__indicator skill-entry__indicator--active"></span>
-                    <span class="skill-entry-status">已開放</span>
-                </a>
-                <div class="skill-entry">
-                    <span class="skill-entry__icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>
-                    <span class="skill-entry__label">Listening</span>
-                    <span class="skill-entry__indicator"></span>
-                    <span class="skill-entry-status">即將推出</span>
-                </div>
+        </section>
+
+        <section id="writing-hub" class="practice-hub card-v3 fade-in module-card" style="margin-bottom: 16px;">
+            <h2><span class="card-v3__head-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg></span>Writing</h2>
+            <p class="module-card-tagline">Let thy pen render order from data and discourse.</p>
+            <a id="writing-hub-btn" class="practice-hub-btn module-card-btn" href="/writing.html" onclick="try{window.analytics&&window.analytics.track('writing_hub_clicked')}catch(_){}">進入寫作練習</a>
+        </section>
+
+        <section id="reading-hub" class="practice-hub card-v3 fade-in module-card" style="margin-bottom: 16px;">
+            <h2><span class="card-v3__head-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>Reading</h2>
+            <p class="module-card-tagline">Read with intent; let no passage pass unexamined.</p>
+            <a id="reading-hub-btn" class="practice-hub-btn module-card-btn" href="/reading.html" onclick="try{window.analytics&&window.analytics.track('reading_hub_clicked')}catch(_){}">進入閱讀練習</a>
+        </section>
+
+        <section id="diagnosis-entry" class="practice-hub card-v3 fade-in" style="margin-bottom: 16px;">
+            <div class="card-v3__icon-badge" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
             </div>
+            <h2>Behold Thy Progress</h2>
+            <p class="practice-hub-copy">An honest examination of thy speaking patterns, drawn from every practice thou hast undertaken.</p>
+            <button id="diagnosis-entry-btn" class="practice-hub-btn">查看我的診斷報告 ›</button>
         </section>
 
         <!-- Weakness summary block — owned by feature/weakness-summary.
@@ -4039,16 +3979,12 @@
                 loadVocabDueCount(),
             ]);
             if (practiceHub) practiceHub.style.display = '';
-            const quickStart = document.getElementById('quick-start');
-            if (quickStart) quickStart.style.display = '';
             updatePracticeHubState();
             renderWeaknessSummary();
         }
 
         function showSpeakingPractice() {
             if (practiceHub) practiceHub.style.display = 'none';
-            const quickStart = document.getElementById('quick-start');
-            if (quickStart) quickStart.style.display = 'none';
             if (speakingPractice) speakingPractice.classList.add('visible');
             const switcher = p2El('part-switcher');
             if (switcher) switcher.style.display = '';
@@ -5443,6 +5379,7 @@
         }
 
         startPracticeBtn.addEventListener('click', () => {
+            try { window.analytics && window.analytics.track('speaking_hub_clicked'); } catch (_) { /* never block on tracking */ }
             // Resume flow: only trigger when we have a valid unresolved session
             // AND its tag maps to a known label. Otherwise fall through to the
             // normal "start today's practice" behaviour.
@@ -5467,17 +5404,6 @@
             }
             showSpeakingPractice();
         });
-
-        // Quick-start CTA at top of Hub — delegates to the existing
-        // start-practice-btn handler so resume / daily-question state
-        // logic stays single-sourced. .click() works regardless of
-        // whether start-practice-btn is currently visible.
-        const quickStartBtn = document.getElementById('quick-start-btn');
-        if (quickStartBtn) {
-            quickStartBtn.addEventListener('click', () => {
-                startPracticeBtn.click();
-            });
-        }
 
         if (dailyQuestionBtn) {
             dailyQuestionBtn.addEventListener('click', () => {
