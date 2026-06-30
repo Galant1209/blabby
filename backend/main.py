@@ -2305,15 +2305,27 @@ async def process(
 
                 try:
                     insert_resp = supabase_admin.table("practice_records").insert(payload).execute()
-                    persisted = True
+                    # 不要信任 200:寫入沒回傳 row 代表這次 drill 紀錄沒落地,
+                    # drill 是 Pro 路徑,寫入斷掉不可靜默放行讓 UI 顯示成功。
                     rows = insert_resp.data or []
-                    if rows:
-                        new_record_id = rows[0].get("id")
+                    if not rows:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to persist practice record",
+                        )
+                    persisted = True
+                    new_record_id = rows[0].get("id")
+                except HTTPException:
+                    raise
                 except Exception as e:
                     logger.exception(
                         "drill practice_record insert failed",
                         extra={"user_id": user_id, "drill_tag": drill_tag, "error": str(e)},
                     )
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to persist practice record",
+                    ) from e
 
                 if new_record_id:
                     asyncio.create_task(classify_quality_background(
