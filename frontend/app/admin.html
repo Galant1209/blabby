@@ -1649,6 +1649,22 @@
     });
   }
 
+  // Resolve a user_id to an email via the already-loaded user set (the
+  // cross-student writing/reading endpoints return user_id only).
+  function emailFor(uid) {
+    const u = (state.users || []).find(x => x.user_id === uid);
+    return (u && u.email) || (uid ? uid.slice(0, 8) : '—');
+  }
+
+  // Cross-link: jump from a monitoring row into that student's 用戶管理 detail,
+  // landing on the given sub-tab. Core to the handoff's "fewer clicks" IA.
+  async function jumpToStudent(uid, sub) {
+    if (!uid) return;
+    activateTab('users');
+    await selectUser(uid);
+    if (sub) activateSubtab(sub);
+  }
+
   async function loadWritingSubmissions() {
     const host = $('writing-content');
     host.innerHTML = '<div class="col__empty">Loading…</div>';
@@ -1726,7 +1742,7 @@
         return;
       }
       const data = await res.json();
-      renderReadingList(data.attempts || []);
+      renderReadingMonitor(data.attempts || []);
     } catch (err) {
       console.error('loadReadingAttempts error', err);
       host.innerHTML = '<div class="col__empty">Network error</div>';
@@ -1793,6 +1809,43 @@
     const summary = `<div class="ltab-summary">${atts.length} 筆 · <strong>${zombies}</strong> 筆擱置未答</div>`;
     host.innerHTML = summary + rows;
     bindRowToggles(host);
+  }
+
+  // Cross-student Reading monitoring list (handoff §3.5): shows 學生 email,
+  // zombies greyed + tallied, and each row jumps to that student's 閱讀
+  // sub-tab. No inline detail here — the student detail is one click away.
+  function renderReadingMonitor(atts) {
+    const host = $('reading-content');
+    if (!atts.length) {
+      host.innerHTML = '<div class="col__empty">No attempts.</div>';
+      return;
+    }
+    let zombies = 0;
+    const rows = atts.map(a => {
+      const p = a.reading_passages || {};
+      const cnt = a.answer_count || 0;
+      const isZombie = a.status === 'in_progress' && cnt === 0;
+      const inProgress = a.status === 'in_progress' && cnt > 0;
+      if (isZombie) zombies += 1;
+      let badge, rowCls;
+      if (isZombie) { badge = '<span class="badge invalid">擱置未答</span>'; rowCls = 'lrow zombie'; }
+      else if (inProgress) { badge = '<span class="badge partial">答而未竟</span>'; rowCls = 'lrow'; }
+      else { badge = '<span class="badge valid">已呈繳</span>'; rowCls = 'lrow'; }
+      return `
+        <div class="${rowCls}" data-uid="${escapeHtml(a.user_id || '')}">
+          <div class="lrow__time">${escapeHtml(fmtTime(a.started_at))}</div>
+          <div class="lrow__main">
+            <div class="lrow__title">${p.title ? escapeHtml(truncate(p.title, 50)) : '(no passage)'}</div>
+            <div class="lrow__meta">${escapeHtml(emailFor(a.user_id))} · ${cnt} answered · ${a.score ?? '—'}/${a.total ?? '—'} · ${escapeHtml(p.difficulty_band || '—')}</div>
+          </div>
+          <div>${badge}</div>
+        </div>`;
+    }).join('');
+    const summary = `<div class="ltab-summary">${atts.length} 筆 · <strong>${zombies}</strong> 筆擱置未答</div>`;
+    host.innerHTML = summary + rows;
+    host.querySelectorAll('.lrow').forEach(row => {
+      row.addEventListener('click', () => jumpToStudent(row.dataset.uid, 'reading'));
+    });
   }
 
   // === 用戶管理 寫作 / 閱讀 sub-tabs (Phase 2b-2) ===
