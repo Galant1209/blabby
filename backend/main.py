@@ -2522,6 +2522,7 @@ async def process(
             "witness_note":         witness_note,
             "witness_is_milestone": witness_is_milestone,
             "persisted":            persisted,
+            "record_id":            new_record_id,
         }
         # Drill mode adds drill_score; non-drill turns return identical shape
         # to the previous version (acceptance: existing /process callers
