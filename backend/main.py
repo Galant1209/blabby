@@ -5269,6 +5269,57 @@ async def admin_user_records(
         raise HTTPException(status_code=500, detail="Failed to load admin data") from exc
 
 
+@app.get("/admin/writing/submissions")
+@limiter.limit("30/minute")
+async def admin_writing_submissions(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    List ALL writing submissions across users, newest first, for the admin
+    Writing module view (B pattern: one flat list, not per-user).
+
+    Embeds the question prompt via the writing_submissions.question_id FK
+    (writing_submissions_question_id_fkey → writing_questions.id). question_id
+    is nullable, so the embedded writing_questions object is null for
+    submissions without a linked question — kept as-is, never an error.
+
+    email is NOT resolved here: a cross-user list would need one auth lookup
+    per row. Rows carry user_id only; resolve email lazily on drill-in if the
+    UI needs it. Capped at 200 as a future-proof guard (currently ~2 rows).
+    """
+    try:
+        verify_admin(authorization)
+        response = (
+            supabase_admin.table("writing_submissions")
+            .select(
+                "id, user_id, task_type, word_count, band_overall, priority_fix, "
+                "is_retry, submitted_at, question_id, essay_text, "
+                "feedback_ta, feedback_cc, feedback_lr, feedback_gra, "
+                "fix_ta, fix_cc, fix_lr, fix_gra, "
+                "band_ta, band_cc, band_lr, band_gra, "
+                "writing_questions(prompt, task1_subtype, essay_type)"
+            )
+            .order("submitted_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        # Don't trust 200: .data is None signals a query fault; an empty list
+        # is the legitimate "no submissions yet" state.
+        if response.data is None:
+            raise HTTPException(status_code=500, detail="Failed to load writing submissions")
+        rows = response.data
+        return {
+            "total": len(rows),
+            "submissions": rows,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin writing submissions endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load writing submissions") from exc
+
+
 def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
     """
     Build a diagnosis for one user from their practice records. Used by
