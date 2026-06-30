@@ -3051,6 +3051,10 @@
                     <div id="better-expression" class="expression-en"></div>
                     <div id="better-expression-zh" class="expression-zh"></div>
                 </div>
+                <div id="repair-next-task" class="feedback-item" style="display:none">
+                    <div class="feedback-label">趁此刻，再說一遍</div>
+                    <div id="repair-next-task-text" class="session-insight-text"></div>
+                </div>
                 <div class="feedback-item">
                     <div class="feedback-label">這一輪你學到什麼</div>
                     <div id="session-insight" class="session-insight-text"></div>
@@ -5357,6 +5361,20 @@
             // 更好的說法
             document.getElementById('better-expression').textContent = data.better_expression || '';
             document.getElementById('better-expression-zh').textContent = data.better_expression_zh || '';
+
+            // 趁此刻，再說一遍 — 後端 normal 流程回傳的修復指令原文（data.next_task）
+            const repairNextTask = (data.next_task || '').trim();
+            const repairBlock = document.getElementById('repair-next-task');
+            const repairTextEl = document.getElementById('repair-next-task-text');
+            if (repairBlock && repairTextEl) {
+                if (repairNextTask) {
+                    repairTextEl.textContent = repairNextTask;
+                    repairBlock.style.display = '';
+                } else {
+                    repairTextEl.textContent = '';
+                    repairBlock.style.display = 'none';
+                }
+            }
 
             // 本輪學習重點
             document.getElementById('session-insight').textContent = getSessionInsight(data.weakness_tag);
