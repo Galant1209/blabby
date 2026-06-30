@@ -5320,6 +5320,69 @@ async def admin_writing_submissions(
         raise HTTPException(status_code=500, detail="Failed to load writing submissions") from exc
 
 
+@app.get("/admin/reading/attempts")
+@limiter.limit("30/minute")
+async def admin_reading_attempts(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    List ALL reading attempts across users, newest first, for the admin
+    Reading module view (B pattern: one flat list, not per-user). Built so
+    a "zombie" attempt (status=in_progress with zero answers) is obvious.
+
+    Embeds:
+      - passage info via reading_attempts.passage_id FK
+        (reading_attempts_passage_id_fkey → reading_passages.id)
+      - the attempt's answers via reading_answers.attempt_id FK
+        (reading_answers_attempt_id_fkey → reading_attempts.id), pulled as
+        id-only rows and flattened to an integer answer_count below.
+
+    Why id-list embed (not a count aggregate): reading_answers(id) is the
+    same FK resource-embed already proven in this stack (writing endpoint);
+    the PostgREST count-aggregate-in-embed spelling is version/config
+    dependent and unverifiable from here, so it's avoided. Answers per
+    attempt are tiny (<= question count), so the id payload is negligible.
+
+    email is NOT resolved here (cross-user list); rows carry user_id only.
+    Capped at 200.
+    """
+    try:
+        verify_admin(authorization)
+        response = (
+            supabase_admin.table("reading_attempts")
+            .select(
+                "id, user_id, passage_id, started_at, submitted_at, "
+                "score, total, band_estimate, status, "
+                "reading_passages(title, difficulty_band, word_count), "
+                "reading_answers(id)"
+            )
+            .order("started_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        # Don't trust 200: .data is None signals a query fault; an empty list
+        # is the legitimate "no attempts yet" state.
+        if response.data is None:
+            raise HTTPException(status_code=500, detail="Failed to load reading attempts")
+        rows = response.data
+        # Flatten the embedded answers id-list into a single integer per
+        # attempt so the frontend can spot zombies (in_progress + 0 answers)
+        # without digging through nested objects.
+        for row in rows:
+            answers = row.pop("reading_answers", None) or []
+            row["answer_count"] = len(answers)
+        return {
+            "total": len(rows),
+            "attempts": rows,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin reading attempts endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load reading attempts") from exc
+
+
 def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
     """
     Build a diagnosis for one user from their practice records. Used by
