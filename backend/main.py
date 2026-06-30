@@ -1810,6 +1810,7 @@ async def process(
     mode: str = Form(""),
     drill_tag: str = Form(""),
     previous_transcript: str = Form(""),
+    retry_of: str = Form(""),
     authorization: Optional[str] = Header(None),
 ):
     try:
@@ -1824,6 +1825,18 @@ async def process(
                 status_code=422,
                 detail="The question accompanying this response hath gone astray. Pray, attempt the exercise afresh.",
             )
+
+        # retry_of: speaking 的 retry turn 指向「被重講的那一筆」practice_record。
+        # 空字串 / None → 首次作答,存 None。非空則 strip 後必須是合法 UUID;
+        # 不在這裡查 DB 確認該 id 存在,交給 FK 約束把關,避免拖慢熱路徑。
+        retry_of_clean: Optional[str] = None
+        _retry_of_raw = (retry_of or "").strip()
+        if _retry_of_raw:
+            try:
+                uuid.UUID(_retry_of_raw)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="invalid retry_of")
+            retry_of_clean = _retry_of_raw
 
         # Monthly feedback quota for free users — 20 sessions per UTC
         # calendar month. Pro skip entirely. Placed BEFORE the drill
@@ -2320,20 +2333,33 @@ async def process(
                     "next_question":        next_question,
                     "weakness_tag":         weakness_tag,
                     "memory_snapshot":      memory_snapshot,
+                    "retry_of":             retry_of_clean,   # None 或合法 UUID 字串
                 }
                 try:
                     insert_resp = supabase_admin.table("practice_records").insert(normal_payload).execute()
+                    # 不要信任 200:寫入沒回傳 row 代表這次 practice_record(含 retry_of
+                    # 鏈路)可能沒落地,不可靜默放行讓 UI 顯示成功。
+                    rows = insert_resp.data or []
+                    if not rows:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to persist practice record",
+                        )
                     persisted = True
                     # Capture the fresh row's id so the resolution lookup below
                     # can cleanly exclude it (avoids relying on ordering races).
-                    rows = insert_resp.data or []
-                    if rows:
-                        new_record_id = rows[0].get("id")
-                except Exception:
+                    new_record_id = rows[0].get("id")
+                except HTTPException:
+                    raise
+                except Exception as exc:
                     logger.exception(
                         "failed to insert practice_record",
                         extra={"user_id": user_id},
                     )
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to persist practice record",
+                    ) from exc
 
                 if new_record_id:
                     asyncio.create_task(classify_quality_background(
