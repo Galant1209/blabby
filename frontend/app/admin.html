@@ -972,6 +972,7 @@
     userSearch: '',       // left-list email search
     userSort: 'recent',   // 'recent' | 'count' | 'az'
     userFilter: 'all',    // 'all' | 'pro' | 'free' | 'practiced'
+    writingTask: 'all',   // Writing tab filter: 'all' | 'task1' | 'task2'
   };
 
   // === Helpers ===
@@ -1677,7 +1678,7 @@
         return;
       }
       const data = await res.json();
-      renderWritingList(data.submissions || []);
+      renderWritingQueue(data.submissions || []);
     } catch (err) {
       console.error('loadWritingSubmissions error', err);
       host.innerHTML = '<div class="col__empty">Network error</div>';
@@ -1809,6 +1810,59 @@
     const summary = `<div class="ltab-summary">${atts.length} 筆 · <strong>${zombies}</strong> 筆擱置未答</div>`;
     host.innerHTML = summary + rows;
     bindRowToggles(host);
+  }
+
+  // Cross-student Writing grading queue (handoff §3.4): 學生 email, a Task
+  // filter, band-colored chips, and row-click jump to that student's 寫作
+  // sub-tab. (No 待回饋/已回饋 split — the backend generates feedback at
+  // submit time, so there is no pending state to queue on.)
+  const _WRITING_TASKS = [['all', '全部'], ['task1', 'Task1'], ['task2', 'Task2']];
+  function bandClass(b) {
+    const n = Number(b);
+    if (!Number.isFinite(n)) return 'tag';
+    if (n <= 4) return 'invalid';
+    if (n <= 6) return 'partial';
+    return 'valid';
+  }
+  function wireWritingTaskTabs(host, subs) {
+    host.querySelectorAll('#writing-task-tabs .part-filter-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.writingTask = btn.dataset.task;
+        renderWritingQueue(subs);
+      });
+    });
+  }
+  function renderWritingQueue(subs) {
+    const host = $('writing-content');
+    const task = state.writingTask || 'all';
+    const view = task === 'all' ? subs : subs.filter(s => (s.task_type || '') === task);
+    const chips = '<div class="part-filter-tabs" id="writing-task-tabs">' +
+      _WRITING_TASKS.map(([v, l]) => `<button class="part-filter-tab ${task === v ? 'active' : ''}" data-task="${v}">${l}</button>`).join('') +
+      '</div>';
+    const summary = `<div class="ltab-summary">${view.length} / ${subs.length} submissions</div>`;
+    if (!view.length) {
+      host.innerHTML = summary + chips + '<div class="col__empty">No submissions.</div>';
+      wireWritingTaskTabs(host, subs);
+      return;
+    }
+    const rows = view.map(s => {
+      const q = (s.writing_questions && s.writing_questions.prompt) || '';
+      const retry = s.is_retry ? ' <span class="badge tag">重作</span>' : '';
+      return `
+        <div class="lrow" data-uid="${escapeHtml(s.user_id || '')}">
+          <div class="lrow__time">${escapeHtml(fmtTime(s.submitted_at))}</div>
+          <div class="lrow__main">
+            <div class="lrow__title">${q ? escapeHtml(truncate(q, 50)) : '(無對應題目)'}</div>
+            <div class="lrow__meta">${escapeHtml(emailFor(s.user_id))} · ${escapeHtml(s.task_type || '—')} · ${s.word_count ?? '—'} words${retry}</div>
+          </div>
+          <div><span class="badge ${bandClass(s.band_overall)}">band ${s.band_overall ?? '—'}</span></div>
+        </div>`;
+    }).join('');
+    host.innerHTML = summary + chips + rows;
+    wireWritingTaskTabs(host, subs);
+    host.querySelectorAll('.lrow').forEach(row => {
+      row.addEventListener('click', () => jumpToStudent(row.dataset.uid, 'writing'));
+    });
   }
 
   // Cross-student Reading monitoring list (handoff §3.5): shows 學生 email,
