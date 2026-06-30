@@ -5383,6 +5383,70 @@ async def admin_reading_attempts(
         raise HTTPException(status_code=500, detail="Failed to load reading attempts") from exc
 
 
+@app.get("/admin/practice-volume")
+@limiter.limit("30/minute")
+async def admin_practice_volume(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Daily practice volume for the last 7 days (incl. today), split by skill,
+    for the admin dashboard's weekly bar chart and the today/this-week cards.
+
+    A "practice event" per skill:
+      speaking = practice_records.created_at
+      writing  = writing_submissions.submitted_at
+      reading  = reading_attempts.started_at
+    Bucketed by UTC calendar day; days with no activity still return a zero
+    column. Ordered oldest→newest so the chart renders 7-days-ago → today.
+
+    Scale caveat (same as /admin/dashboard): PostgREST caps .data at 1000
+    rows, so per-day counts undercount once a single 7-day table crosses
+    ~1000 rows. Fine at current scale; revisit with a count_by_day RPC then.
+    """
+    try:
+        verify_admin(authorization)
+        now = datetime.now(timezone.utc)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        window_start = (today - timedelta(days=6)).isoformat()
+
+        day_keys = [(today - timedelta(days=i)).date().isoformat() for i in range(6, -1, -1)]
+        buckets = {
+            d: {"date": d, "speaking": 0, "writing": 0, "reading": 0}
+            for d in day_keys
+        }
+
+        def tally(table: str, ts_col: str, skill: str) -> None:
+            resp = (
+                supabase_admin.table(table)
+                .select(ts_col)
+                .gte(ts_col, window_start)
+                .execute()
+            )
+            for row in resp.data or []:
+                ts = row.get(ts_col)
+                if not ts:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                day = dt.astimezone(timezone.utc).date().isoformat()
+                if day in buckets:
+                    buckets[day][skill] += 1
+
+        tally("practice_records", "created_at", "speaking")
+        tally("writing_submissions", "submitted_at", "writing")
+        tally("reading_attempts", "started_at", "reading")
+
+        return {"days": [buckets[d] for d in day_keys]}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin practice-volume endpoint failed")
+        raise HTTPException(status_code=500, detail="Failed to load practice volume") from exc
+
+
 def _generate_user_diagnosis(user_id: str, is_pro: bool = False) -> dict:
     """
     Build a diagnosis for one user from their practice records. Used by
