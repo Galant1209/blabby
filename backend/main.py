@@ -5273,11 +5273,13 @@ async def admin_user_records(
 @limiter.limit("30/minute")
 async def admin_writing_submissions(
     request: Request,
+    user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
 ):
     """
-    List ALL writing submissions across users, newest first, for the admin
-    Writing module view (B pattern: one flat list, not per-user).
+    List writing submissions newest-first for the admin Writing view. Without
+    ?user_id it returns ALL submissions across users (B pattern flat list);
+    with ?user_id it scopes to one student (the 用戶管理 寫作 sub-tab).
 
     Embeds the question prompt via the writing_submissions.question_id FK
     (writing_submissions_question_id_fkey → writing_questions.id). question_id
@@ -5290,7 +5292,7 @@ async def admin_writing_submissions(
     """
     try:
         verify_admin(authorization)
-        response = (
+        query = (
             supabase_admin.table("writing_submissions")
             .select(
                 "id, user_id, task_type, word_count, band_overall, priority_fix, "
@@ -5300,6 +5302,18 @@ async def admin_writing_submissions(
                 "band_ta, band_cc, band_lr, band_gra, "
                 "writing_questions(prompt, task1_subtype, essay_type)"
             )
+        )
+        # Optional per-student scope: with user_id the student-detail view gets
+        # that student's full writing history; the 200 cap is a global guard,
+        # not a per-student truncation.
+        if user_id:
+            try:
+                uuid.UUID(user_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid user_id format")
+            query = query.eq("user_id", user_id)
+        response = (
+            query
             .order("submitted_at", desc=True)
             .limit(200)
             .execute()
@@ -5324,11 +5338,13 @@ async def admin_writing_submissions(
 @limiter.limit("30/minute")
 async def admin_reading_attempts(
     request: Request,
+    user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
 ):
     """
-    List ALL reading attempts across users, newest first, for the admin
-    Reading module view (B pattern: one flat list, not per-user). Built so
+    List reading attempts newest-first for the admin Reading view. Without
+    ?user_id it returns ALL attempts across users (B pattern flat list); with
+    ?user_id it scopes to one student (the 用戶管理 閱讀 sub-tab). Built so
     a "zombie" attempt (status=in_progress with zero answers) is obvious.
 
     Embeds:
@@ -5349,7 +5365,7 @@ async def admin_reading_attempts(
     """
     try:
         verify_admin(authorization)
-        response = (
+        query = (
             supabase_admin.table("reading_attempts")
             .select(
                 "id, user_id, passage_id, started_at, submitted_at, "
@@ -5357,6 +5373,17 @@ async def admin_reading_attempts(
                 "reading_passages(title, difficulty_band, word_count), "
                 "reading_answers(id)"
             )
+        )
+        # Optional per-student scope (用戶管理 閱讀 sub-tab); the 200 cap is a
+        # global guard, not a per-student truncation.
+        if user_id:
+            try:
+                uuid.UUID(user_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid user_id format")
+            query = query.eq("user_id", user_id)
+        response = (
+            query
             .order("started_at", desc=True)
             .limit(200)
             .execute()
