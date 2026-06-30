@@ -662,6 +662,43 @@
       border: 1px solid var(--border); background: white;
     }
   }
+
+  /* === Writing / Reading admin tabs (flat list + inline detail) === */
+  #writing-tab.active, #reading-tab.active { display: block; overflow-y: auto; }
+  .ltab-summary {
+    padding: 10px 14px; font-size: 12px; color: var(--muted);
+    border-bottom: 1px solid var(--line);
+  }
+  .lrow {
+    display: flex; gap: 12px; align-items: baseline;
+    padding: 9px 14px; border-bottom: 1px solid var(--line);
+    font-size: 12px; cursor: pointer; transition: background 100ms ease;
+  }
+  .lrow:hover { background: rgba(201,168,76,0.05); }
+  .lrow__time {
+    color: var(--muted); font-family: monospace; font-size: 11px; white-space: nowrap;
+  }
+  .lrow__main { flex: 1 1 auto; min-width: 0; }
+  .lrow__title {
+    color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lrow__meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  /* Zombie attempt: opened, never answered — greyed so a column of them reads at a glance. */
+  .lrow.zombie { background: rgba(107,26,26,0.04); opacity: 0.72; }
+  .lrow.zombie:hover { background: rgba(107,26,26,0.08); }
+  .ldetail {
+    padding: 12px 16px 16px; background: var(--cream);
+    border-bottom: 1px solid var(--line);
+  }
+  .ldetail__essay {
+    white-space: pre-wrap; font-family: var(--serif); font-size: 13px;
+    line-height: 1.6; color: var(--ink); margin-bottom: 10px;
+  }
+  .ldim { border-left: 2px solid var(--gold); padding: 4px 0 4px 10px; margin-bottom: 8px; }
+  .ldim__head {
+    font-family: var(--sans); font-size: 11px; font-weight: 700; color: var(--ink);
+    margin-bottom: 3px;
+  }
 </style>
 </head>
 <body>
@@ -678,6 +715,8 @@
   <button class="tab active" data-tab="users"     type="button">用戶管理</button>
   <button class="tab"        data-tab="subs"      type="button">訂閱管理</button>
   <button class="tab"        data-tab="changelog" type="button">更新日誌</button>
+  <button class="tab"        data-tab="writing"   type="button">Writing</button>
+  <button class="tab"        data-tab="reading"   type="button">Reading</button>
 </div>
 
 <div class="mobile-user-select" id="mobile-user-select">
@@ -732,6 +771,14 @@
 
 <div class="tab-panel" id="changelog-tab">
   <div class="changelog" id="changelog-content"></div>
+</div>
+
+<div class="tab-panel" id="writing-tab">
+  <div id="writing-content"><div class="col__empty">Loading…</div></div>
+</div>
+
+<div class="tab-panel" id="reading-tab">
+  <div id="reading-content"><div class="col__empty">Loading…</div></div>
 </div>
 
 <script>
@@ -1293,10 +1340,174 @@
       changelogLoaded = true;
       renderChangelog();
     }
+    if (name === 'writing') {
+      loadWritingSubmissions();
+    }
+    if (name === 'reading') {
+      loadReadingAttempts();
+    }
   }
   document.querySelectorAll('.tab').forEach(t => {
     t.addEventListener('click', () => activateTab(t.dataset.tab));
   });
+
+  // === Writing / Reading admin tabs (B pattern: flat list + inline detail) ===
+  // Lazy: fetched only when the tab is opened (wired in activateTab). Each row
+  // toggles an inline detail block; no right-hand column. Reuses the speaking
+  // fetch shape (Bearer state.token + innerHTML status states) and the
+  // .badge / .detail-field visual vocabulary.
+  function bindRowToggles(container) {
+    container.querySelectorAll('.lrow').forEach(row => {
+      row.addEventListener('click', () => {
+        const target = document.getElementById(row.dataset.target);
+        if (target) target.hidden = !target.hidden;
+      });
+    });
+  }
+
+  async function loadWritingSubmissions() {
+    const host = $('writing-content');
+    host.innerHTML = '<div class="col__empty">Loading…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/admin/writing/submissions`, {
+        headers: { 'Authorization': `Bearer ${state.token}` },
+      });
+      if (!res.ok) {
+        host.innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`;
+        return;
+      }
+      const data = await res.json();
+      renderWritingList(data.submissions || []);
+    } catch (err) {
+      console.error('loadWritingSubmissions error', err);
+      host.innerHTML = '<div class="col__empty">Network error</div>';
+    }
+  }
+
+  function renderWritingList(subs) {
+    const host = $('writing-content');
+    if (!subs.length) {
+      host.innerHTML = '<div class="col__empty">No submissions.</div>';
+      return;
+    }
+    const summary = `<div class="ltab-summary">${subs.length} submissions</div>`;
+    const rows = subs.map((s, i) => {
+      const q = (s.writing_questions && s.writing_questions.prompt) || '';
+      const retry = s.is_retry ? ' <span class="badge tag">重作</span>' : '';
+      const dims = [
+        ['TA', s.band_ta, s.feedback_ta, s.fix_ta],
+        ['CC', s.band_cc, s.feedback_cc, s.fix_cc],
+        ['LR', s.band_lr, s.feedback_lr, s.fix_lr],
+        ['GRA', s.band_gra, s.feedback_gra, s.fix_gra],
+      ];
+      const dimHTML = dims.map(d => `
+        <div class="ldim">
+          <div class="ldim__head">${d[0]} · band ${d[1] ?? '—'}</div>
+          <div class="detail-field__value ${d[2] ? '' : 'empty'}">${escapeHtml(d[2] || '(no feedback)')}</div>
+          <div class="detail-field__value ${d[3] ? '' : 'empty'}" style="margin-top:3px">${d[3] ? 'Fix — ' + escapeHtml(d[3]) : '(no fix)'}</div>
+        </div>`).join('');
+      return `
+        <div class="lrow" data-target="w${i}">
+          <div class="lrow__time">${escapeHtml(fmtTime(s.submitted_at))}</div>
+          <div class="lrow__main">
+            <div class="lrow__title">${q ? escapeHtml(truncate(q, 70)) : '(無對應題目)'}</div>
+            <div class="lrow__meta">${escapeHtml(s.task_type || '—')} · ${s.word_count ?? '—'} words${retry}</div>
+          </div>
+          <div><span class="badge tag">band ${s.band_overall ?? '—'}</span></div>
+        </div>
+        <div class="ldetail" id="w${i}" hidden>
+          <div class="detail-field__label">Essay</div>
+          <div class="ldetail__essay">${escapeHtml(s.essay_text || '')}</div>
+          <div class="detail-field">
+            <div class="detail-field__label">Priority fix</div>
+            <div class="detail-field__value ${s.priority_fix ? '' : 'empty'}">${escapeHtml(s.priority_fix || '(none)')}</div>
+          </div>
+          ${dimHTML}
+        </div>`;
+    }).join('');
+    host.innerHTML = summary + rows;
+    bindRowToggles(host);
+  }
+
+  async function loadReadingAttempts() {
+    const host = $('reading-content');
+    host.innerHTML = '<div class="col__empty">Loading…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/admin/reading/attempts`, {
+        headers: { 'Authorization': `Bearer ${state.token}` },
+      });
+      if (!res.ok) {
+        host.innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`;
+        return;
+      }
+      const data = await res.json();
+      renderReadingList(data.attempts || []);
+    } catch (err) {
+      console.error('loadReadingAttempts error', err);
+      host.innerHTML = '<div class="col__empty">Network error</div>';
+    }
+  }
+
+  function renderReadingList(atts) {
+    const host = $('reading-content');
+    if (!atts.length) {
+      host.innerHTML = '<div class="col__empty">No attempts.</div>';
+      return;
+    }
+    let zombies = 0;
+    const rows = atts.map((a, i) => {
+      const p = a.reading_passages || {};
+      const cnt = a.answer_count || 0;
+      const isZombie = a.status === 'in_progress' && cnt === 0;
+      const inProgress = a.status === 'in_progress' && cnt > 0;
+      if (isZombie) zombies += 1;
+      let badge, rowCls;
+      if (isZombie) {
+        badge = '<span class="badge invalid">擱置未答</span>';
+        rowCls = 'lrow zombie';
+      } else if (inProgress) {
+        badge = '<span class="badge partial">答而未竟</span>';
+        rowCls = 'lrow';
+      } else {
+        badge = '<span class="badge valid">已呈繳</span>';
+        rowCls = 'lrow';
+      }
+      return `
+        <div class="${rowCls}" data-target="r${i}">
+          <div class="lrow__time">${escapeHtml(fmtTime(a.started_at))}</div>
+          <div class="lrow__main">
+            <div class="lrow__title">${p.title ? escapeHtml(truncate(p.title, 60)) : '(no passage)'}</div>
+            <div class="lrow__meta">${escapeHtml(p.difficulty_band || '—')} · ${cnt} answered · ${a.score ?? '—'}/${a.total ?? '—'}</div>
+          </div>
+          <div>${badge}</div>
+        </div>
+        <div class="ldetail" id="r${i}" hidden>
+          <div class="detail-field">
+            <div class="detail-field__label">Passage</div>
+            <div class="detail-field__value ${p.title ? '' : 'empty'}">${escapeHtml(p.title || '(none)')}</div>
+          </div>
+          <div class="detail-field">
+            <div class="detail-field__label">Difficulty / Words</div>
+            <div class="detail-field__value">${escapeHtml(p.difficulty_band || '—')} · ${p.word_count ?? '—'} words</div>
+          </div>
+          <div class="detail-field">
+            <div class="detail-field__label">Status</div>
+            <div class="detail-field__value">${escapeHtml(a.status || '—')}</div>
+          </div>
+          <div class="detail-field">
+            <div class="detail-field__label">Answers / Score</div>
+            <div class="detail-field__value">${cnt} answered · ${a.score ?? '—'}/${a.total ?? '—'} · band ${a.band_estimate ?? '—'}</div>
+          </div>
+          <div class="detail-field">
+            <div class="detail-field__label">Started / Submitted</div>
+            <div class="detail-field__value">${escapeHtml(fmtTime(a.started_at))} → ${escapeHtml(fmtTime(a.submitted_at))}</div>
+          </div>
+        </div>`;
+    }).join('');
+    const summary = `<div class="ltab-summary">${atts.length} 筆 · <strong>${zombies}</strong> 筆擱置未答</div>`;
+    host.innerHTML = summary + rows;
+    bindRowToggles(host);
+  }
 
   // === Changelog (static, no API) ===
   // Each version is a block separated by "---". Within a block: first line is
