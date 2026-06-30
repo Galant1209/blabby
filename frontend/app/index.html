@@ -2222,6 +2222,30 @@
             line-height: 1.6;
             font-weight: 500;
         }
+        .before-after__row {
+            display: flex;
+            gap: 16px;
+        }
+        .before-after__col {
+            flex: 1 1 0;
+            min-width: 0;
+        }
+        .before-after__col-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--gold);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        .before-after__text {
+            font-size: 13px;
+            color: var(--ink);
+            line-height: 1.6;
+        }
+        @media (max-width: 480px) {
+            .before-after__row { flex-direction: column; gap: 12px; }
+        }
 
         /* Pro upgrade modal */
         #pro-modal-overlay {
@@ -3055,6 +3079,19 @@
                     <div class="feedback-label">趁此刻，再說一遍</div>
                     <div id="repair-next-task-text" class="session-insight-text"></div>
                 </div>
+                <div id="before-after" class="feedback-item" style="display:none">
+                    <div class="feedback-label">前後對照</div>
+                    <div class="before-after__row">
+                        <div class="before-after__col">
+                            <div class="before-after__col-label">最初那一遍</div>
+                            <div id="before-after-first" class="before-after__text"></div>
+                        </div>
+                        <div class="before-after__col">
+                            <div class="before-after__col-label">趁此刻這一遍</div>
+                            <div id="before-after-retry" class="before-after__text"></div>
+                        </div>
+                    </div>
+                </div>
                 <div class="feedback-item">
                     <div class="feedback-label">這一輪你學到什麼</div>
                     <div id="session-insight" class="session-insight-text"></div>
@@ -3437,6 +3474,7 @@
         let lastFeedbackData = null;
         let isRetryingSameQuestion = false;
         let originRecordId = null; // record_id of THIS question's first attempt; retry_of always points here
+        let originFeedbackData = null; // snapshot of first attempt, for before/after compare
         let loadingTimers = [];
 
         async function showMain() {
@@ -5205,6 +5243,11 @@
 
         function resetForRetrySameQuestion() {
             isRetryingSameQuestion = true;
+            // lastFeedbackData is still the first attempt here; snapshot it
+            // for the before/after compare rendered once the retry returns.
+            if (lastFeedbackData) {
+                originFeedbackData = lastFeedbackData;
+            }
             feedbackSection.classList.remove('visible');
             recordBtn.disabled = false;
 
@@ -5286,6 +5329,24 @@
 
             // 顯示用戶說的話
             document.getElementById('user-transcript').textContent = data.text || '';
+
+            // 前後對照 — 只在這次是 retry 完成且握有第一講快照時並排顯示
+            const beforeAfterBlock = document.getElementById('before-after');
+            if (beforeAfterBlock) {
+                if (wasRetry && originFeedbackData) {
+                    document.getElementById('before-after-first').textContent = originFeedbackData.text || '';
+                    document.getElementById('before-after-retry').textContent = data.text || '';
+                    beforeAfterBlock.style.display = '';
+                    try {
+                        window.analytics?.track('before_after_viewed', {
+                            weakness_tag: data.weakness_tag || '',
+                        });
+                    } catch (_) { /* never block UI on tracking */ }
+                } else {
+                    beforeAfterBlock.style.display = 'none';
+                }
+            }
+
             renderDrillEvidence(data);
             renderDrillBeforeAfter(data);
             // Next-action card is drill-only — hide for normal submissions
@@ -5469,10 +5530,13 @@
                 setQuestion(lastFeedbackData.next_question.trim(), lastFeedbackData.topic || currentTopic || '');
                 lastFeedbackData = null;
                 originRecordId = null;
+                originFeedbackData = null;
                 isRetryingSameQuestion = false;
                 feedbackSection.classList.remove('visible');
                 const rc = document.getElementById('retry-context');
                 if (rc) rc.style.display = 'none';
+                const ba = document.getElementById('before-after');
+                if (ba) ba.style.display = 'none';
                 return;
             }
 
@@ -5511,10 +5575,13 @@
             if (pick.question && pick.question.trim()) setQuestion(pick.question, pick.topic);
             lastFeedbackData = null;
             originRecordId = null;
+            originFeedbackData = null;
             isRetryingSameQuestion = false;
             feedbackSection.classList.remove('visible');
             const rc = document.getElementById('retry-context');
             if (rc) rc.style.display = 'none';
+            const ba = document.getElementById('before-after');
+            if (ba) ba.style.display = 'none';
             setRecorderStatus('準備好了就按錄音');
         });
 
