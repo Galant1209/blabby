@@ -767,6 +767,35 @@
     .dash-stats { grid-template-columns: repeat(3, 1fr); }
     .dash-cols { grid-template-columns: 1fr; }
   }
+
+  /* === 用戶管理 student-centric 2-pane detail (Phase 2) === */
+  #users-tab { grid-template-columns: 296px minmax(0, 1fr); }
+  .col--detail-pane { overflow-y: auto; }
+  #detail-header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .dh__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .dh__email { font-family: var(--serif); font-size: 16px; color: var(--navy); word-break: break-all; }
+  .dh__actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .dh__meta { font-size: 11px; color: var(--muted); margin-top: 6px; font-family: var(--mono); }
+  .bd { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 10px; background: var(--surface-2); }
+  .bd__seg--valid   { background: var(--valid); }
+  .bd__seg--partial { background: var(--partial); }
+  .bd__seg--invalid { background: var(--invalid); }
+  .bd__seg--unknown { background: var(--faint); }
+  .bd__legend { display: flex; gap: 12px; margin-top: 6px; font-size: 10.5px; color: var(--muted); }
+  .bd__dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+  .bd__dot--valid   { background: var(--valid); }
+  .bd__dot--partial { background: var(--partial); }
+  .bd__dot--invalid { background: var(--invalid); }
+  .subtabs { display: flex; gap: 4px; padding: 8px 16px 0; border-bottom: 1px solid var(--border); }
+  .subtab {
+    background: none; border: none; padding: 8px 12px; font-family: var(--sans);
+    font-size: 12px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  .subtab:hover { color: var(--ink); }
+  .subtab.active { color: var(--green); border-bottom-color: var(--green); font-weight: 600; }
+  .subpanel { display: none; }
+  .subpanel.active { display: block; }
+  @media (max-width: 900px) { #users-tab { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -804,17 +833,11 @@
     </div>
   </aside>
 
-  <main class="col col--records" id="col-records">
-    <div id="middle-content">
-      <div class="col__empty">Select a user to view practice records.</div>
-    </div>
-  </main>
-
-  <aside class="col col--detail" id="col-detail">
-    <div id="right-content">
+  <main class="col col--detail-pane" id="col-detail">
+    <div id="detail-pane">
       <div class="col__empty">Select a user.</div>
     </div>
-  </aside>
+  </main>
 </div>
 
 <div class="tab-panel layout" id="subs-tab">
@@ -1024,8 +1047,12 @@
     state.selectedUserId = userId;
     state.selectedRecordId = null;
     renderUsers(); // refresh active highlight
+    // Build the 2-pane detail skeleton (header + sub-tabs); this (re)creates
+    // #middle-content (口說) + #record-detail-section so renderMiddle /
+    // selectRecord keep working against the same ids.
+    buildDetailSkeleton();
     $('middle-content').innerHTML = '<div class="col__empty">Loading records…</div>';
-    $('right-content').innerHTML = '<div class="col__empty">Loading…</div>';
+    $('detail-header').innerHTML = '<div class="col__empty">Loading…</div>';
     try {
       const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}`, {
         headers: { 'Authorization': `Bearer ${state.token}` },
@@ -1036,11 +1063,51 @@
       }
       state.detail = await res.json();
       renderMiddle();
-      renderRightHeader();
+      renderDetailHeader();
     } catch (err) {
       console.error('selectUser error', err);
       $('middle-content').innerHTML = '<div class="col__empty">Network error</div>';
     }
+  }
+
+  // Build the student-detail pane: header slot + sub-tab strip + 4 sub-panels.
+  // 口說 keeps the legacy ids (#middle-content + #record-detail-section) so the
+  // existing renderMiddle / selectRecord work unchanged. 概覽/寫作/閱讀 are
+  // filled in later Phase-2 commits; 口說 is the default sub-tab for now.
+  function buildDetailSkeleton() {
+    const pane = $('detail-pane');
+    if (!pane) return;
+    pane.innerHTML = `
+      <div id="detail-header"></div>
+      <div class="subtabs" id="detail-subtabs">
+        <button class="subtab" data-sub="overview" type="button">概覽</button>
+        <button class="subtab active" data-sub="speaking" type="button">口說</button>
+        <button class="subtab" data-sub="writing" type="button">寫作</button>
+        <button class="subtab" data-sub="reading" type="button">閱讀</button>
+      </div>
+      <div class="subpanel" id="sub-overview"><div class="col__empty">概覽即將推出。</div></div>
+      <div class="subpanel active" id="sub-speaking">
+        <div id="middle-content"></div>
+        <div class="right-section" id="record-detail-section" style="display:none">
+          <h3>選中紀錄</h3>
+          <div id="record-detail-content"></div>
+        </div>
+      </div>
+      <div class="subpanel" id="sub-writing"><div class="col__empty">寫作即將推出。</div></div>
+      <div class="subpanel" id="sub-reading"><div class="col__empty">閱讀即將推出。</div></div>
+    `;
+    pane.querySelectorAll('#detail-subtabs .subtab').forEach(b => {
+      b.addEventListener('click', () => activateSubtab(b.dataset.sub));
+    });
+  }
+
+  function activateSubtab(name) {
+    document.querySelectorAll('#detail-subtabs .subtab').forEach(b => {
+      b.classList.toggle('active', b.dataset.sub === name);
+    });
+    document.querySelectorAll('#detail-pane .subpanel').forEach(p => {
+      p.classList.toggle('active', p.id === `sub-${name}`);
+    });
   }
 
   function renderMiddle() {
@@ -1168,21 +1235,37 @@
   }
 
   // === Right column ===
-  function renderRightHeader() {
+  function renderDetailHeader() {
     const d = state.detail;
     if (!d) return;
-    const user = state.users.find(u => u.user_id === state.selectedUserId);
-    const lastSeen = user ? fmtDateTime(user.last_seen) : '—';
-    $('right-content').innerHTML = `
-      <div class="right-header">
-        <div class="right-header__email">${escapeHtml(d.email || d.user_id || '—')}</div>
-        <div class="right-header__meta">
-          ${d.total_records || 0} practices · last ${escapeHtml(lastSeen)}
+    const u = state.users.find(x => x.user_id === state.selectedUserId) || {};
+    const plan = u.is_pro_effective
+      ? '<span class="badge valid">PRO</span>'
+      : '<span class="badge none">FREE</span>';
+    const join = u.created_at ? fmtDateTime(u.created_at) : '—';
+    const last = u.last_practice ? fmtDateTime(u.last_practice) : '—';
+    const total = (u.practice_count != null) ? u.practice_count : (d.total_records || 0);
+    const qc = u.quality_counts || { valid: 0, partial: 0, invalid: 0, unknown: 0 };
+    const sum = Math.max(1, qc.valid + qc.partial + qc.invalid + qc.unknown);
+    const seg = (n, cls) => n > 0
+      ? `<span class="bd__seg bd__seg--${cls}" style="width:${(n / sum * 100).toFixed(1)}%"></span>`
+      : '';
+    $('detail-header').innerHTML = `
+      <div class="dh__top">
+        <div class="dh__email">${escapeHtml(d.email || d.user_id || '—')} ${plan}</div>
+        <div class="dh__actions">
+          <button class="btn btn--primary" id="brief-btn" type="button">📋 生成學生簡報</button>
+          <button class="btn" id="diag-btn" type="button">🧠 AI 診斷報告</button>
         </div>
       </div>
-      <div class="right-actions">
-        <button class="btn btn--primary" id="brief-btn" type="button">📋 生成學生簡報</button>
-        <button class="btn" id="diag-btn" type="button">🧠 AI 診斷報告</button>
+      <div class="dh__meta">加入 ${escapeHtml(join)} · 最後練習 ${escapeHtml(last)} · 共 ${total} 次練習</div>
+      <div class="bd">
+        ${seg(qc.valid, 'valid')}${seg(qc.partial, 'partial')}${seg(qc.invalid, 'invalid')}${seg(qc.unknown, 'unknown')}
+      </div>
+      <div class="bd__legend">
+        <span><i class="bd__dot bd__dot--valid"></i>${qc.valid} valid</span>
+        <span><i class="bd__dot bd__dot--partial"></i>${qc.partial} partial</span>
+        <span><i class="bd__dot bd__dot--invalid"></i>${qc.invalid} invalid</span>
       </div>
       <div class="right-section" id="brief-section" style="display:none">
         <h3>學生簡報</h3>
@@ -1192,10 +1275,6 @@
       <div class="right-section" id="diag-section" style="display:none">
         <h3>AI 診斷報告</h3>
         <div class="diag-block" id="diag-content"></div>
-      </div>
-      <div class="right-section" id="record-detail-section" style="display:none">
-        <h3>選中紀錄</h3>
-        <div id="record-detail-content"></div>
       </div>
     `;
     $('brief-btn').addEventListener('click', loadBrief);
@@ -2118,7 +2197,7 @@ Admin 觀測儀表板
         if(result) { result.textContent = '✓ Pro granted.'; result.style.color = 'var(--green)'; }
         window.analytics?.track('admin_pro_granted', { user_id: state.selectedUserId });
         await loadUsers();
-        renderRightHeader();
+        renderDetailHeader();
     } catch(e) {
         if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
     }
@@ -2131,7 +2210,7 @@ Admin 觀測儀表板
         if(result) { result.textContent = '✓ Pro revoked.'; result.style.color = 'var(--muted)'; }
         window.analytics?.track('admin_pro_revoked', { user_id: state.selectedUserId });
         await loadUsers();
-        renderRightHeader();
+        renderDetailHeader();
     } catch(e) {
         if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
     }
