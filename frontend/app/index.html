@@ -3436,6 +3436,7 @@
         let lastQuestion = null;
         let lastFeedbackData = null;
         let isRetryingSameQuestion = false;
+        let originRecordId = null; // record_id of THIS question's first attempt; retry_of always points here
         let loadingTimers = [];
 
         async function showMain() {
@@ -4388,6 +4389,11 @@
             if (currentPreviousTranscript) {
                 form.append('previous_transcript', currentPreviousTranscript.slice(0, 500));
             }
+            // Retry rail: tag this submission as a re-attempt of the original
+            // record so the backend can store the retry_of link.
+            if (isRetryingSameQuestion && originRecordId) {
+                form.append('retry_of', originRecordId);
+            }
 
             try {
                 if (!sb) {
@@ -5237,6 +5243,11 @@
                 return;
             }
 
+            // Capture retry state BEFORE the block below flips the flag,
+            // so the origin-record logic can tell a first attempt apart
+            // from a retry.
+            const wasRetry = isRetryingSameQuestion;
+
             // Track retry completion before flipping the flag — payload
             // uses the FRESH response weakness_tag, not the previous one.
             if (isRetryingSameQuestion) {
@@ -5250,6 +5261,12 @@
             }
 
             lastFeedbackData = data;
+            // Only a first (non-retry) attempt establishes the retry origin;
+            // retries keep pointing at the original record_id, never the
+            // record_id of an intermediate retry.
+            if (!wasRetry && data.record_id) {
+                originRecordId = data.record_id;
+            }
             // Persistence is server-side now; the hub rehydrates from
             // /api/practice-records/last-unresolved on next load.
 
@@ -5451,6 +5468,7 @@
             if (lastFeedbackData && lastFeedbackData.next_question && lastFeedbackData.next_question.trim()) {
                 setQuestion(lastFeedbackData.next_question.trim(), lastFeedbackData.topic || currentTopic || '');
                 lastFeedbackData = null;
+                originRecordId = null;
                 isRetryingSameQuestion = false;
                 feedbackSection.classList.remove('visible');
                 const rc = document.getElementById('retry-context');
@@ -5492,6 +5510,7 @@
 
             if (pick.question && pick.question.trim()) setQuestion(pick.question, pick.topic);
             lastFeedbackData = null;
+            originRecordId = null;
             isRetryingSameQuestion = false;
             feedbackSection.classList.remove('visible');
             const rc = document.getElementById('retry-context');
