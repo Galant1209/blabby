@@ -1108,6 +1108,8 @@
     document.querySelectorAll('#detail-pane .subpanel').forEach(p => {
       p.classList.toggle('active', p.id === `sub-${name}`);
     });
+    if (name === 'writing') loadStudentWriting();
+    if (name === 'reading') loadStudentReading();
   }
 
   function renderMiddle() {
@@ -1546,8 +1548,9 @@
     }
   }
 
-  function renderWritingList(subs) {
-    const host = $('writing-content');
+  function renderWritingList(subs, host, prefix) {
+    host = host || $('writing-content');
+    prefix = prefix || 'w';
     if (!subs.length) {
       host.innerHTML = '<div class="col__empty">No submissions.</div>';
       return;
@@ -1569,7 +1572,7 @@
           <div class="detail-field__value ${d[3] ? '' : 'empty'}" style="margin-top:3px">${d[3] ? 'Fix — ' + escapeHtml(d[3]) : '(no fix)'}</div>
         </div>`).join('');
       return `
-        <div class="lrow" data-target="w${i}">
+        <div class="lrow" data-target="${prefix}${i}">
           <div class="lrow__time">${escapeHtml(fmtTime(s.submitted_at))}</div>
           <div class="lrow__main">
             <div class="lrow__title">${q ? escapeHtml(truncate(q, 70)) : '(無對應題目)'}</div>
@@ -1577,7 +1580,7 @@
           </div>
           <div><span class="badge tag">band ${s.band_overall ?? '—'}</span></div>
         </div>
-        <div class="ldetail" id="w${i}" hidden>
+        <div class="ldetail" id="${prefix}${i}" hidden>
           <div class="detail-field__label">Essay</div>
           <div class="ldetail__essay">${escapeHtml(s.essay_text || '')}</div>
           <div class="detail-field">
@@ -1610,8 +1613,9 @@
     }
   }
 
-  function renderReadingList(atts) {
-    const host = $('reading-content');
+  function renderReadingList(atts, host, prefix) {
+    host = host || $('reading-content');
+    prefix = prefix || 'r';
     if (!atts.length) {
       host.innerHTML = '<div class="col__empty">No attempts.</div>';
       return;
@@ -1635,7 +1639,7 @@
         rowCls = 'lrow';
       }
       return `
-        <div class="${rowCls}" data-target="r${i}">
+        <div class="${rowCls}" data-target="${prefix}${i}">
           <div class="lrow__time">${escapeHtml(fmtTime(a.started_at))}</div>
           <div class="lrow__main">
             <div class="lrow__title">${p.title ? escapeHtml(truncate(p.title, 60)) : '(no passage)'}</div>
@@ -1643,7 +1647,7 @@
           </div>
           <div>${badge}</div>
         </div>
-        <div class="ldetail" id="r${i}" hidden>
+        <div class="ldetail" id="${prefix}${i}" hidden>
           <div class="detail-field">
             <div class="detail-field__label">Passage</div>
             <div class="detail-field__value ${p.title ? '' : 'empty'}">${escapeHtml(p.title || '(none)')}</div>
@@ -1669,6 +1673,44 @@
     const summary = `<div class="ltab-summary">${atts.length} 筆 · <strong>${zombies}</strong> 筆擱置未答</div>`;
     host.innerHTML = summary + rows;
     bindRowToggles(host);
+  }
+
+  // === 用戶管理 寫作 / 閱讀 sub-tabs (Phase 2b-2) ===
+  // Same render as the cross-student Writing/Reading tabs, scoped to the
+  // selected student via ?user_id and a distinct id prefix (sw/sr) so the
+  // inline-detail ids never collide with the global tabs' w/r ids.
+  async function loadStudentWriting() {
+    const host = $('sub-writing');
+    if (!host || !state.selectedUserId) return;
+    host.innerHTML = '<div class="col__empty">Loading…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/admin/writing/submissions?user_id=${encodeURIComponent(state.selectedUserId)}`, {
+        headers: { 'Authorization': `Bearer ${state.token}` },
+      });
+      if (!res.ok) { host.innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`; return; }
+      const data = await res.json();
+      renderWritingList(data.submissions || [], host, 'sw');
+    } catch (err) {
+      console.error('loadStudentWriting error', err);
+      host.innerHTML = '<div class="col__empty">Network error</div>';
+    }
+  }
+
+  async function loadStudentReading() {
+    const host = $('sub-reading');
+    if (!host || !state.selectedUserId) return;
+    host.innerHTML = '<div class="col__empty">Loading…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/admin/reading/attempts?user_id=${encodeURIComponent(state.selectedUserId)}`, {
+        headers: { 'Authorization': `Bearer ${state.token}` },
+      });
+      if (!res.ok) { host.innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`; return; }
+      const data = await res.json();
+      renderReadingList(data.attempts || [], host, 'sr');
+    } catch (err) {
+      console.error('loadStudentReading error', err);
+      host.innerHTML = '<div class="col__empty">Network error</div>';
+    }
   }
 
   // === 總覽 Dashboard (handoff §3.1) ===
