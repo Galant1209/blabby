@@ -2213,8 +2213,9 @@ async def process(
         #   coach_response = 「你說：『{quoted}』」 + blank line + why_it_hurts.
         #                    next_task is intentionally NOT joined into
         #                    coach_response — "一次只打一個點" (single-pain rule).
-        #                    next_task is parsed and held in scope for a future
-        #                    UI surface, but not exposed to the current frontend.
+        #                    next_task is the "say it again now" repair directive;
+        #                    it is exposed separately in response_payload for the
+        #                    frontend normal flow to render, open to Free and Pro.
         #   better_expression    = better_phrasing_en
         #   better_expression_zh = better_phrasing_zh
         #   weakness_tag         = tag (renamed)
@@ -2511,6 +2512,7 @@ async def process(
             "next_question":        next_question,
             "better_expression":    better_expression,
             "better_expression_zh": better_expression_zh,
+            "next_task":            next_task,
             "on_topic":             on_topic,
             "weakness_tag":         weakness_tag,
             "tag_secondary":        tag_secondary if is_pro else "",
