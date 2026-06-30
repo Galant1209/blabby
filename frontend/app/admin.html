@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z' fill='none' stroke='%23C9A84C' stroke-width='2' stroke-linejoin='round'/><line x1='4' y1='26' x2='28' y2='26' stroke='%23C9A84C' stroke-width='2'/><circle cx='16' cy='7' r='2' fill='%23C9A84C'/><circle cx='4' cy='13' r='2' fill='%23C9A84C'/><circle cx='28' cy='13' r='2' fill='%23C9A84C'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="./config.js"></script>
 <style>
@@ -26,6 +26,16 @@
     --line:     #ececec;
     --sans:     'Inter Tight', system-ui, sans-serif;
     --serif:    'EB Garamond', Georgia, serif;
+    /* Dashboard redesign tokens (handoff) — additive, used by #dashboard-tab only */
+    --surface-2: #FBF9F3;
+    --ink-soft:  #4A4234;
+    --faint:     #B3A892;
+    --danger:    #8E2A2A;
+    --valid:     #3D6B24;
+    --partial:   #A9791B;
+    --invalid:   #9A9488;
+    --border-2:  #EDE7DA;
+    --mono:      'DM Mono', ui-monospace, monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; writing-mode: horizontal-tb; }
   html, body {
@@ -699,6 +709,64 @@
     font-family: var(--sans); font-size: 11px; font-weight: 700; color: var(--ink);
     margin-bottom: 3px;
   }
+
+  /* === 總覽 Dashboard (handoff §3.1) === */
+  #dashboard-tab.active { display: block; overflow-y: auto; }
+  .dash { max-width: 1500px; margin: 0 auto; padding: 22px 24px; }
+  .dash-stats {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 22px;
+  }
+  .statcard {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 14px 16px; border-top: 2px solid transparent;
+  }
+  .statcard--green  { border-top-color: var(--green); }
+  .statcard--gold   { border-top-color: var(--gold); }
+  .statcard__label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+  }
+  .statcard__value {
+    font-family: var(--mono); font-size: 30px; color: var(--ink); line-height: 1.1; margin-top: 6px;
+  }
+  .statcard__sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .dash-section {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 16px; margin-bottom: 22px;
+  }
+  .dash-section__title {
+    font-family: var(--serif); font-size: 15px; color: var(--ink); margin-bottom: 14px;
+  }
+  .dash-bars { display: flex; gap: 10px; align-items: flex-end; height: 150px; }
+  .dash-bar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+  .dash-bar__val { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .dash-bar__col {
+    width: 100%; max-width: 48px; background: rgba(45,80,22,0.18);
+    border-radius: 3px 3px 0 0; min-height: 2px;
+  }
+  .dash-bar.today .dash-bar__col { background: var(--green); }
+  .dash-bar__day { font-size: 10px; color: var(--muted); }
+  .dash-bar.today .dash-bar__day { color: var(--green); font-weight: 600; }
+  .dash-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .actrow {
+    display: flex; align-items: center; gap: 10px; padding: 8px 0;
+    border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  .actrow:last-child { border-bottom: none; }
+  .actrow:hover { background: var(--surface-2); }
+  .actrow__email {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12px; color: var(--ink);
+  }
+  .actrow__time {
+    font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap;
+  }
+  .actrow__time.warn   { color: var(--partial); }
+  .actrow__time.danger { color: var(--danger); font-weight: 600; }
+  .dash-empty { color: var(--muted); font-size: 12px; font-style: italic; padding: 6px 0; }
+  @media (max-width: 1180px) {
+    .dash-stats { grid-template-columns: repeat(3, 1fr); }
+    .dash-cols { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -712,7 +780,8 @@
 </div>
 
 <div class="tabs" role="tablist">
-  <button class="tab active" data-tab="users"     type="button">用戶管理</button>
+  <button class="tab active" data-tab="dashboard" type="button">總覽</button>
+  <button class="tab"        data-tab="users"     type="button">用戶管理</button>
   <button class="tab"        data-tab="subs"      type="button">訂閱管理</button>
   <button class="tab"        data-tab="changelog" type="button">更新日誌</button>
   <button class="tab"        data-tab="writing"   type="button">Writing</button>
@@ -723,7 +792,11 @@
   <select id="mobile-user-dropdown"><option>Loading users…</option></select>
 </div>
 
-<div class="tab-panel layout active" id="users-tab">
+<div class="tab-panel active" id="dashboard-tab">
+  <div id="dashboard-content"><div class="col__empty">Loading…</div></div>
+</div>
+
+<div class="tab-panel layout" id="users-tab">
   <aside class="col col--users" id="col-users">
     <div class="col__title">使用者</div>
     <div class="col__body" id="users-list">
@@ -875,7 +948,13 @@
     }
     state.token = session.access_token;
     $('admin-email').textContent = session.user.email;
+    // Users list backs the 用戶管理 tab + is reused by the dashboard, so load
+    // it once up front regardless of which tab we land on.
     await loadUsers();
+    // Restore last-visited tab; default landing is the 總覽 dashboard.
+    let initialTab = 'dashboard';
+    try { initialTab = localStorage.getItem('blabby_admin_tab') || 'dashboard'; } catch (_) {}
+    activateTab(initialTab);
   }
 
   // === Left column: users ===
@@ -1333,6 +1412,10 @@
     document.querySelectorAll('.tab-panel').forEach(p => {
       p.classList.toggle('active', p.id === `${name}-tab`);
     });
+    try { localStorage.setItem('blabby_admin_tab', name); } catch (_) { /* private mode */ }
+    if (name === 'dashboard') {
+      loadDashboard();
+    }
     if (name === 'subs') {
       loadSubsTab();
     }
@@ -1507,6 +1590,144 @@
     const summary = `<div class="ltab-summary">${atts.length} 筆 · <strong>${zombies}</strong> 筆擱置未答</div>`;
     host.innerHTML = summary + rows;
     bindRowToggles(host);
+  }
+
+  // === 總覽 Dashboard (handoff §3.1) ===
+  // Reuses state.users (get_admin_users_full: email, is_pro_effective,
+  // created_at, last_practice, practice_count) loaded at bootstrap, plus
+  // GET /admin/practice-volume for the weekly bar + today/week cards.
+  const _WEEKDAY_TC = ['日', '一', '二', '三', '四', '五', '六'];
+  function daysSince(iso) {
+    if (!iso) return Infinity;
+    return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  }
+  function relTime(iso) {
+    if (!iso) return '—';
+    const d = daysSince(iso);
+    if (d <= 0) return '今天';
+    if (d === 1) return '昨天';
+    if (d < 7) return `${d} 天前`;
+    if (d < 30) return `${Math.floor(d / 7)} 週前`;
+    if (d < 365) return `${Math.floor(d / 30)} 個月前`;
+    return `${Math.floor(d / 365)} 年前`;
+  }
+
+  async function loadDashboard() {
+    const host = $('dashboard-content');
+    host.innerHTML = '<div class="col__empty">Loading…</div>';
+    try {
+      if (!state.users || !state.users.length) await loadUsers();
+      let days = [];
+      try {
+        const res = await fetch(`${API_BASE}/admin/practice-volume`, {
+          headers: { 'Authorization': `Bearer ${state.token}` },
+        });
+        if (res.ok) {
+          const body = await res.json();
+          days = body.days || [];
+        }
+      } catch (e) {
+        console.error('practice-volume fetch failed', e);
+      }
+      renderDashboard(state.users || [], days);
+    } catch (err) {
+      console.error('loadDashboard error', err);
+      host.innerHTML = '<div class="col__empty">Network error</div>';
+    }
+  }
+
+  function renderDashboard(users, days) {
+    const host = $('dashboard-content');
+    const total = users.length;
+    const pro = users.filter(u => u.is_pro_effective).length;
+    const free = total - pro;
+    const todayVol = days.length
+      ? (() => { const d = days[days.length - 1]; return (d.speaking || 0) + (d.writing || 0) + (d.reading || 0); })()
+      : 0;
+    const weekVol = days.reduce((s, d) => s + (d.speaking || 0) + (d.writing || 0) + (d.reading || 0), 0);
+
+    const cards = [
+      { label: '總用戶', value: total, sub: '', cls: '' },
+      { label: 'PRO', value: pro, sub: total ? `${Math.round(pro / total * 100)}%` : '', cls: 'statcard--green' },
+      { label: 'FREE', value: free, sub: '', cls: '' },
+      { label: '今日練習', value: todayVol, sub: '口說+寫作+閱讀', cls: 'statcard--gold' },
+      { label: '本週練習', value: weekVol, sub: '近 7 日', cls: '' },
+    ].map(c => `
+      <div class="statcard ${c.cls}">
+        <div class="statcard__label">${c.label}</div>
+        <div class="statcard__value">${c.value}</div>
+        <div class="statcard__sub">${escapeHtml(c.sub)}</div>
+      </div>`).join('');
+
+    // Weekly bars — total volume per day, scaled to the busiest day.
+    const totals = days.map(d => (d.speaking || 0) + (d.writing || 0) + (d.reading || 0));
+    const maxVol = Math.max(1, ...totals);
+    const bars = days.map((d, i) => {
+      const t = totals[i];
+      const h = Math.round(t / maxVol * 100);
+      const isToday = i === days.length - 1;
+      const wd = _WEEKDAY_TC[new Date(d.date + 'T00:00:00Z').getUTCDay()];
+      return `
+        <div class="dash-bar ${isToday ? 'today' : ''}">
+          <div class="dash-bar__val">${t}</div>
+          <div class="dash-bar__col" style="height:${h}%"></div>
+          <div class="dash-bar__day">${wd}</div>
+        </div>`;
+    }).join('');
+
+    // Recent active — practised at least once, newest first.
+    const recent = users
+      .filter(u => (u.practice_count || 0) > 0 && u.last_practice)
+      .sort((a, b) => String(b.last_practice).localeCompare(String(a.last_practice)))
+      .slice(0, 8);
+    // Dormant — ≥ 7 days since last practice, coldest first. PRO flagged red.
+    const dormant = users
+      .filter(u => u.last_practice && daysSince(u.last_practice) >= 7)
+      .sort((a, b) => daysSince(b.last_practice) - daysSince(a.last_practice))
+      .slice(0, 8);
+
+    const actrow = (u, dormantMode) => {
+      const d = daysSince(u.last_practice);
+      let timeCls = '';
+      if (dormantMode && u.is_pro_effective) timeCls = d >= 21 ? 'danger' : 'warn';
+      const plan = u.is_pro_effective ? '<span class="badge valid">PRO</span>' : '';
+      return `
+        <div class="actrow" data-uid="${escapeHtml(u.user_id || '')}">
+          <div class="actrow__email">${escapeHtml(u.email || '(no email)')} ${plan}</div>
+          <div class="actrow__time ${timeCls}">${relTime(u.last_practice)}</div>
+        </div>`;
+    };
+    const recentHTML = recent.length ? recent.map(u => actrow(u, false)).join('') : '<div class="dash-empty">尚無活躍紀錄</div>';
+    const dormantHTML = dormant.length ? dormant.map(u => actrow(u, true)).join('') : '<div class="dash-empty">無沉睡用戶</div>';
+
+    host.innerHTML = `
+      <div class="dash">
+        <div class="dash-stats">${cards}</div>
+        <div class="dash-section">
+          <div class="dash-section__title">本週練習量</div>
+          <div class="dash-bars">${bars || '<div class="dash-empty">尚無資料</div>'}</div>
+        </div>
+        <div class="dash-cols">
+          <div class="dash-section">
+            <div class="dash-section__title">最近活躍</div>
+            ${recentHTML}
+          </div>
+          <div class="dash-section">
+            <div class="dash-section__title">沉睡名單（≥ 7 日）</div>
+            ${dormantHTML}
+          </div>
+        </div>
+      </div>`;
+
+    // Deep-link: clicking a student jumps to 用戶管理 with them selected.
+    host.querySelectorAll('.actrow').forEach(row => {
+      row.addEventListener('click', () => {
+        const uid = row.dataset.uid;
+        if (!uid) return;
+        activateTab('users');
+        selectUser(uid);
+      });
+    });
   }
 
   // === Changelog (static, no API) ===
