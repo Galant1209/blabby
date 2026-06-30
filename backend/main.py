@@ -1535,7 +1535,7 @@ Your job is to find the single most painful blockage in this answer and give one
 觸發條件（需同時符合）：
 - 使用者過去歷史有某個 weak word 反覆出現
 - 這次的答案沒再用那個 weak word，且回答中有具體細節出現
-- 或使用者使用了過去 better_expression 教過的詞
+- 或使用者使用了【使用者近期被修復的說法】中教過的更好說法（若該區塊存在）
 
 回饋方式：
 - 先肯定那個**具體改變**，再進入本次要點出的問題（如果有的話）
@@ -1574,6 +1574,13 @@ Your job is to find the single most painful blockage in this answer and give one
 3. 如果這次的回答裡有具體細節（數字、地點、人名、時間、感官描述）→ 層級 B（具體肯定）；在 progress_note 裡點名那個具體細節，再處理本次痛點。不需要 memory_block 有 weak word 記錄才觸發。
 4. 如果 memory_block 有 weak word 記錄，且這次的回答裡看不到那個 weak word → 也算層級 B；progress_note 肯定這個改變。
 5. 其他情況 → 層級 A（預設）
+
+【如何使用「使用者近期被修復的說法」】
+若【使用者近期被修復的說法】區塊存在（此區塊僅 Pro 使用者會收到；若不存在，略過本段，照常運作）：
+- 這個區塊列出使用者過去被指出的錯誤，以及當時教過的更好說法。
+- 若使用者這次又犯了其中某個結構性錯誤（即使字面不完全相同，只要是同一類問題）→ 這是反覆模式，依層級 C 的精神：不訓話，點出「這個說法先前也修過一次」，把問題丟回給他（呼應物理治療師那句「這個動作為什麼一直做不好」）。
+- 若使用者這次用對了過去教過的說法、或避開了過去的那個錯誤 → 依層級 B，在 progress_note 具體肯定這個改變，並點名是哪一個說法。
+- 鐵律不變：即使辨識到反覆，本次仍只點一個最關鍵的問題。不要因為看到記憶就一次講多個。
 
 【輸出規則 — schema enforcement】
 - correction 必須是物件（object），不得是 array、list、或 array of objects。You MUST return exactly ONE correction. Not two. Not three. ONE.
