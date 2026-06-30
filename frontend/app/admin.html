@@ -802,6 +802,12 @@
   .dh__email { font-family: var(--serif); font-size: 16px; color: var(--navy); word-break: break-all; }
   .dh__actions { display: flex; gap: 8px; flex-shrink: 0; }
   .dh__meta { font-size: 11px; color: var(--muted); margin-top: 6px; font-family: var(--mono); }
+  .dh__pro { display: flex; gap: 6px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .dh__reason {
+    font-family: var(--sans); font-size: 12px; padding: 5px 8px; flex: 1; min-width: 120px;
+    border: 1px solid var(--border); border-radius: 4px; background: white; color: var(--ink);
+  }
+  .dh__pro-result { font-size: 11px; color: var(--muted); }
   .bd { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 10px; background: var(--surface-2); }
   .bd__seg--valid   { background: var(--valid); }
   .bd__seg--partial { background: var(--partial); }
@@ -1373,6 +1379,12 @@
         <span><i class="bd__dot bd__dot--partial"></i>${qc.partial} partial</span>
         <span><i class="bd__dot bd__dot--invalid"></i>${qc.invalid} invalid</span>
       </div>
+      <div class="dh__pro">
+        ${u.is_pro_effective
+          ? '<button class="btn" id="right-revoke-btn" type="button">撤銷 Pro</button>'
+          : '<input type="text" id="right-pro-reason" class="dh__reason" placeholder="發放原因…" autocomplete="off"><button class="btn btn--primary" id="right-grant-btn" type="button">發放 Pro</button>'}
+        <span id="right-pro-result" class="dh__pro-result"></span>
+      </div>
       <div class="right-section" id="brief-section" style="display:none">
         <h3>學生簡報</h3>
         <div class="brief-block" id="brief-content"></div>
@@ -1385,6 +1397,10 @@
     `;
     $('brief-btn').addEventListener('click', loadBrief);
     $('diag-btn').addEventListener('click', loadDiagnosis);
+    const grantBtn = $('right-grant-btn');
+    if (grantBtn) grantBtn.addEventListener('click', window.rightGrantPro);
+    const revokeBtn = $('right-revoke-btn');
+    if (revokeBtn) revokeBtn.addEventListener('click', window.rightRevokePro);
   }
 
   async function loadBrief() {
