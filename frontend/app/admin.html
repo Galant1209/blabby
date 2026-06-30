@@ -446,6 +446,32 @@
   .user-row__counts .v { color: var(--green); }
   .user-row__counts .p { color: var(--amber); }
   .user-row__counts .i { color: var(--red); }
+  .user-row__counts .user-row__last { margin-left: auto; color: var(--muted); }
+  .user-row__top { display: flex; align-items: center; gap: 6px; }
+  .user-row__top .user-row__email { flex: 1; min-width: 0; }
+  .user-row__plan {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.04em; padding: 1px 5px;
+    border-radius: 2px; background: rgba(45,80,22,0.12); color: var(--green); flex-shrink: 0;
+  }
+  .user-controls {
+    padding: 8px 10px; border-bottom: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 6px;
+    background: var(--surface); position: sticky; top: 41px; z-index: 1;
+  }
+  .user-controls__row { display: flex; gap: 6px; align-items: center; }
+  .user-search, .user-sort {
+    font-family: var(--sans); font-size: 12px; padding: 6px 8px;
+    border: 1px solid var(--border); border-radius: 4px; background: white; color: var(--ink);
+  }
+  .user-search { width: 100%; }
+  .user-sort { flex-shrink: 0; }
+  .user-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .user-chip {
+    font-family: var(--sans); font-size: 11px; padding: 3px 8px; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 10px; background: none; color: var(--muted);
+  }
+  .user-chip:hover { color: var(--ink); }
+  .user-chip.active { background: var(--green); color: #fff; border-color: var(--green); }
 
   /* === Middle: triage bar + practice rows === */
   .triage-bar {
@@ -848,6 +874,22 @@
 <div class="tab-panel layout" id="users-tab">
   <aside class="col col--users" id="col-users">
     <div class="col__title">使用者</div>
+    <div class="user-controls">
+      <input type="text" id="user-search" class="user-search" placeholder="搜尋 email…" autocomplete="off">
+      <div class="user-controls__row">
+        <select id="user-sort" class="user-sort">
+          <option value="recent">最近活躍</option>
+          <option value="count">練習數</option>
+          <option value="az">A→Z</option>
+        </select>
+        <div class="user-chips" id="user-chips">
+          <button class="user-chip active" data-filter="all" type="button">全部</button>
+          <button class="user-chip" data-filter="pro" type="button">PRO</button>
+          <button class="user-chip" data-filter="free" type="button">FREE</button>
+          <button class="user-chip" data-filter="practiced" type="button">有練</button>
+        </div>
+      </div>
+    </div>
     <div class="col__body" id="users-list">
       <div class="col__empty">Loading…</div>
     </div>
@@ -921,6 +963,9 @@
     showAll: false,
     partFilter: 'all',    // 'all' | 'part1' | 'part2' — client-side filter, mode inferred from coach_response shape
     token: null,
+    userSearch: '',       // left-list email search
+    userSort: 'recent',   // 'recent' | 'count' | 'az'
+    userFilter: 'all',    // 'all' | 'pro' | 'free' | 'practiced'
   };
 
   // === Helpers ===
@@ -1034,25 +1079,61 @@
     }
   }
 
+  let userControlsWired = false;
+  function wireUserControls() {
+    if (userControlsWired) return;
+    const search = $('user-search');
+    if (search) search.addEventListener('input', () => { state.userSearch = search.value; renderUsers(); });
+    const sort = $('user-sort');
+    if (sort) sort.addEventListener('change', () => { state.userSort = sort.value; renderUsers(); });
+    document.querySelectorAll('#user-chips .user-chip').forEach(c => {
+      c.addEventListener('click', () => {
+        state.userFilter = c.dataset.filter;
+        document.querySelectorAll('#user-chips .user-chip').forEach(x => x.classList.toggle('active', x === c));
+        renderUsers();
+      });
+    });
+    userControlsWired = true;
+  }
+
   function renderUsers() {
+    wireUserControls();
     const list = $('users-list');
     if (!state.users.length) {
       list.innerHTML = '<div class="col__empty">No users yet.</div>';
       return;
     }
-    list.innerHTML = state.users.map(u => {
+    // Filter → search → sort (all client-side over the loaded user set).
+    let view = state.users.slice();
+    if (state.userFilter === 'pro') view = view.filter(u => u.is_pro_effective);
+    else if (state.userFilter === 'free') view = view.filter(u => !u.is_pro_effective);
+    else if (state.userFilter === 'practiced') view = view.filter(u => (u.practice_count || 0) > 0);
+    const s = (state.userSearch || '').trim().toLowerCase();
+    if (s) view = view.filter(u => (u.email || '').toLowerCase().includes(s));
+    if (state.userSort === 'recent') view.sort((a, b) => String(b.last_practice || '').localeCompare(String(a.last_practice || '')));
+    else if (state.userSort === 'count') view.sort((a, b) => (b.practice_count || 0) - (a.practice_count || 0));
+    else if (state.userSort === 'az') view.sort((a, b) => String(a.email || '').localeCompare(String(b.email || '')));
+
+    if (!view.length) {
+      list.innerHTML = '<div class="col__empty">No matches.</div>';
+      return;
+    }
+    list.innerHTML = view.map(u => {
       const q = u.quality_counts || {};
-      const label = u.email
-        ? truncate(u.email, 20)
-        : (u.user_id || '').slice(0, 8);
+      const label = u.email ? truncate(u.email, 20) : (u.user_id || '').slice(0, 8);
       const cls = u.user_id === state.selectedUserId ? 'user-row active' : 'user-row';
+      const plan = u.is_pro_effective ? '<span class="user-row__plan">PRO</span>' : '';
       return `
         <div class="${cls}" data-user-id="${escapeHtml(u.user_id)}" title="${escapeHtml(u.email || u.user_id)}">
-          <div class="user-row__email">${escapeHtml(label)}</div>
+          <div class="user-row__top">
+            <span class="user-row__email">${escapeHtml(label)}</span>
+            ${plan}
+          </div>
           <div class="user-row__counts">
             <span class="v">${q.valid || 0}v</span>
             <span class="p">${q.partial || 0}p</span>
             <span class="i">${q.invalid || 0}i</span>
+            <span class="user-row__last">${escapeHtml(relTime(u.last_practice))}</span>
           </div>
         </div>
       `;
