@@ -796,6 +796,26 @@
   .subpanel { display: none; }
   .subpanel.active { display: block; }
   @media (max-width: 900px) { #users-tab { grid-template-columns: 1fr; } }
+  /* 概覽 sub-tab */
+  .ov { padding: 14px 16px; }
+  .ov-counts { display: flex; gap: 14px; margin-bottom: 18px; }
+  .ov-count {
+    flex: 1; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px 14px; text-align: center;
+  }
+  .ov-count__n { font-family: var(--mono); font-size: 24px; color: var(--ink); }
+  .ov-count__l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .ov-tl__row {
+    display: flex; gap: 10px; align-items: baseline; padding: 6px 0;
+    border-bottom: 1px solid var(--line); font-size: 12px;
+  }
+  .ov-tl__row:last-child { border-bottom: none; }
+  .ov-tl__time { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .ov-tl__skill { font-size: 10px; padding: 1px 6px; border-radius: 2px; white-space: nowrap; }
+  .ov-tl__skill--sp { background: rgba(45,80,22,0.12); color: var(--green); }
+  .ov-tl__skill--wr { background: rgba(201,168,76,0.18); color: var(--amber); }
+  .ov-tl__skill--rd { background: rgba(26,53,80,0.10); color: var(--navy); }
+  .ov-tl__label { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -1064,6 +1084,8 @@
       state.detail = await res.json();
       renderMiddle();
       renderDetailHeader();
+      // 概覽 is the default sub-tab — fill it once the detail loads.
+      loadOverview();
     } catch (err) {
       console.error('selectUser error', err);
       $('middle-content').innerHTML = '<div class="col__empty">Network error</div>';
@@ -1080,13 +1102,13 @@
     pane.innerHTML = `
       <div id="detail-header"></div>
       <div class="subtabs" id="detail-subtabs">
-        <button class="subtab" data-sub="overview" type="button">概覽</button>
-        <button class="subtab active" data-sub="speaking" type="button">口說</button>
+        <button class="subtab active" data-sub="overview" type="button">概覽</button>
+        <button class="subtab" data-sub="speaking" type="button">口說</button>
         <button class="subtab" data-sub="writing" type="button">寫作</button>
         <button class="subtab" data-sub="reading" type="button">閱讀</button>
       </div>
-      <div class="subpanel" id="sub-overview"><div class="col__empty">概覽即將推出。</div></div>
-      <div class="subpanel active" id="sub-speaking">
+      <div class="subpanel active" id="sub-overview"><div class="col__empty">Loading…</div></div>
+      <div class="subpanel" id="sub-speaking">
         <div id="middle-content"></div>
         <div class="right-section" id="record-detail-section" style="display:none">
           <h3>選中紀錄</h3>
@@ -1108,6 +1130,7 @@
     document.querySelectorAll('#detail-pane .subpanel').forEach(p => {
       p.classList.toggle('active', p.id === `sub-${name}`);
     });
+    if (name === 'overview') loadOverview();
     if (name === 'writing') loadStudentWriting();
     if (name === 'reading') loadStudentReading();
   }
@@ -1711,6 +1734,74 @@
       console.error('loadStudentReading error', err);
       host.innerHTML = '<div class="col__empty">Network error</div>';
     }
+  }
+
+  // 用戶管理 概覽 sub-tab — per-skill counts, a unified cross-skill timeline,
+  // and the student's most common speaking weakness tags. Speaking comes from
+  // the already-loaded state.detail; writing/reading are fetched per-student.
+  async function loadOverview() {
+    const host = $('sub-overview');
+    if (!host || !state.selectedUserId) return;
+    host.innerHTML = '<div class="col__empty">Loading…</div>';
+    const speaking = (state.detail && state.detail.records) || [];
+    let writing = [], reading = [];
+    try {
+      const [wRes, rRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/writing/submissions?user_id=${encodeURIComponent(state.selectedUserId)}`, { headers: { 'Authorization': `Bearer ${state.token}` } }),
+        fetch(`${API_BASE}/admin/reading/attempts?user_id=${encodeURIComponent(state.selectedUserId)}`, { headers: { 'Authorization': `Bearer ${state.token}` } }),
+      ]);
+      if (wRes.ok) writing = (await wRes.json()).submissions || [];
+      if (rRes.ok) reading = (await rRes.json()).attempts || [];
+    } catch (e) {
+      console.error('loadOverview error', e);
+    }
+    renderOverview(speaking, writing, reading);
+  }
+
+  function renderOverview(speaking, writing, reading) {
+    const host = $('sub-overview');
+    if (!host) return;
+
+    // Common weakness tags from speaking records, most frequent first.
+    const tagCounts = {};
+    speaking.forEach(r => {
+      const t = (r.weakness_tag || '').trim();
+      if (t) tagCounts[t] = (tagCounts[t] || 0) + 1;
+    });
+    const tags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const tagsHTML = tags.length
+      ? tags.map(([t, n]) => `<span class="badge tag">${escapeHtml(t)} · ${n}</span>`).join(' ')
+      : '<span class="dash-empty">尚無弱點資料</span>';
+
+    // Unified cross-skill timeline, newest first.
+    const events = [];
+    speaking.forEach(r => events.push({ at: r.created_at, skill: '口說', cls: 'sp', label: r.weakness_tag || r.topic || r.question || '口說練習' }));
+    writing.forEach(w => events.push({ at: w.submitted_at, skill: '寫作', cls: 'wr', label: `${w.task_type || 'writing'} · band ${w.band_overall ?? '—'}` }));
+    reading.forEach(a => events.push({ at: a.started_at, skill: '閱讀', cls: 'rd', label: `${(a.reading_passages && a.reading_passages.title) || 'reading'} · ${a.status || ''}` }));
+    events.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    const timeline = events.slice(0, 15).map(e => `
+      <div class="ov-tl__row">
+        <span class="ov-tl__time">${escapeHtml(fmtTime(e.at))}</span>
+        <span class="ov-tl__skill ov-tl__skill--${e.cls}">${e.skill}</span>
+        <span class="ov-tl__label">${escapeHtml(truncate(e.label, 50))}</span>
+      </div>`).join('') || '<div class="dash-empty">尚無活動</div>';
+
+    host.innerHTML = `
+      <div class="ov">
+        <div class="ov-counts">
+          <div class="ov-count"><div class="ov-count__n">${speaking.length}</div><div class="ov-count__l">口說</div></div>
+          <div class="ov-count"><div class="ov-count__n">${writing.length}</div><div class="ov-count__l">寫作</div></div>
+          <div class="ov-count"><div class="ov-count__n">${reading.length}</div><div class="ov-count__l">閱讀</div></div>
+        </div>
+        <div class="dash-section">
+          <div class="dash-section__title">常見弱點</div>
+          <div>${tagsHTML}</div>
+        </div>
+        <div class="dash-section">
+          <div class="dash-section__title">近期活動</div>
+          ${timeline}
+        </div>
+      </div>`;
   }
 
   // === 總覽 Dashboard (handoff §3.1) ===
