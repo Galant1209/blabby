@@ -670,7 +670,7 @@ def get_user_recent_records(user_id: str, limit: int = 10) -> list[dict]:
     try:
         response = (
             supabase_admin.table("practice_records")
-            .select("user_transcript, topic, question, created_at, weakness_tag")
+            .select("user_transcript, topic, question, created_at, weakness_tag, better_expression, coach_response")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .limit(limit)
@@ -927,6 +927,45 @@ def build_memory_block(weak_pattern_counts: dict[str, int], tag_counts: dict[str
         tag_lines = "\n".join(f"- {tag}: {count} 次" for tag, count in sorted_tags)
         block += f"\n【使用者歷史弱點類型】\n{tag_lines}\n如果這次的回答沒有犯最常見的弱點類型，且有具體細節，優先使用層級 B 肯定這個進步。\n"
     return block
+
+
+def build_repair_memory(records: list[dict]) -> str:
+    """
+    Render the 【使用者近期被修復的說法】 block from past corrections.
+
+    Pairs each historically-quoted mistake (extracted from coach_response,
+    format 你說：「{quoted}」) with the better_expression the coach taught
+    for it, so the LLM can recognise a repeated structural error returning.
+
+    Scope: only structural tags (grammar_minor / weak_vocab / safe_answer).
+    lack_detail is situational advice that doesn't transfer to a new
+    question; off_topic carries no reusable phrasing. Most-recent-first
+    (records arrive created_at DESC), deduped by quoted snippet so the same
+    mistake never floods the block, capped at 5 lines. No is_pro gate here —
+    the caller decides whether to inject.
+    """
+    structural_tags = {"grammar_minor", "weak_vocab", "safe_answer"}
+    lines: list[str] = []
+    seen: set[str] = set()
+    for r in records:
+        if r.get("weakness_tag") not in structural_tags:
+            continue
+        better = (r.get("better_expression") or "").strip()
+        if not better:
+            continue
+        match = re.search(r"你說：「(.+?)」", r.get("coach_response") or "")
+        if not match:
+            continue
+        quoted = match.group(1).strip()
+        if not quoted or quoted in seen:
+            continue
+        seen.add(quoted)
+        lines.append(f"- 曾說「{quoted}」，教過更好的說法：「{better}」")
+        if len(lines) >= 5:
+            break
+    if not lines:
+        return ""
+    return "\n【使用者近期被修復的說法】\n" + "\n".join(lines) + "\n"
 
 
 def build_intensity_block(
@@ -1985,6 +2024,18 @@ async def process(
 
         memory_block = build_memory_block(weak_pattern_counts, tag_counts)
 
+        # Repair memory: past mistake→correction pairs. Assembled for everyone
+        # (cheap, in-memory) but injected ONLY for Pro. The normal-flow is_pro
+        # isn't computed until after the LLM call (see L~2508); this is a
+        # separate, local Pro check that ONLY gates this injection — it does
+        # not move or replace that downstream is_pro.
+        repair_memory = build_repair_memory(recent_records)
+        # Only pay the (uncached) Pro-status DB round-trip when there is actually
+        # repair memory to gate; users with no qualifying history skip it entirely.
+        repair_block = ""
+        if repair_memory:
+            repair_block = repair_memory if get_user_pro_status(user_id) else ""
+
         try:
             history_list = json.loads(history) if history else []
             if not isinstance(history_list, list):
@@ -2083,7 +2134,7 @@ async def process(
             "content": build_system_prompt(
                 topic=topic,
                 question=question,
-                memory_block=memory_block + tier_b_override + intensity_block,
+                memory_block=memory_block + repair_block + tier_b_override + intensity_block,
                 repeated_weak_words=repeated_weak_words,
                 drill_tag=drill_tag if is_drill_mode else None,
                 persona_prefix=PERSONA_PROMPTS[get_persona(user_band)],
