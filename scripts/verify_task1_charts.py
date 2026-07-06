@@ -179,19 +179,53 @@ def check_bar(root, case):
     return None
 
 
+# Assertion-strength conservation (2026-07-06 revision): this revision only
+# widens "what counts as a legitimately drawn series" (segment-per-segment
+# palette <line> chains are valid SVG line charts) and partitions circles into
+# chart-area markers vs legend swatches (the geometry contract ITSELF mandates
+# a legend at y=360-415 — bounds-checking those circles against the chart area
+# punished a required element). No geometric truth was loosened: pie still
+# rejects any <ellipse>, bar rects must still touch baseline 340, table still
+# needs >= rows*cols text nodes, and line charts still need a real drawn
+# series plus every chart-area marker inside x=70..560 / y=40..345.
+_SERIES_PALETTE = {"#1a3550", "#c9a84c", "#2d5016", "#6b1a1a", "#7a4b7a"}
+
+
 def check_line(root, case):
     rows, _ = _rows_cols(case["desc"])
-    circles = _elems(root, "circle")
-    for c in circles:
+    chart_markers = 0
+    for c in _elems(root, "circle"):
         cx = float(c.get("cx", -1)); cy = float(c.get("cy", -1))
-        if not (69 <= cx <= 561 and 39 <= cy <= 341):
-            return f"line: marker ({cx},{cy}) outside chart area"
+        if cy <= 345:
+            # chart-area marker: must sit inside the chart area proper
+            if not (70 <= cx <= 560 and 40 <= cy <= 345):
+                return f"line: chart-area marker ({cx},{cy}) outside x=70..560 y=40..345"
+            chart_markers += 1
+        elif 360 <= cy <= 415:
+            # legend swatch: exempt from chart-area bounds, must stay on canvas
+            if not (0 <= cx <= 600 and cy <= 420):
+                return f"line: legend circle ({cx},{cy}) outside canvas"
+        else:
+            return f"line: suspicious circle ({cx},{cy}) between chart area and legend band"
     has_series = bool(_elems(root, "polyline")) or any(
         "L" in (p.get("d") or "").upper() for p in _elems(root, "path"))
     if not has_series:
-        return "line: no <polyline> and no line-to <path> series"
-    if len(circles) < rows:
-        return f"line: {len(circles)} markers, expected >= {rows}"
+        # segment-per-segment series: >=2 palette-coloured <line> at width >=2;
+        # axes/gridlines (#333 / #e0e0e0, width <=1) never count
+        segments = 0
+        for ln in _elems(root, "line"):
+            stroke = (ln.get("stroke") or "").lower()
+            try:
+                sw = float(ln.get("stroke-width", 0))
+            except ValueError:
+                sw = 0
+            if sw >= 2 and stroke in _SERIES_PALETTE:
+                segments += 1
+        has_series = segments >= 2
+    if not has_series:
+        return "line: no <polyline>, no line-to <path>, and <2 palette-series <line> segments"
+    if chart_markers < rows:
+        return f"line: {chart_markers} chart-area markers, expected >= {rows}"
     return None
 
 
@@ -243,7 +277,10 @@ def run_case(subtype, i, case):
 
 
 def main():
-    jobs = [(st, i, c) for st, cases in CASES.items() for i, c in enumerate(cases)]
+    # optional argv filter, e.g. `verify_task1_charts.py line_graph` reruns one
+    # subtype only (5 calls) without re-spending the other fifteen
+    only = set(sys.argv[1:]) & set(CASES) if sys.argv[1:] else set(CASES)
+    jobs = [(st, i, c) for st, cases in CASES.items() if st in only for i, c in enumerate(cases)]
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(lambda j: run_case(*j), jobs))
 
@@ -260,6 +297,8 @@ def main():
     print("-" * 90)
     frozen = []
     for st in CASES:
+        if st not in only:
+            continue
         s = summary[st]
         first = s["fails"][0] if s["fails"] else "-"
         print(f"{st:<12} | {s['pass']}/5      | {first}")
