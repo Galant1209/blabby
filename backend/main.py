@@ -8449,7 +8449,7 @@ async def writing_get_question(
         if not task1_subtype or task1_subtype not in valid_subtypes:
             raise HTTPException(
                 status_code=422,
-                detail="This manner of illustration is not yet prepared for examination. Pray choose among the bar chart, line graph, pie chart, or table.",
+                detail="This manner of illustration is not yet prepared for examination. Pray choose among those presently offered.",
             )
         if not await is_user_pro(user_id):
             raise HTTPException(
