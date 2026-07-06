@@ -8225,7 +8225,9 @@ TASK1_SUBTYPES = ["bar_chart", "line_graph", "pie_chart", "table", "process", "m
 # under "The map below shows…" — a visual lie. Frozen from live selection and
 # pregeneration until a real spatial renderer ships (post-revenue). The full
 # TASK1_SUBTYPES list is retained so nothing else regresses.
-TASK1_SERVED_SUBTYPES = ["bar_chart", "line_graph", "pie_chart", "table"]
+# line_graph frozen 2026-07-06 by scripts/verify_task1_charts.py (0/5 structural
+# truth) — pending verdict on whether the failures are harness false-negatives.
+TASK1_SERVED_SUBTYPES = ["bar_chart", "pie_chart", "table"]
 
 
 def _writing_question_prompt(subtype: str) -> str:

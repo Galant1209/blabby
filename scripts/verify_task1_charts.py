@@ -28,6 +28,15 @@ os.makedirs(OUT_DIR, exist_ok=True)
 os.chdir(BACKEND_DIR)
 sys.path.insert(0, BACKEND_DIR)
 
+# Load backend/.env BEFORE importing main, so main.py's module-level
+# anthropic_client is constructed with the real key already in os.environ.
+from dotenv import load_dotenv  # noqa: E402
+load_dotenv(os.path.join(BACKEND_DIR, ".env"))
+_key = os.environ.get("ANTHROPIC_API_KEY")
+print(f"ANTHROPIC_API_KEY loaded: {'yes (redacted)' if _key else 'NO — aborting'}")
+if not _key:
+    sys.exit(2)
+
 # STUB (disclosed): the local .env's SUPABASE_SERVICE_KEY is rejected by
 # supabase-py at import time (SupabaseException: Invalid API key). This harness
 # never touches the DB, so blank the two vars for THIS process only; main.py
@@ -256,8 +265,20 @@ def main():
         print(f"{st:<12} | {s['pass']}/5      | {first}")
         if s["pass"] < 5:
             frozen.append((st, first))
+    # Single-file eyeball index: every generated SVG inlined into one HTML page.
+    svgs = sorted(f for f in os.listdir(OUT_DIR) if f.endswith(".svg"))
+    with open(os.path.join(OUT_DIR, "index.html"), "w") as f:
+        f.write("<meta charset='utf-8'><title>Task 1 chart truth-check</title>"
+                "<style>body{font-family:Georgia,serif}figure{display:inline-block;"
+                "margin:12px;border:1px solid #ccc;padding:8px}figcaption{font-size:13px;"
+                "text-align:center}svg{width:480px;height:auto}</style>\n")
+        for name in svgs:
+            with open(os.path.join(OUT_DIR, name)) as s:
+                f.write(f"<figure>{s.read()}<figcaption>{name}</figcaption></figure>\n")
+
     print()
     print(f"PNG rendering: {'yes' if HAVE_PNG else 'NO — libcairo absent; geometry-only asserts, raw .svg written to scripts/out/ for eyeballing'}")
+    print(f"Eyeball index: scripts/out/index.html ({len(svgs)} SVGs embedded)")
     if not frozen:
         print("SERVED 4/4 at 5/5: YES")
     else:
