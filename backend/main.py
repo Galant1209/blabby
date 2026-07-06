@@ -7949,7 +7949,7 @@ _CHART_DATA_LABEL_MIN_RATIO = 0.5  # gate 3: at least half the data groups must 
 _CHART_TITLE_MIN_WORD_COVERAGE = 0.7  # gate 2 (soft): >=70% of title words must appear in the SVG
 
 
-def _validate_chart_svg(svg: str, chart_title: str, data_labels: list) -> tuple:
+def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: str = "") -> tuple:
     """Return (hard_ok, reason).
 
     HARD gates reject the SVG (→ retry / text fallback):
@@ -7974,6 +7974,14 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list) -> tuple:
         return False, f"incomplete_svg: has_open={has_open}, has_close={has_close}, len={len(svg or '')}"
 
     norm_svg = _norm_text(svg)
+
+    # Gate 1b — pie geometry (HARD). Only applies to pie charts.
+    if subtype == "pie_chart":
+        lower_svg = (svg or "").lower()
+        if "<ellipse" in lower_svg:
+            return False, "pie_used_ellipse: pies must be <path> arcs on a perfect circle, not <ellipse>"
+        if lower_svg.count("<path") < 2:
+            return False, f"pie_too_few_slices: found {lower_svg.count('<path')} <path> elements, expected >=2"
 
     # Gate 3 — data groups (HARD, proportional)
     if data_labels:
@@ -8062,10 +8070,32 @@ LINE CHARTS:
   - Circle markers r=4, filled with series colour
   - Connect all data points with straight lines
 
-PIE CHARTS:
-  - Each slice filled with palette colour
-  - Percentage label inside each slice, font-size="10", fill="#fff"
-  - Category label outside each slice
+PIE CHARTS (single pie):
+  - Geometry is MANDATORY and non-negotiable. A pie is a perfect CIRCLE, never an ellipse.
+  - Draw each slice as an SVG <path> arc. NEVER use <ellipse>. NEVER use <circle> for slices.
+  - Fixed centre cx=300, cy=210. Fixed radius r=120. Every slice shares this exact cx, cy, r — no exceptions, no per-slice variation.
+  - Slice path formula, starting angle at -90deg (12 o'clock), sweeping clockwise. For a slice spanning cumulative angles a0 to a1 (radians, measured clockwise from top):
+      x0 = 300 + 120*sin(a0),  y0 = 210 - 120*cos(a0)
+      x1 = 300 + 120*sin(a1),  y1 = 210 - 120*cos(a1)
+      large_arc = 1 if (a1-a0) > pi else 0
+      path d = "M300,210 L{{x0}},{{y0}} A120,120 0 {{large_arc}} 1 {{x1}},{{y1}} Z"
+  - Compute each slice angle = (value / sum_of_values) * 2*pi. Accumulate angles so slices are contiguous and sum to a full 360deg. The final slice MUST close exactly back to the top.
+  - Fill each slice with palette colours in order (#1A3550, #C9A84C, #2D5016, #6B1A1A, then #7A4B7A purple for a 5th).
+  - Slice stroke: stroke="#ffffff" stroke-width="1".
+  - Percentage label at the slice's mid-angle, at radius 75 from centre:
+      mid = (a0+a1)/2;  lx = 300 + 75*sin(mid);  ly = 210 - 75*cos(mid)
+      <text x="{{lx}}" y="{{ly}}" font-size="10" fill="#ffffff" text-anchor="middle">42%</text>
+  - Do NOT draw X/Y axes, gridlines, or axis labels for pie charts — omit required elements 3,4,5,6,7,8,9. Keep the title (element 2), background (element 1), and legend (element 11).
+  - Legend maps each palette colour to its category name.
+
+PIE CHARTS (two pies, before/after comparison — e.g. "in 2015 and 2023"):
+  - When the data implies two time periods, draw TWO separate pies side by side, both perfect circles with IDENTICAL radius.
+  - Left pie: cx=175, cy=210, r=95. Right pie: cx=425, cy=210, r=95. Radius r=95 is identical for both — never let one pie be larger or squashed.
+  - Apply the exact same <path> arc formula above, substituting each pie's own cx/cy and r=95.
+  - CRITICAL for comparison: both pies MUST assign colours to categories in the SAME order, and slices in BOTH pies MUST start at -90deg and sweep clockwise in the SAME category sequence, so the same category sits in a comparable position across both pies.
+  - Sub-title each pie with its period below it: <text x="175" y="330" ...>2015</text> and <text x="425" y="330" ...>2023</text>, font-size="12", font-weight="bold".
+  - One shared legend at the bottom (element 11) covering both pies.
+  - Do NOT draw axes/gridlines for pie charts.
 
 PROCESS DIAGRAMS:
   - Boxes: fill="#F5F0E8", stroke="#1A3550", stroke-width="1.5", rx="3"
@@ -8115,7 +8145,7 @@ Chart type: {task1_subtype}"""
                 content = re.sub(r"^```(?:svg|html|xml|json)?\s*", "", content)
                 content = re.sub(r"\s*```$", "", content)
             content = content.strip()
-            hard_ok, reason = _validate_chart_svg(content, title, data_labels)
+            hard_ok, reason = _validate_chart_svg(content, title, data_labels, subtype=task1_subtype)
             if hard_ok:
                 logger.info(
                     "generate_chart_svg ok (attempt %d): title=%r, data_points=%d",
