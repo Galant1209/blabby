@@ -7949,7 +7949,7 @@ _CHART_DATA_LABEL_MIN_RATIO = 0.5  # gate 3: at least half the data groups must 
 _CHART_TITLE_MIN_WORD_COVERAGE = 0.7  # gate 2 (soft): >=70% of title words must appear in the SVG
 
 
-def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: str = "") -> tuple:
+def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: str = "", chart_description: str = "") -> tuple:
     """Return (hard_ok, reason).
 
     HARD gates reject the SVG (→ retry / text fallback):
@@ -7982,6 +7982,41 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: 
             return False, "pie_used_ellipse: pies must be <path> arcs on a perfect circle, not <ellipse>"
         if lower_svg.count("<path") < 2:
             return False, f"pie_too_few_slices: found {lower_svg.count('<path')} <path> elements, expected >=2"
+
+    # Gate 1c — subtype shape gates (HARD). A drawn-wrong artifact must be
+    # rejected so the retry loop gets another attempt instead of shipping a
+    # visual lie. Every reason carries actual+expected counts for log triage.
+    if subtype in ("bar_chart", "line_graph", "table"):
+        lower_svg = (svg or "").lower()
+        rows = len(data_labels)
+        path_ds = re.findall(r'<path[^>]*\sd\s*=\s*"([^"]*)"', svg or "", flags=re.IGNORECASE)
+        has_arc_path = any(("A" in d or "a" in d) for d in path_ds)
+
+        if subtype == "bar_chart":
+            # Bars drawn via arc-path/polyline are not countable as <rect>; skip
+            # the rect gate and let the rendering-truth harness judge those.
+            if not (has_arc_path or "<polyline" in lower_svg):
+                pipe_lines = [ln for ln in (chart_description or "").splitlines() if "|" in ln]
+                if rows and pipe_lines:
+                    series = max(1, len(pipe_lines[0].split("|")) - 1)
+                    expected_bars = rows * series
+                    n_rect = lower_svg.count("<rect")
+                    if n_rect < expected_bars - 1:
+                        return False, f"bar_too_few_rects: found={n_rect} expected>={expected_bars - 1} (rows={rows} series={series})"
+
+        elif subtype == "line_graph":
+            n_circle = lower_svg.count("<circle")
+            if "<polyline" not in lower_svg and "<path" not in lower_svg and n_circle < rows:
+                return False, f"line_no_series_drawn: no <polyline>/<path>, circles found={n_circle} expected>={rows}"
+
+        elif subtype == "table":
+            n_text = lower_svg.count("<text")
+            if rows and n_text < rows:
+                return False, f"table_too_few_text: found={n_text} expected>={rows}"
+            if "<ellipse" in lower_svg:
+                return False, "table_drawn_as_pie: found <ellipse>"
+            if has_arc_path:
+                return False, "table_drawn_as_pie: found <path> with arc command"
 
     # Gate 3 — data groups (HARD, proportional)
     if data_labels:
@@ -8145,7 +8180,7 @@ Chart type: {task1_subtype}"""
                 content = re.sub(r"^```(?:svg|html|xml|json)?\s*", "", content)
                 content = re.sub(r"\s*```$", "", content)
             content = content.strip()
-            hard_ok, reason = _validate_chart_svg(content, title, data_labels, subtype=task1_subtype)
+            hard_ok, reason = _validate_chart_svg(content, title, data_labels, subtype=task1_subtype, chart_description=chart_description)
             if hard_ok:
                 logger.info(
                     "generate_chart_svg ok (attempt %d): title=%r, data_points=%d",
