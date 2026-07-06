@@ -8096,14 +8096,17 @@ CHART TYPE RULES:
 BAR CHARTS:
   - Filled bars, each series gets its colour from palette, opacity="0.85"
   - Thin black stroke: stroke="#333" stroke-width="0.5"
-  - All bars equal width; divide the horizontal chart area evenly by the number of groups, then split each group evenly by the number of series
+  - Bars sit ON the x-axis baseline y=340: each bar's rect has y = 340 - height and height = the value scaled to the y-axis. Bars NEVER float above or sink below the baseline.
+  - All bars equal width; divide the horizontal chart area (x=70 to x=560) evenly by the number of groups, then split each group evenly by the number of series
+  - Y-scale: top of scale = max value + 10% headroom; ticks at clean round intervals (e.g. 0, 10, 20 ... or 0, 25, 50 ...)
   - For grouped/multi-series bar charts, the X-axis MUST label every year/category group at least once (place the label under the centre of each group). You may omit minor gridline labels but never omit a data group's category label.
-  - Add value labels above each bar, font-size="9"
+  - Add value labels centred above each bar top, font-size="9"
 
 LINE CHARTS:
   - stroke-width="2", each series uses palette colour
-  - Circle markers r=4, filled with series colour
-  - Connect all data points with straight lines
+  - Circle markers r=4, filled with series colour, each marker centre placed EXACTLY on its computed (x,y)
+  - Connect all data points with straight lines, strictly in ascending x order
+  - No point may fall outside the chart area: every x within 70..560, every y within 40..340
 
 PIE CHARTS (single pie):
   - Geometry is MANDATORY and non-negotiable. A pie is a perfect CIRCLE, never an ellipse.
@@ -8117,7 +8120,7 @@ PIE CHARTS (single pie):
   - Compute each slice angle = (value / sum_of_values) * 2*pi. Accumulate angles so slices are contiguous and sum to a full 360deg. The final slice MUST close exactly back to the top.
   - Fill each slice with palette colours in order (#1A3550, #C9A84C, #2D5016, #6B1A1A, then #7A4B7A purple for a 5th).
   - Slice stroke: stroke="#ffffff" stroke-width="1".
-  - Percentage label at the slice's mid-angle, at radius 75 from centre:
+  - Percentage label at the slice's mid-angle, at label radius r*0.62 (r=120 -> 75) from centre:
       mid = (a0+a1)/2;  lx = 300 + 75*sin(mid);  ly = 210 - 75*cos(mid)
       <text x="{{lx}}" y="{{ly}}" font-size="10" fill="#ffffff" text-anchor="middle">42%</text>
   - Do NOT draw X/Y axes, gridlines, or axis labels for pie charts — omit required elements 3,4,5,6,7,8,9. Keep the title (element 2), background (element 1), and legend (element 11).
@@ -8128,9 +8131,19 @@ PIE CHARTS (two pies, before/after comparison — e.g. "in 2015 and 2023"):
   - Left pie: cx=175, cy=210, r=95. Right pie: cx=425, cy=210, r=95. Radius r=95 is identical for both — never let one pie be larger or squashed.
   - Apply the exact same <path> arc formula above, substituting each pie's own cx/cy and r=95.
   - CRITICAL for comparison: both pies MUST assign colours to categories in the SAME order, and slices in BOTH pies MUST start at -90deg and sweep clockwise in the SAME category sequence, so the same category sits in a comparable position across both pies.
+  - Percentage labels use the same mid-angle rule at label radius r*0.62 (r=95 -> 59): lx = cx + 59*sin(mid); ly = 210 - 59*cos(mid), with each pie's own cx.
   - Sub-title each pie with its period below it: <text x="175" y="330" ...>2015</text> and <text x="425" y="330" ...>2023</text>, font-size="12", font-weight="bold".
   - One shared legend at the bottom (element 11) covering both pies.
   - Do NOT draw axes/gridlines for pie charts.
+
+TABLES:
+  - Render a real ruled table — never bars, never arcs, never a chart.
+  - Grid drawn with <line> rules (or <rect> cells) plus <text> for every cell value.
+  - Header row shaded: <rect> across the header row, fill="#F5F0E8".
+  - Compute column x-positions and row heights evenly across the chart area (x=70 to x=560, y=56 to y=340): column width = 490 / number_of_columns; row height = 284 / (number_of_rows + 1 header row).
+  - Every data cell from the supplied table MUST appear as a <text> element. Pad text at least 6px inside its cell so numbers never collide with the rules.
+  - Column headers font-weight="bold", font-size="11"; data cells font-size="10"; all font-family="Georgia, serif".
+  - Omit required elements 3,4,5,6,7,8,9 (no axes, no gridlines, no axis labels), as pie charts do. Keep the title (element 2) and background (element 1). Include the legend (element 11) only if the data has series genuinely needing a key; otherwise omit it.
 
 PROCESS DIAGRAMS:
   - Boxes: fill="#F5F0E8", stroke="#1A3550", stroke-width="1.5", rx="3"
@@ -8258,8 +8271,29 @@ def _writing_question_prompt(subtype: str) -> str:
                 "chart_description format: 'Period | Series A | Series B [| Series C]'."
             )
             example = '"Year | Urban | Rural\\n2000 | 22 | 15\\n2005 | 34 | 29\\n2010 | 41 | 38\\n2015 | 58 | 47"'
+    elif subtype == "pie_chart":
+        if random.choice(["single_period", "two_period"]) == "single_period":
+            structure = (
+                "STRUCTURE: parts of a whole for ONE period. "
+                "chart_description format: 'Category | Value' with one value column only, 4-6 rows. "
+                "The values MUST sum to between 95 and 105 so the pie fills exactly once — no gap, no overrun."
+            )
+            example = '"Sector | Share\\nHousing | 34\\nTransport | 26\\nFood | 22\\nLeisure | 18"'
+        else:
+            structure = (
+                "STRUCTURE: the same categories compared across TWO periods (two pies). "
+                "chart_description format: 'Category | <year 1> | <year 2>', 4-6 rows. "
+                "EACH period's column MUST sum to between 95 and 105 so each pie fills exactly once — no gap, no overrun."
+            )
+            example = '"Sector | 2015 | 2023\\nHousing | 30 | 38\\nTransport | 28 | 22\\nFood | 24 | 21\\nLeisure | 18 | 19"'
+    elif subtype == "table":
+        structure = (
+            "STRUCTURE: a readable plain-text table with real-looking data — a header "
+            "row plus 4-6 data rows, columns separated by ' | '."
+        )
+        example = '"Year | Category A | Category B\\n2000 | 45 | 30\\n2005 | 52 | 28\\n2010 | 61 | 24"'
     else:
-        # pie_chart / table / process / map — original plain-text table format.
+        # process / map (frozen from live selection) — original plain-text table format.
         structure = (
             "STRUCTURE: a readable plain-text table with real-looking data — a header "
             "row plus 4-6 data rows, columns separated by ' | '."
