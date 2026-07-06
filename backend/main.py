@@ -8172,6 +8172,13 @@ Chart type: {task1_subtype}"""
 
 TASK1_SUBTYPES = ["bar_chart", "line_graph", "pie_chart", "table", "process", "map"]
 
+# Subtypes with a trustworthy visual renderer. map/process need spatial SVG
+# (floor-plans / flow diagrams) not yet built; serving them renders a bar chart
+# under "The map below shows…" — a visual lie. Frozen from live selection and
+# pregeneration until a real spatial renderer ships (post-revenue). The full
+# TASK1_SUBTYPES list is retained so nothing else regresses.
+TASK1_SERVED_SUBTYPES = ["bar_chart", "line_graph", "pie_chart", "table"]
+
 
 def _writing_question_prompt(subtype: str) -> str:
     """System prompt to generate one Task 1 question of the given chart subtype.
@@ -8247,7 +8254,7 @@ def pregenerate_writing_questions(target_per_subtype: int = 5):
         return
 
     # --- Task 1 ---
-    for subtype in TASK1_SUBTYPES:
+    for subtype in TASK1_SERVED_SUBTYPES:
         try:
             existing = (
                 supabase_admin.table("writing_questions")
@@ -8368,12 +8375,12 @@ async def writing_get_question(
     if task_type not in ("task1", "task2"):
         raise HTTPException(status_code=422, detail="task_type must be 'task1' or 'task2'")
 
-    valid_subtypes = ("bar_chart", "line_graph", "pie_chart", "table", "process", "map")
+    valid_subtypes = tuple(TASK1_SERVED_SUBTYPES)
     if task_type == "task1":
         if not task1_subtype or task1_subtype not in valid_subtypes:
             raise HTTPException(
                 status_code=422,
-                detail="task1_subtype is required for Task 1 and must be one of: bar_chart, line_graph, pie_chart, table, process, map",
+                detail="This manner of illustration is not yet prepared for examination. Pray choose among the bar chart, line graph, pie chart, or table.",
             )
         if not await is_user_pro(user_id):
             raise HTTPException(
