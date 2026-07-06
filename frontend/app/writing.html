@@ -325,7 +325,9 @@
                 <button id="tab-task2" class="tab-btn active" onclick="switchTab('task2')">Task 2 — Essay</button>
             </div>
 
-            <!-- Task 1 subtype selector -->
+            <!-- Task 1 subtype selector.
+                 Options MUST mirror TASK1_SERVED_SUBTYPES in backend/main.py — that
+                 constant is the single source of truth for what users may request. -->
             <div id="task1-controls" style="display:none">
                 <select id="task1-subtype">
                     <option value="bar_chart">Bar Chart</option>
@@ -510,6 +512,9 @@
             let url = `${API_BASE}/api/writing/question?task_type=${currentTaskType}`;
             if (currentTaskType === 'task1') url += `&task1_subtype=${task1Subtype}`;
 
+            // requested fires BEFORE the fetch so requested→served forms a real funnel
+            try { window.analytics?.track('writing_question_requested', currentTaskType === 'task1' ? { task_type: currentTaskType, subtype: task1Subtype } : { task_type: currentTaskType }); } catch (e) {}
+
             try {
                 const res = await fetch(url, {
                     headers: { Authorization: `Bearer ${currentSession.access_token}` }
@@ -542,7 +547,9 @@
                 showElement('writing-panel');
                 startTimer(currentTaskType === 'task2' ? 40 : 20);
 
-                try { window.analytics?.track('writing_question_requested', { task_type: currentTaskType }); } catch (e) {}
+                if (currentTaskType === 'task1') {
+                    try { window.analytics?.track('writing_task1_question_served', { subtype: task1Subtype }); } catch (e) {}
+                }
             } catch (e) {
                 showError("A difficulty was encountered whilst retrieving the question. Pray attempt again.");
             } finally {

@@ -8453,6 +8453,10 @@ async def writing_get_question(
                 status_code=422,
                 detail="This manner of illustration is not yet prepared for examination. Pray choose among those presently offered.",
             )
+        # REVENUE SEAM: this is the SOLE gate for future high-value subtype
+        # tiering (e.g. map/process on revival, or multi-series depth). Gate by
+        # subtype HERE with the same is_user_pro check — never scatter subtype
+        # gating across pregeneration, the frontend, or LLM output.
         if not await is_user_pro(user_id):
             raise HTTPException(
                 status_code=403,
