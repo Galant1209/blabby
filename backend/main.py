@@ -8571,23 +8571,54 @@ async def writing_get_question(
             )
 
     # ── Pool-first: serve a pregenerated question if one exists (no AI call) ──
+    # Serving-time guard: a pooled Task 1 chart is re-validated before it is
+    # served. A failing row is retired from the pool (is_pregenerated=False so
+    # the pool-first query never sees it again) and the next candidate is tried
+    # (up to 3), so a stale/bad SVG can never reach a user even if it slipped
+    # into the pool before the generation-time gates existed.
     try:
-        pool_query = (
-            supabase_admin.table("writing_questions")
-            .select("id, prompt, chart_description, chart_svg, essay_type, task1_subtype, used_count")
-            .eq("task_type", task_type)
-            .eq("is_pregenerated", True)
-        )
-        if task_type == "task1":
-            pool_query = pool_query.eq("task1_subtype", task1_subtype)
-        pool_resp = (
-            pool_query.order("used_count", desc=False)
-            .order("created_at", desc=False)
-            .limit(1)
-            .execute()
-        )
-        if pool_resp.data:
+        excluded_ids = []
+        for _ in range(3):
+            pool_query = (
+                supabase_admin.table("writing_questions")
+                .select("id, prompt, chart_description, chart_svg, essay_type, task1_subtype, used_count")
+                .eq("task_type", task_type)
+                .eq("is_pregenerated", True)
+            )
+            if task_type == "task1":
+                pool_query = pool_query.eq("task1_subtype", task1_subtype)
+            if excluded_ids:
+                pool_query = pool_query.not_.in_("id", excluded_ids)
+            pool_resp = (
+                pool_query.order("used_count", desc=False)
+                .order("created_at", desc=False)
+                .limit(1)
+                .execute()
+            )
+            if not pool_resp.data:
+                break
             row = pool_resp.data[0]
+            if task_type == "task1":
+                hard_ok, reason = _validate_chart_svg(
+                    row.get("chart_svg") or "",
+                    _derive_chart_title(row["prompt"]),
+                    _chart_data_labels(row.get("chart_description") or ""),
+                    subtype=task1_subtype,
+                    chart_description=row.get("chart_description") or "",
+                )
+                if not hard_ok:
+                    logger.warning(
+                        "writing_pool_reject subtype=%s question_id=%s reason=%s",
+                        task1_subtype, row["id"], reason,
+                    )
+                    try:
+                        supabase_admin.table("writing_questions").update(
+                            {"is_pregenerated": False}
+                        ).eq("id", row["id"]).execute()
+                    except Exception:
+                        logger.exception("pool reject: failed to retire question %s", row["id"])
+                    excluded_ids.append(row["id"])
+                    continue
             try:
                 supabase_admin.table("writing_questions").update(
                     {"used_count": (row.get("used_count") or 0) + 1}
