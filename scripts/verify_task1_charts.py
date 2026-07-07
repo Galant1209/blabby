@@ -233,17 +233,17 @@ def check_pie(root, case):
             if y != y or y <= 45:  # NaN, or the chart-title band
                 continue
             subtitles.append((txt, x, y))
-        if subtitles:
-            if len(subtitles) != 4:
-                return f"pie: {len(subtitles)} period sub-titles, expected 4"
-            slots = [(185, 68), (415, 68), (185, 240), (415, 240)]
-            for txt, x, y in subtitles:
-                for s in slots:
-                    if abs(x - s[0]) <= 5 and abs(y - s[1]) <= 3:
-                        slots.remove(s)
-                        break
-                else:
-                    return f"pie: sub-title '{txt}' at ({x:.0f},{y:.0f}) matches no fixed slot in {{(185,68),(415,68),(185,240),(415,240)}}"
+        # existence is mandatory: zero sub-titles → found=0 → fail (no skip escape)
+        if len(subtitles) != 4:
+            return f"pie: {len(subtitles)} period sub-titles, expected exactly 4"
+        slots = [(185, 68), (415, 68), (185, 240), (415, 240)]
+        for txt, x, y in subtitles:
+            for s in slots:
+                if abs(x - s[0]) <= 5 and abs(y - s[1]) <= 3:
+                    slots.remove(s)
+                    break
+            else:
+                return f"pie: sub-title '{txt}' at ({x:.0f},{y:.0f}) matches no fixed slot in {{(185,68),(415,68),(185,240),(415,240)}}"
     return None
 
 

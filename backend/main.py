@@ -8035,8 +8035,9 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: 
         # directly, ±5px x / ±3px y (integer-rounding noise only). The retired
         # nearest-pie matcher was provably wrong in a 2x2 grid where both rows
         # share a cx. 2/3-period sub-titles sit BELOW pies by contract: not
-        # checked. Zero detected sub-titles → skip; a partial set is caught by
-        # the count gate.
+        # checked. Sub-title EXISTENCE is mandatory for four-period pies: zero
+        # detected sub-titles rejects via the count gate (found=0), closing the
+        # omit-them-all escape.
         if n_periods >= 4 and clusters:
             subtitles = []
             for m in re.finditer(r"<text\b[^>]*>([^<]*)</text>", svg or "", flags=re.IGNORECASE):
@@ -8053,17 +8054,16 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: 
                 if ty <= 45:  # chart title band, not a period sub-title
                     continue
                 subtitles.append((tx, ty))
-            if subtitles:
-                if len(subtitles) != 4:
-                    return False, f"pie_subtitle_count: found={len(subtitles)} expected=4"
-                slots = [(185, 68), (415, 68), (185, 240), (415, 240)]
-                for tx, ty in subtitles:
-                    for s in slots:
-                        if abs(tx - s[0]) <= 5 and abs(ty - s[1]) <= 3:
-                            slots.remove(s)
-                            break
-                    else:
-                        return False, f"pie_subtitle_offspec: subtitle at ({tx:.0f},{ty:.0f}) matches no fixed slot in {{(185,68),(415,68),(185,240),(415,240)}}"
+            if len(subtitles) != 4:
+                return False, f"pie_subtitle_count: found={len(subtitles)} expected=4 (four-period pies require exactly four period sub-titles)"
+            slots = [(185, 68), (415, 68), (185, 240), (415, 240)]
+            for tx, ty in subtitles:
+                for s in slots:
+                    if abs(tx - s[0]) <= 5 and abs(ty - s[1]) <= 3:
+                        slots.remove(s)
+                        break
+                else:
+                    return False, f"pie_subtitle_offspec: subtitle at ({tx:.0f},{ty:.0f}) matches no fixed slot in {{(185,68),(415,68),(185,240),(415,240)}}"
 
     # Gate 1c — subtype shape gates (HARD). A drawn-wrong artifact must be
     # rejected so the retry loop gets another attempt instead of shipping a
