@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 import json
+import threading
 import random
 import tempfile
 import re
@@ -59,13 +60,13 @@ async def startup_event():
     """
     On startup: prime the writing question bank in a background thread
     (non-blocking — server accepts requests immediately).
-    Nightly at 03:00 UTC: top up to target_per_subtype.
+    Every 6 hours: top up to target_per_subtype.
     """
     _scheduler.start()
-    # Nightly top-up
+    # 6-hourly top-up
     _scheduler.add_job(
         pregenerate_writing_questions,
-        CronTrigger(hour=3, minute=0, timezone="UTC"),
+        CronTrigger(hour="*/6", minute=0, timezone="UTC"),
         id="nightly_writing_pregen",
         replace_existing=True,
     )
@@ -8419,12 +8420,101 @@ def _writing_question_prompt(subtype: str) -> str:
     )
 
 
-def pregenerate_writing_questions(target_per_subtype: int = 5):
+def _pregenerate_task1_subtype(subtype: str, target_per_subtype: int = 8):
+    """Top up ONE Task 1 subtype's pool to target_per_subtype.
+    Shared by the full pregeneration sweep and the on-demand low-watermark
+    top-up. Fails silently — never crashes the server or a serving thread."""
+    if supabase_admin is None:
+        logger.warning("pregenerate task1/%s: supabase_admin not configured", subtype)
+        return
+    try:
+        existing = (
+            supabase_admin.table("writing_questions")
+            .select("id", count="exact")
+            .eq("task_type", "task1")
+            .eq("task1_subtype", subtype)
+            .eq("is_pregenerated", True)
+            .execute()
+        )
+        current_count = existing.count or 0
+        needed = target_per_subtype - current_count
+        if needed <= 0:
+            logger.info(f"pregenerate: task1/{subtype} has {current_count}, skipping")
+            return
+
+        logger.info(f"pregenerate: generating {needed} task1/{subtype} questions")
+        for _ in range(needed):
+            try:
+                # Generate question text
+                system_prompt = _writing_question_prompt(subtype)
+                resp = anthropic_client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=800,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": "Generate the question now."}],
+                )
+                content = resp.content[0].text.strip()
+                if content.startswith("```"):
+                    content = re.sub(r"^```(?:json)?\s*", "", content)
+                    content = re.sub(r"\s*```$", "", content)
+                parsed = json.loads(content)
+                if "prompt" not in parsed:
+                    raise ValueError("missing prompt key")
+
+                # Generate SVG
+                chart_svg = ""
+                if parsed.get("chart_description"):
+                    chart_svg = generate_chart_svg(subtype, parsed["chart_description"], parsed["prompt"])
+
+                ins = supabase_admin.table("writing_questions").insert({
+                    "task_type": "task1",
+                    "task1_subtype": subtype,
+                    "prompt": parsed["prompt"],
+                    "chart_description": parsed.get("chart_description"),
+                    "chart_svg": chart_svg if chart_svg else None,
+                    "is_pregenerated": True,
+                    "used_count": 0,
+                }).execute()
+                if not ins.data:
+                    logger.error(f"pregenerate: insert failed for task1/{subtype}")
+                else:
+                    logger.info(f"pregenerate: created task1/{subtype} id={ins.data[0]['id']}")
+            except Exception:
+                logger.exception(f"pregenerate: failed one task1/{subtype} question")
+    except Exception:
+        logger.exception(f"pregenerate: outer loop failed for task1/{subtype}")
+
+
+_replenish_lock = threading.Lock()
+_replenish_inflight = set()
+
+
+def _replenish_task1_async(subtype: str):
+    """Fire-and-forget background top-up of one subtype. Deduplicates: at most
+    one in-flight replenish per subtype. Never blocks or fails the caller."""
+    with _replenish_lock:
+        if subtype in _replenish_inflight:
+            return
+        _replenish_inflight.add(subtype)
+
+    def _run():
+        try:
+            _pregenerate_task1_subtype(subtype)
+        except Exception:
+            logger.warning(f"on-demand replenish failed for task1/{subtype}", exc_info=True)
+        finally:
+            with _replenish_lock:
+                _replenish_inflight.discard(subtype)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def pregenerate_writing_questions(target_per_subtype: int = 8):
     """
     Ensure the writing_questions table has at least target_per_subtype
     pregenerated questions per Task 1 subtype, plus target_per_subtype * 3
     Task 2 questions total.
-    Called by APScheduler on startup and nightly.
+    Called by APScheduler on startup and every 6 hours.
     Fails silently — never crashes the server.
     """
     if supabase_admin is None:
@@ -8433,62 +8523,7 @@ def pregenerate_writing_questions(target_per_subtype: int = 5):
 
     # --- Task 1 ---
     for subtype in TASK1_SERVED_SUBTYPES:
-        try:
-            existing = (
-                supabase_admin.table("writing_questions")
-                .select("id", count="exact")
-                .eq("task_type", "task1")
-                .eq("task1_subtype", subtype)
-                .eq("is_pregenerated", True)
-                .execute()
-            )
-            current_count = existing.count or 0
-            needed = target_per_subtype - current_count
-            if needed <= 0:
-                logger.info(f"pregenerate: task1/{subtype} has {current_count}, skipping")
-                continue
-
-            logger.info(f"pregenerate: generating {needed} task1/{subtype} questions")
-            for _ in range(needed):
-                try:
-                    # Generate question text
-                    system_prompt = _writing_question_prompt(subtype)
-                    resp = anthropic_client.messages.create(
-                        model="claude-haiku-4-5-20251001",
-                        max_tokens=800,
-                        system=system_prompt,
-                        messages=[{"role": "user", "content": "Generate the question now."}],
-                    )
-                    content = resp.content[0].text.strip()
-                    if content.startswith("```"):
-                        content = re.sub(r"^```(?:json)?\s*", "", content)
-                        content = re.sub(r"\s*```$", "", content)
-                    parsed = json.loads(content)
-                    if "prompt" not in parsed:
-                        raise ValueError("missing prompt key")
-
-                    # Generate SVG
-                    chart_svg = ""
-                    if parsed.get("chart_description"):
-                        chart_svg = generate_chart_svg(subtype, parsed["chart_description"], parsed["prompt"])
-
-                    ins = supabase_admin.table("writing_questions").insert({
-                        "task_type": "task1",
-                        "task1_subtype": subtype,
-                        "prompt": parsed["prompt"],
-                        "chart_description": parsed.get("chart_description"),
-                        "chart_svg": chart_svg if chart_svg else None,
-                        "is_pregenerated": True,
-                        "used_count": 0,
-                    }).execute()
-                    if not ins.data:
-                        logger.error(f"pregenerate: insert failed for task1/{subtype}")
-                    else:
-                        logger.info(f"pregenerate: created task1/{subtype} id={ins.data[0]['id']}")
-                except Exception:
-                    logger.exception(f"pregenerate: failed one task1/{subtype} question")
-        except Exception:
-            logger.exception(f"pregenerate: outer loop failed for task1/{subtype}")
+        _pregenerate_task1_subtype(subtype, target_per_subtype)
 
     # --- Task 2 ---
     try:
@@ -8628,6 +8663,23 @@ async def writing_get_question(
                     "writing pool used_count increment failed",
                     extra={"question_id": row["id"]},
                 )
+            # On-demand top-up: if this subtype's pool dips below the low
+            # watermark, replenish in a background thread. Never blocks or
+            # fails this response — the user still gets the pooled question.
+            if task_type == "task1":
+                try:
+                    remaining = (
+                        supabase_admin.table("writing_questions")
+                        .select("id", count="exact")
+                        .eq("task_type", "task1")
+                        .eq("task1_subtype", task1_subtype)
+                        .eq("is_pregenerated", True)
+                        .execute()
+                    ).count or 0
+                    if remaining < 4:
+                        _replenish_task1_async(task1_subtype)
+                except Exception:
+                    logger.warning(f"low-watermark check failed for task1/{task1_subtype}", exc_info=True)
             logger.info(f"writing question served from pool: {row['id']}")
             return {
                 "question_id": row["id"],
@@ -8951,8 +9003,7 @@ async def admin_trigger_pregen(
 ):
     """Manually trigger writing question pregeneration. Admin only."""
     verify_admin(authorization)
-    import threading
-    t = threading.Thread(target=pregenerate_writing_questions, kwargs={"target_per_subtype": 5}, daemon=True)
+    t = threading.Thread(target=pregenerate_writing_questions, kwargs={"target_per_subtype": 8}, daemon=True)
     t.start()
     return {"status": "pregeneration started in background"}
 
