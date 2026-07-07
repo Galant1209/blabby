@@ -8443,13 +8443,16 @@ def _pregenerate_task1_subtype(subtype: str, target_per_subtype: int = 8):
             return
 
         logger.info(f"pregenerate: generating {needed} task1/{subtype} questions")
-        for _ in range(needed):
+        inserted = 0
+        attempts = 0
+        while inserted < needed and attempts < needed * 2:
+            attempts += 1
             try:
                 # Generate question text
                 system_prompt = _writing_question_prompt(subtype)
                 resp = anthropic_client.messages.create(
                     model="claude-haiku-4-5-20251001",
-                    max_tokens=800,
+                    max_tokens=2000,
                     system=system_prompt,
                     messages=[{"role": "user", "content": "Generate the question now."}],
                 )
@@ -8461,23 +8464,31 @@ def _pregenerate_task1_subtype(subtype: str, target_per_subtype: int = 8):
                 if "prompt" not in parsed:
                     raise ValueError("missing prompt key")
 
-                # Generate SVG
+                # Generate SVG. A Task 1 question that names a chart but has no
+                # valid chart is a visual lie — discard it and try a fresh one;
+                # the pool must only ever contain questions with a valid chart.
                 chart_svg = ""
                 if parsed.get("chart_description"):
                     chart_svg = generate_chart_svg(subtype, parsed["chart_description"], parsed["prompt"])
+                if not chart_svg:
+                    logger.warning(
+                        f"pregenerate: task1/{subtype} question had no valid chart_svg — discarded (attempt {attempts}/{needed * 2})"
+                    )
+                    continue
 
                 ins = supabase_admin.table("writing_questions").insert({
                     "task_type": "task1",
                     "task1_subtype": subtype,
                     "prompt": parsed["prompt"],
                     "chart_description": parsed.get("chart_description"),
-                    "chart_svg": chart_svg if chart_svg else None,
+                    "chart_svg": chart_svg,
                     "is_pregenerated": True,
                     "used_count": 0,
                 }).execute()
                 if not ins.data:
                     logger.error(f"pregenerate: insert failed for task1/{subtype}")
                 else:
+                    inserted += 1
                     logger.info(f"pregenerate: created task1/{subtype} id={ins.data[0]['id']}")
             except Exception:
                 logger.exception(f"pregenerate: failed one task1/{subtype} question")
@@ -8709,18 +8720,21 @@ async def writing_get_question(
     else:
         system_prompt = _writing_question_prompt(task1_subtype)
 
-    try:
-        response = anthropic_client.messages.create(
+    def _generate_question_json():
+        r = anthropic_client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=800,
+            max_tokens=2000,
             system=system_prompt,
             messages=[{"role": "user", "content": "Generate the question now."}],
         )
-        content = (response.content[0].text or "").strip()
-        if content.startswith("```"):
-            content = re.sub(r"^```(?:json)?\s*", "", content)
-            content = re.sub(r"\s*```$", "", content)
-        parsed = json.loads(content)
+        c = (r.content[0].text or "").strip()
+        if c.startswith("```"):
+            c = re.sub(r"^```(?:json)?\s*", "", c)
+            c = re.sub(r"\s*```$", "", c)
+        return json.loads(c)
+
+    try:
+        parsed = _generate_question_json()
     except json.JSONDecodeError as exc:
         logger.exception("writing question generation parse failed", extra={"user_id": user_id})
         raise HTTPException(status_code=500, detail="Question generation failed: invalid response from AI") from exc
@@ -8729,8 +8743,32 @@ async def writing_get_question(
         raise HTTPException(status_code=500, detail="Question generation failed: invalid response from AI")
 
     chart_svg = ""
-    if task_type == "task1" and parsed.get("chart_description"):
-        chart_svg = generate_chart_svg(task1_subtype, parsed["chart_description"], parsed["prompt"])
+    if task_type == "task1":
+        # Three-stage degradation: (1) generate_chart_svg retries internally;
+        # (2) regenerate the WHOLE question once — fresh data may render where
+        # the first set could not; (3) refuse with a structured error. A Task 1
+        # question that names a chart but shows none is a visual lie and is
+        # never served.
+        if parsed.get("chart_description"):
+            chart_svg = generate_chart_svg(task1_subtype, parsed["chart_description"], parsed["prompt"])
+        if not chart_svg:
+            logger.warning(
+                f"live task1/{task1_subtype}: first question yielded no valid chart — regenerating whole question once"
+            )
+            try:
+                reparsed = _generate_question_json()
+                if isinstance(reparsed, dict) and "prompt" in reparsed and reparsed.get("chart_description"):
+                    svg_retry = generate_chart_svg(task1_subtype, reparsed["chart_description"], reparsed["prompt"])
+                    if svg_retry:
+                        parsed = reparsed
+                        chart_svg = svg_retry
+            except Exception:
+                logger.exception(f"live task1/{task1_subtype}: full-question regeneration failed")
+        if not chart_svg:
+            raise HTTPException(
+                status_code=503,
+                detail="The examination question is being prepared with due care. Pray attempt once more in a moment.",
+            )
 
     insert_data = {
         "task_type": task_type,
