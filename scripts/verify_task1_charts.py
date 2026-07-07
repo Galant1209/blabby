@@ -8,7 +8,7 @@ validator alone.
 
 Run from repo root:  python3 scripts/verify_task1_charts.py
 Requires backend/.env with ANTHROPIC_API_KEY (loaded by main.py's load_dotenv).
-Makes real API calls (~20 Sonnet calls) — cost is deliberate.
+Makes real API calls (~24 Sonnet calls, 6 per subtype) — cost is deliberate.
 
 PNG rendering: cairosvg needs system libcairo, absent on this machine, so the
 harness falls back to parsed-geometry assertions and writes raw .svg files to
@@ -67,6 +67,8 @@ CASES = {
          "desc": "Year | Urban | Rural\n2000 | 45 | 30\n2005 | 52 | 38\n2010 | 61 | 44"},
         {"title": "Energy consumption by source from 1990 to 2020", "grouped": True,
          "desc": "Year | Coal | Gas | Renewables\n1990 | 55 | 30 | 5\n2000 | 45 | 38 | 10\n2010 | 35 | 40 | 18\n2020 | 20 | 42 | 30"},
+        {"title": "Average commute time in five cities in 2023",
+         "desc": "City | Minutes\nLondon | 46\nTokyo | 42\nNew York | 40\nSydney | 35\nBerlin | 30"},
     ],
     "line_graph": [
         {"title": "Average house prices from 2000 to 2015",
@@ -79,18 +81,23 @@ CASES = {
          "desc": "Year | Urban | Rural\n1990 | 62 | 41\n2000 | 71 | 52\n2010 | 82 | 63\n2020 | 91 | 74"},
         {"title": "Electricity generation by source from 2000 to 2015",
          "desc": "Year | Coal | Gas | Wind\n2000 | 48 | 30 | 5\n2005 | 42 | 35 | 11\n2010 | 33 | 38 | 19\n2015 | 25 | 40 | 28"},
+        {"title": "Domestic and international air passengers from 2000 to 2020",
+         "desc": "Year | Domestic | International\n2000 | 31 | 18\n2005 | 38 | 25\n2010 | 44 | 34\n2015 | 52 | 45\n2020 | 27 | 12"},
     ],
     "pie_chart": [
+        # coverage: 1, 2, 2, 3, 4, 4 periods — four-period is the layout that crashed in production
         {"title": "Household expenditure by category in 2022",
          "desc": "Category | Share\nHousing | 34\nTransport | 26\nFood | 22\nLeisure | 18"},
-        {"title": "Sources of electricity in 2021",
-         "desc": "Source | Share\nGas | 38\nCoal | 24\nNuclear | 17\nWind | 13\nSolar | 8"},
-        {"title": "Modes of transport to work in 2019",
-         "desc": "Mode | Share\nCar | 45\nBus | 25\nBicycle | 18\nWalking | 12"},
-        {"title": "Household spending in 2015 and 2023", "two_period": True,
+        {"title": "Household spending in 2015 and 2023",
          "desc": "Sector | 2015 | 2023\nHousing | 30 | 38\nTransport | 28 | 22\nFood | 24 | 21\nLeisure | 18 | 19"},
-        {"title": "Energy use by sector in 2000 and 2020", "two_period": True,
+        {"title": "Energy use by sector in 2000 and 2020",
          "desc": "Sector | 2000 | 2020\nIndustry | 40 | 30\nTransport | 30 | 33\nHomes | 20 | 24\nServices | 10 | 13"},
+        {"title": "Modes of transport to work in 2000, 2010 and 2020",
+         "desc": "Mode | 2000 | 2010 | 2020\nCar | 45 | 42 | 38\nBus | 25 | 24 | 23\nBicycle | 18 | 20 | 22\nWalking | 12 | 14 | 17"},
+        {"title": "Household spending across four different years",
+         "desc": "Sector | 1990 | 2000 | 2010 | 2020\nHousing | 30 | 32 | 35 | 38\nTransport | 28 | 26 | 23 | 22\nFood | 24 | 23 | 22 | 21\nLeisure | 18 | 19 | 20 | 19"},
+        {"title": "Sources of electricity in 1990, 2000, 2010 and 2020",
+         "desc": "Source | 1990 | 2000 | 2010 | 2020\nCoal | 40 | 34 | 26 | 18\nGas | 30 | 32 | 33 | 30\nNuclear | 20 | 21 | 22 | 24\nRenewables | 10 | 13 | 19 | 28"},
     ],
     "table": [
         {"title": "Student enrolments by faculty from 2000 to 2010",
@@ -103,6 +110,8 @@ CASES = {
          "desc": "Country | Arrivals | Growth\nFrance | 89 | 3\nSpain | 83 | 4\nUSA | 80 | 2\nChina | 63 | 6\nItaly | 62 | 5"},
         {"title": "Water consumption by use from 1990 to 2020",
          "desc": "Year | Agriculture | Industry | Domestic\n1990 | 65 | 22 | 13\n2000 | 62 | 24 | 14\n2010 | 58 | 26 | 16\n2020 | 54 | 28 | 18"},
+        {"title": "Median weekly earnings by qualification in 2010 and 2020",
+         "desc": "Qualification | 2010 | 2020\nDegree | 720 | 865\nDiploma | 560 | 640\nSecondary | 450 | 505\nNo qualification | 360 | 395"},
     ],
 }
 
@@ -139,24 +148,55 @@ def _arc_paths(root):
 
 
 def check_pie(root, case):
-    arcs = _arc_paths(root)
+    """1-4 period pie truth: one arc-centre cluster per period, equal radii,
+    no overlapping circles (the four-period production crash), slice count
+    ~= periods x categories, and every % label inside its own pie."""
+    rows, cols = _rows_cols(case["desc"])
+    periods = cols - 1
     if _elems(root, "ellipse"):
         return "pie: found <ellipse>"
+    arcs = _arc_paths(root)
     if len(arcs) < 2:
         return f"pie: only {len(arcs)} arc <path> elements, expected >=2"
     bad = [(rx, ry) for _, rx, ry, _, _ in arcs if abs(rx - ry) > 0.01]
     if bad:
         return f"pie: non-circular arc rx!=ry {bad[:3]}"
-    centres = {(round(cx), round(cy)) for _, _, _, cx, cy in arcs if cx is not None}
-    radii = {round(rx) for _, rx, _, _, _ in arcs}
-    if case.get("two_period"):
-        if len(centres) != 2:
-            return f"pie two-period: {len(centres)} arc centres {sorted(centres)}, expected exactly 2"
-        if len(radii) != 1:
-            return f"pie two-period: unequal radii across pies {sorted(radii)}"
-    else:
-        if len(centres) != 1:
-            return f"pie single: {len(centres)} arc centres {sorted(centres)}, expected exactly 1"
+    # cluster arc centres (3px tolerance) — one cluster per pie
+    clusters = []  # [cx, cy, max_r]
+    for _, rx, _, cx, cy in arcs:
+        if cx is None:
+            continue
+        for cl in clusters:
+            if abs(cl[0] - cx) <= 3 and abs(cl[1] - cy) <= 3:
+                cl[2] = max(cl[2], rx)
+                break
+        else:
+            clusters.append([cx, cy, rx])
+    if len(clusters) != periods:
+        return f"pie: {len(clusters)} arc-centre groups, expected {periods} (one per period)"
+    radii = {round(cl[2]) for cl in clusters}
+    if len(radii) != 1:
+        return f"pie: unequal radii across pies {sorted(radii)}"
+    expected_slices = periods * rows
+    if abs(len(arcs) - expected_slices) > periods:
+        return f"pie: {len(arcs)} slice paths, expected ~{expected_slices} (tolerance ±{periods})"
+    for i in range(len(clusters)):
+        for j in range(i + 1, len(clusters)):
+            x1, y1, r1 = clusters[i]
+            x2, y2, r2 = clusters[j]
+            dist = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+            if dist < r1 + r2 + 8:
+                return f"pie: overlap centres ({x1:.0f},{y1:.0f})&({x2:.0f},{y2:.0f}) dist={dist:.0f} < {r1 + r2 + 8:.0f} (2r+8)"
+    # % labels must sit inside their own (nearest) pie — catches labels bleeding
+    # onto a neighbouring circle
+    for t in _elems(root, "text"):
+        txt = (t.text or "").strip()
+        if re.fullmatch(r"\d+(\.\d+)?%", txt):
+            x = float(t.get("x", -1)); y = float(t.get("y", -1))
+            dists = [((x - cl[0]) ** 2 + (y - cl[1]) ** 2) ** 0.5 for cl in clusters]
+            k = dists.index(min(dists))
+            if dists[k] > clusters[k][2]:
+                return f"pie: label '{txt}' at ({x:.0f},{y:.0f}) outside its pie (dist={dists[k]:.0f} > r={clusters[k][2]:.0f})"
     return None
 
 
@@ -293,16 +333,17 @@ def main():
             summary[st]["fails"].append(f"[{i}] {reason}")
 
     print()
-    print(f"{'subtype':<12} | passed/5 | first_failure_reason")
+    print(f"{'subtype':<12} | passed/N | first_failure_reason")
     print("-" * 90)
     frozen = []
     for st in CASES:
         if st not in only:
             continue
         s = summary[st]
+        n = len(CASES[st])
         first = s["fails"][0] if s["fails"] else "-"
-        print(f"{st:<12} | {s['pass']}/5      | {first}")
-        if s["pass"] < 5:
+        print(f"{st:<12} | {s['pass']}/{n}      | {first}")
+        if s["pass"] < n:
             frozen.append((st, first))
     # Single-file eyeball index: every generated SVG inlined into one HTML page.
     svgs = sorted(f for f in os.listdir(OUT_DIR) if f.endswith(".svg"))
@@ -319,10 +360,10 @@ def main():
     print(f"PNG rendering: {'yes' if HAVE_PNG else 'NO — libcairo absent; geometry-only asserts, raw .svg written to scripts/out/ for eyeballing'}")
     print(f"Eyeball index: scripts/out/index.html ({len(svgs)} SVGs embedded)")
     if not frozen:
-        print("SERVED 4/4 at 5/5: YES")
+        print("SERVED 4/4 at N/N: YES")
     else:
         detail = ", ".join(f"{st}: {r}" for st, r in frozen)
-        print(f"SERVED 4/4 at 5/5: NO — frozen: {[st for st, _ in frozen]}, first_failure: {detail}")
+        print(f"SERVED 4/4 at N/N: NO — frozen: {[st for st, _ in frozen]}, first_failure: {detail}")
     return 0 if not frozen else 1
 
 
