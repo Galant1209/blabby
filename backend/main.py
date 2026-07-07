@@ -8015,6 +8015,21 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: 
                 if dist < min_gap:
                     return False, f"pie_overlap: centres ({x1:.0f},{y1:.0f})&({x2:.0f},{y2:.0f}) dist={dist:.0f} < {min_gap:.0f} (2r+8)"
 
+        # Multi-pie only: no pie's bottom edge may enter the legend band.
+        # Legend top ~= smallest y among legend elements (rect/text at y>=380);
+        # if no legend is detectable, skip — never punish a legend-less layout.
+        if n_periods > 1 and clusters:
+            legend_ys = [
+                float(y)
+                for y in re.findall(r'<(?:rect|text)[^>]*\sy\s*=\s*"([\d.]+)"', svg or "", flags=re.IGNORECASE)
+                if float(y) >= 380
+            ]
+            if legend_ys:
+                legend_top = min(legend_ys)
+                for cx, cy, r in clusters:
+                    if cy + r > legend_top:
+                        return False, f"pie_legend_overlap: pie bottom={cy + r:.0f} > legend_top={legend_top:.0f}"
+
     # Gate 1c — subtype shape gates (HARD). A drawn-wrong artifact must be
     # rejected so the retry loop gets another attempt instead of shipping a
     # visual lie. Every reason carries actual+expected counts for log triage.
@@ -8168,10 +8183,10 @@ PIE CHARTS — GEOMETRY IS MANDATORY. A pie is a perfect CIRCLE (SVG <path> arcs
 
   FOUR periods — 2x2 grid, EQUAL radius, NO overlap:
     Row 1 cy=150 : left cx=185 r=72 ; right cx=415 r=72
-    Row 2 cy=330 : left cx=185 r=72 ; right cx=415 r=72
-    Centre-to-centre gap 230 horiz / 180 vert vs r=72 guarantees clear separation.
-    Sub-title EACH pie directly ABOVE it (never inside): row1 at y=68, row2 at y=248, font-size="12", bold, centred on that pie's cx. The period label sits in the gap, not on any arc.
-    Shared legend at the very bottom y=395-415, single horizontal row.
+    Row 2 cy=322 : left cx=185 r=72 ; right cx=415 r=72
+    Centre-to-centre gap 230 horiz / 172 vert vs r=72 guarantees clear separation.
+    Sub-title EACH pie directly ABOVE it (never inside): row1 at y=68, row2 at y=240, font-size="12", bold, centred on that pie's cx. The period label sits in the gap, not on any arc.
+    Shared legend at the very bottom y=402-418, single horizontal row. Row-2 pie bottom edge (322+72=394) keeps 8px clearance above the legend band — no arc may enter y>=402.
     Title must fit y=20-40 only; chart pies begin below y=60. If a two-line title is needed, pies row1 cy shifts to 165 and everything below by +15 — but never let a pie or its sub-title touch the title band.
 
   ALL MULTI-PIE LAYOUTS — hard rules:

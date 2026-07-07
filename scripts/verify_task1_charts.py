@@ -197,6 +197,24 @@ def check_pie(root, case):
             k = dists.index(min(dists))
             if dists[k] > clusters[k][2]:
                 return f"pie: label '{txt}' at ({x:.0f},{y:.0f}) outside its pie (dist={dists[k]:.0f} > r={clusters[k][2]:.0f})"
+    # multi-pie: no pie bottom edge may enter the legend band (the 7px graze
+    # that slipped past circle-circle checks). Legend top = min y of legend
+    # elements at y>=380; skip when no legend is detectable.
+    if periods > 1:
+        legend_ys = []
+        for el in root.iter():
+            if _local(el.tag) in ("rect", "text"):
+                try:
+                    y = float(el.get("y", "nan"))
+                except ValueError:
+                    continue
+                if y >= 380:
+                    legend_ys.append(y)
+        if legend_ys:
+            legend_top = min(legend_ys)
+            for cl in clusters:
+                if cl[1] + cl[2] > legend_top:
+                    return f"pie: bottom edge {cl[1] + cl[2]:.0f} overlaps legend band top {legend_top:.0f}"
     return None
 
 
