@@ -8622,6 +8622,7 @@ async def writing_get_question(
     # the pool-first query never sees it again) and the next candidate is tried
     # (up to 3), so a stale/bad SVG can never reach a user even if it slipped
     # into the pool before the generation-time gates existed.
+    fallback_reason = "pool_empty"
     try:
         excluded_ids = []
         for _ in range(3):
@@ -8691,7 +8692,10 @@ async def writing_get_question(
                         _replenish_task1_async(task1_subtype)
                 except Exception:
                     logger.warning(f"low-watermark check failed for task1/{task1_subtype}", exc_info=True)
-            logger.info(f"writing question served from pool: {row['id']}")
+            logger.info(
+                "writing_pool_hit subtype=%s question_id=%s",
+                row.get("task1_subtype") or "-", row["id"],
+            )
             return {
                 "question_id": row["id"],
                 "task_type": task_type,
@@ -8701,11 +8705,15 @@ async def writing_get_question(
                 "chart_svg": row.get("chart_svg"),
                 "essay_type": row.get("essay_type"),
             }
+        if excluded_ids:
+            fallback_reason = "pool_exhausted_rejects"
     except Exception:
+        fallback_reason = "pool_lookup_error"
         logger.exception("writing pool lookup failed; falling back to live generation")
 
     logger.warning(
-        f"writing question pool miss: task_type={task_type} subtype={task1_subtype}, generating live"
+        "writing_live_fallback subtype=%s reason=%s task_type=%s",
+        task1_subtype or "-", fallback_reason, task_type,
     )
 
     if task_type == "task2":
