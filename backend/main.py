@@ -7983,6 +7983,38 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: 
         if lower_svg.count("<path") < 2:
             return False, f"pie_too_few_slices: found {lower_svg.count('<path')} <path> elements, expected >=2"
 
+        # Multi-pie truth: expected pie count = period columns in the data.
+        # Slice paths look like "M{cx},{cy} L... A{r},{r} ...". Cluster their M
+        # centres (3px tolerance — same-pie slices may round differently) to
+        # recover each pie's (cx, cy, r), then hard-reject overlapping circles:
+        # the exact failure mode of the four-period collapse.
+        pipe_lines = [ln for ln in (chart_description or "").splitlines() if "|" in ln]
+        n_periods = max(1, len(pipe_lines[0].split("|")) - 1) if pipe_lines else 1
+        slice_paths = []
+        for d in re.findall(r'<path[^>]*\sd\s*=\s*"([^"]*)"', svg or "", flags=re.IGNORECASE):
+            m = re.match(r"\s*[Mm]\s*([\d.-]+)[\s,]+([\d.-]+)", d)
+            a = re.search(r"[Aa]\s*([\d.]+)", d)
+            if m and a and ("L" in d or "l" in d):
+                slice_paths.append((float(m.group(1)), float(m.group(2)), float(a.group(1))))
+        if len(slice_paths) < n_periods * 2:
+            return False, f"pie_too_few_slice_paths: found={len(slice_paths)} expected>={n_periods * 2} (periods={n_periods}, categories={len(data_labels)})"
+        clusters = []  # [cx, cy, max_r]
+        for cx, cy, r in slice_paths:
+            for cl in clusters:
+                if abs(cl[0] - cx) <= 3 and abs(cl[1] - cy) <= 3:
+                    cl[2] = max(cl[2], r)
+                    break
+            else:
+                clusters.append([cx, cy, r])
+        for i in range(len(clusters)):
+            for j in range(i + 1, len(clusters)):
+                x1, y1, r1 = clusters[i]
+                x2, y2, r2 = clusters[j]
+                dist = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+                min_gap = r1 + r2 + 8
+                if dist < min_gap:
+                    return False, f"pie_overlap: centres ({x1:.0f},{y1:.0f})&({x2:.0f},{y2:.0f}) dist={dist:.0f} < {min_gap:.0f} (2r+8)"
+
     # Gate 1c — subtype shape gates (HARD). A drawn-wrong artifact must be
     # rejected so the retry loop gets another attempt instead of shipping a
     # visual lie. Every reason carries actual+expected counts for log triage.
@@ -8108,33 +8140,45 @@ LINE CHARTS:
   - Connect all data points with straight lines, strictly in ascending x order
   - No point may fall outside the chart area: every x within 70..560, every y within 40..340
 
-PIE CHARTS (single pie):
-  - Geometry is MANDATORY and non-negotiable. A pie is a perfect CIRCLE, never an ellipse.
-  - Draw each slice as an SVG <path> arc. NEVER use <ellipse>. NEVER use <circle> for slices.
-  - Fixed centre cx=300, cy=210. Fixed radius r=120. Every slice shares this exact cx, cy, r — no exceptions, no per-slice variation.
-  - Slice path formula, starting angle at -90deg (12 o'clock), sweeping clockwise. For a slice spanning cumulative angles a0 to a1 (radians, measured clockwise from top):
-      x0 = 300 + 120*sin(a0),  y0 = 210 - 120*cos(a0)
-      x1 = 300 + 120*sin(a1),  y1 = 210 - 120*cos(a1)
-      large_arc = 1 if (a1-a0) > pi else 0
-      path d = "M300,210 L{{x0}},{{y0}} A120,120 0 {{large_arc}} 1 {{x1}},{{y1}} Z"
-  - Compute each slice angle = (value / sum_of_values) * 2*pi. Accumulate angles so slices are contiguous and sum to a full 360deg. The final slice MUST close exactly back to the top.
-  - Fill each slice with palette colours in order (#1A3550, #C9A84C, #2D5016, #6B1A1A, then #7A4B7A purple for a 5th).
-  - Slice stroke: stroke="#ffffff" stroke-width="1".
-  - Percentage label at the slice's mid-angle, at label radius r*0.62 (r=120 -> 75) from centre:
-      mid = (a0+a1)/2;  lx = 300 + 75*sin(mid);  ly = 210 - 75*cos(mid)
-      <text x="{{lx}}" y="{{ly}}" font-size="10" fill="#ffffff" text-anchor="middle">42%</text>
-  - Do NOT draw X/Y axes, gridlines, or axis labels for pie charts — omit required elements 3,4,5,6,7,8,9. Keep the title (element 2), background (element 1), and legend (element 11).
-  - Legend maps each palette colour to its category name.
+PIE CHARTS — GEOMETRY IS MANDATORY. A pie is a perfect CIRCLE (SVG <path> arcs), never <ellipse>, never <circle> for slices. Pies must NEVER overlap. Labels must NEVER fall outside their own pie or onto another pie.
 
-PIE CHARTS (two pies, before/after comparison — e.g. "in 2015 and 2023"):
-  - When the data implies two time periods, draw TWO separate pies side by side, both perfect circles with IDENTICAL radius.
-  - Left pie: cx=175, cy=210, r=95. Right pie: cx=425, cy=210, r=95. Radius r=95 is identical for both — never let one pie be larger or squashed.
-  - Apply the exact same <path> arc formula above, substituting each pie's own cx/cy and r=95.
-  - CRITICAL for comparison: both pies MUST assign colours to categories in the SAME order, and slices in BOTH pies MUST start at -90deg and sweep clockwise in the SAME category sequence, so the same category sits in a comparable position across both pies.
-  - Percentage labels use the same mid-angle rule at label radius r*0.62 (r=95 -> 59): lx = cx + 59*sin(mid); ly = 210 - 59*cos(mid), with each pie's own cx.
-  - Sub-title each pie with its period below it: <text x="175" y="330" ...>2015</text> and <text x="425" y="330" ...>2023</text>, font-size="12", font-weight="bold".
-  - One shared legend at the bottom (element 11) covering both pies.
-  - Do NOT draw axes/gridlines for pie charts.
+  SHARED SLICE FORMULA (all layouts). For a pie centred (cx,cy) radius r, slices start at -90deg (12 o'clock), sweep clockwise. For cumulative angles a0..a1 in radians:
+    x0=cx+r*sin(a0); y0=cy-r*cos(a0); x1=cx+r*sin(a1); y1=cy-r*cos(a1)
+    large_arc = 1 if (a1-a0) > pi else 0
+    d = "M{{cx}},{{cy}} L{{x0}},{{y0}} A{{r}},{{r}} 0 {{large_arc}} 1 {{x1}},{{y1}} Z"
+    slice angle = (value / sum_of_values) * 2*pi, accumulated contiguously, summing to 360deg; final slice closes exactly to top.
+    Palette order: #1A3550, #C9A84C, #2D5016, #6B1A1A, #7A4B7A. Slice stroke="#ffffff" stroke-width="1".
+    % label at mid-angle, radius r*0.62: mid=(a0+a1)/2; lx=cx+(r*0.62)*sin(mid); ly=cy-(r*0.62)*cos(mid); <text x="{{lx}}" y="{{ly}}" font-size="10" fill="#ffffff" text-anchor="middle">.
+    ACROSS ALL PIES: identical category-to-colour order, identical sweep sequence, so a category sits comparably in every pie.
+
+  LAYOUT BY NUMBER OF PERIODS (choose by how many periods the data has):
+
+  ONE period — single pie:
+    cx=300, cy=200, r=110. Period sub-title not needed. Shared legend at y=360-410.
+
+  TWO periods — side by side, EQUAL radius:
+    left cx=175 cy=200 r=90; right cx=425 cy=200 r=90.
+    Sub-title each pie below it at y=cy+108 (=308), font-size="12", font-weight="bold", text-anchor="middle": the period label (e.g. 2015 / 2020).
+    One shared legend at y=360-410.
+
+  THREE periods — one row of three, EQUAL radius:
+    cx = 133, 300, 467 ; cy=195 ; r=78 for all three.
+    Sub-title each below at y=290, font-size="12", bold, centred.
+    Shared legend y=365-410.
+
+  FOUR periods — 2x2 grid, EQUAL radius, NO overlap:
+    Row 1 cy=150 : left cx=185 r=72 ; right cx=415 r=72
+    Row 2 cy=330 : left cx=185 r=72 ; right cx=415 r=72
+    Centre-to-centre gap 230 horiz / 180 vert vs r=72 guarantees clear separation.
+    Sub-title EACH pie directly ABOVE it (never inside): row1 at y=68, row2 at y=248, font-size="12", bold, centred on that pie's cx. The period label sits in the gap, not on any arc.
+    Shared legend at the very bottom y=395-415, single horizontal row.
+    Title must fit y=20-40 only; chart pies begin below y=60. If a two-line title is needed, pies row1 cy shifts to 165 and everything below by +15 — but never let a pie or its sub-title touch the title band.
+
+  ALL MULTI-PIE LAYOUTS — hard rules:
+    - Every pie in a layout shares the SAME r. Never resize one pie.
+    - No two pies' (cx,cy,r) may produce overlapping circles. Distance between any two centres MUST exceed 2*r + 8px padding.
+    - A pie's % labels use ITS OWN cx,cy,r in the label formula — never another pie's centre.
+    - Omit axes/gridlines/axis-labels for all pie layouts (skip required elements 3-9). Keep title (2), background (1), one shared legend (11).
 
 TABLES:
   - Render a real ruled table — never bars, never arcs, never a chart.
@@ -8274,7 +8318,9 @@ def _writing_question_prompt(subtype: str) -> str:
             )
             example = '"Year | Urban | Rural\\n2000 | 22 | 15\\n2005 | 34 | 29\\n2010 | 41 | 38\\n2015 | 58 | 47"'
     elif subtype == "pie_chart":
-        if random.choice(["single_period", "two_period"]) == "single_period":
+        # 1-4 periods; weighted toward 2 and 4 (the shapes real IELTS papers use)
+        n_periods = random.choice([1, 2, 2, 3, 4, 4])
+        if n_periods == 1:
             structure = (
                 "STRUCTURE: parts of a whole for ONE period. "
                 "chart_description format: 'Category | Value' with one value column only, 4-6 rows. "
@@ -8283,11 +8329,17 @@ def _writing_question_prompt(subtype: str) -> str:
             example = '"Sector | Share\\nHousing | 34\\nTransport | 26\\nFood | 22\\nLeisure | 18"'
         else:
             structure = (
-                "STRUCTURE: the same categories compared across TWO periods (two pies). "
-                "chart_description format: 'Category | <year 1> | <year 2>', 4-6 rows. "
+                f"STRUCTURE: the same categories compared across {n_periods} periods "
+                f"({n_periods} pies will be drawn — the number of pies equals the number of period columns). "
+                f"chart_description format: 'Category | <period 1> | ... | <period {n_periods}>', exactly {n_periods} "
+                "period columns, 4-6 rows. Period labels are years or decades. "
                 "EACH period's column MUST sum to between 95 and 105 so each pie fills exactly once — no gap, no overrun."
             )
-            example = '"Sector | 2015 | 2023\\nHousing | 30 | 38\\nTransport | 28 | 22\\nFood | 24 | 21\\nLeisure | 18 | 19"'
+            example = {
+                2: '"Sector | 2015 | 2023\\nHousing | 30 | 38\\nTransport | 28 | 22\\nFood | 24 | 21\\nLeisure | 18 | 19"',
+                3: '"Sector | 2000 | 2010 | 2020\\nHousing | 30 | 34 | 38\\nTransport | 28 | 24 | 22\\nFood | 24 | 23 | 21\\nLeisure | 18 | 19 | 19"',
+                4: '"Sector | 1990 | 2000 | 2010 | 2020\\nHousing | 30 | 32 | 35 | 38\\nTransport | 28 | 26 | 23 | 22\\nFood | 24 | 23 | 22 | 21\\nLeisure | 18 | 19 | 20 | 19"',
+            }[n_periods]
     elif subtype == "table":
         structure = (
             "STRUCTURE: a readable plain-text table with real-looking data — a header "
