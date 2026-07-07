@@ -215,6 +215,35 @@ def check_pie(root, case):
             for cl in clusters:
                 if cl[1] + cl[2] > legend_top:
                     return f"pie: bottom edge {cl[1] + cl[2]:.0f} overlaps legend band top {legend_top:.0f}"
+    # four-period only: the four period sub-titles must land on the contract's
+    # fixed slots (185,68),(415,68),(185,240),(415,240) within ±5px x / ±3px y.
+    # (The nearest-pie matcher was retired: with both rows sharing a cx it
+    # provably mis-assigned row2's y=240 sub-title to the row1 circle.)
+    # 2/3-period contracts place sub-titles BELOW pies by design — not checked.
+    if periods >= 4:
+        subtitles = []
+        for t in _elems(root, "text"):
+            txt = (t.text or "").strip()
+            if not re.fullmatch(r"(?:19|20)\d{2}s?", txt):
+                continue
+            try:
+                x = float(t.get("x", "nan")); y = float(t.get("y", "nan"))
+            except ValueError:
+                continue
+            if y != y or y <= 45:  # NaN, or the chart-title band
+                continue
+            subtitles.append((txt, x, y))
+        if subtitles:
+            if len(subtitles) != 4:
+                return f"pie: {len(subtitles)} period sub-titles, expected 4"
+            slots = [(185, 68), (415, 68), (185, 240), (415, 240)]
+            for txt, x, y in subtitles:
+                for s in slots:
+                    if abs(x - s[0]) <= 5 and abs(y - s[1]) <= 3:
+                        slots.remove(s)
+                        break
+                else:
+                    return f"pie: sub-title '{txt}' at ({x:.0f},{y:.0f}) matches no fixed slot in {{(185,68),(415,68),(185,240),(415,240)}}"
     return None
 
 

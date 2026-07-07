@@ -8030,6 +8030,41 @@ def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: 
                     if cy + r > legend_top:
                         return False, f"pie_legend_overlap: pie bottom={cy + r:.0f} > legend_top={legend_top:.0f}"
 
+        # Four-period sub-title truth: the contract fixes the four sub-title
+        # slots at (185,68),(415,68),(185,240),(415,240) — assert coordinates
+        # directly, ±5px x / ±3px y (integer-rounding noise only). The retired
+        # nearest-pie matcher was provably wrong in a 2x2 grid where both rows
+        # share a cx. 2/3-period sub-titles sit BELOW pies by contract: not
+        # checked. Zero detected sub-titles → skip; a partial set is caught by
+        # the count gate.
+        if n_periods >= 4 and clusters:
+            subtitles = []
+            for m in re.finditer(r"<text\b[^>]*>([^<]*)</text>", svg or "", flags=re.IGNORECASE):
+                tag, content = m.group(0), m.group(1).strip()
+                if 'font-weight="bold"' not in tag or 'text-anchor="middle"' not in tag:
+                    continue
+                if not re.fullmatch(r"(?:19|20)\d{2}s?", content):
+                    continue
+                xm = re.search(r'\sx\s*=\s*"([\d.-]+)"', tag)
+                ym = re.search(r'\sy\s*=\s*"([\d.-]+)"', tag)
+                if not (xm and ym):
+                    continue
+                tx, ty = float(xm.group(1)), float(ym.group(1))
+                if ty <= 45:  # chart title band, not a period sub-title
+                    continue
+                subtitles.append((tx, ty))
+            if subtitles:
+                if len(subtitles) != 4:
+                    return False, f"pie_subtitle_count: found={len(subtitles)} expected=4"
+                slots = [(185, 68), (415, 68), (185, 240), (415, 240)]
+                for tx, ty in subtitles:
+                    for s in slots:
+                        if abs(tx - s[0]) <= 5 and abs(ty - s[1]) <= 3:
+                            slots.remove(s)
+                            break
+                    else:
+                        return False, f"pie_subtitle_offspec: subtitle at ({tx:.0f},{ty:.0f}) matches no fixed slot in {{(185,68),(415,68),(185,240),(415,240)}}"
+
     # Gate 1c — subtype shape gates (HARD). A drawn-wrong artifact must be
     # rejected so the retry loop gets another attempt instead of shipping a
     # visual lie. Every reason carries actual+expected counts for log triage.
@@ -8185,7 +8220,12 @@ PIE CHARTS — GEOMETRY IS MANDATORY. A pie is a perfect CIRCLE (SVG <path> arcs
     Row 1 cy=150 : left cx=185 r=72 ; right cx=415 r=72
     Row 2 cy=322 : left cx=185 r=72 ; right cx=415 r=72
     Centre-to-centre gap 230 horiz / 172 vert vs r=72 guarantees clear separation.
-    Sub-title EACH pie directly ABOVE it (never inside): row1 at y=68, row2 at y=240, font-size="12", bold, centred on that pie's cx. The period label sits in the gap, not on any arc.
+    Sub-titles use these EXACT y values, no exception, never below the pies:
+      row1 pies (cy=150): sub-title y=68, centred on each pie's cx (185 / 415)
+      row2 pies (cy=322): sub-title y=240, centred on each pie's cx (185 / 415)
+    Both sub-title rows sit in the vertical gaps ABOVE their pie row (row1 gap: title-band to y=78; row2 gap: 222..250). A four-period sub-title placed at or below its pie's cy is FORBIDDEN and will be rejected.
+    Sub-title style: font-size="12", font-weight="bold", text-anchor="middle".
+    Under no circumstance place a period sub-title below its pie or inside the legend band (y>=380). The four y-values above are fixed.
     Shared legend at the very bottom y=402-418, single horizontal row. Row-2 pie bottom edge (322+72=394) keeps 8px clearance above the legend band — no arc may enter y>=402.
     Title must fit y=20-40 only; chart pies begin below y=60. If a two-line title is needed, pies row1 cy shifts to 165 and everything below by +15 — but never let a pie or its sub-title touch the title band.
 
