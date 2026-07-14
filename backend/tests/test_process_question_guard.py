@@ -54,6 +54,7 @@ def _call_process(**overrides):
         mode="",
         drill_tag="",
         previous_transcript="",
+        retry_of="",
         authorization="Bearer fake",
     )
     kwargs.update(overrides)
