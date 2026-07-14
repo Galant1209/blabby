@@ -30,6 +30,7 @@ from hachoir.metadata import extractMetadata
 from hachoir.parser import createParser
 from collections import Counter
 from pathlib import Path
+from urllib.parse import urlparse
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -110,6 +111,8 @@ class Part2RequestBodyLimitMiddleware:
 
 load_dotenv()
 
+APP_ENV                      = os.getenv("APP_ENV", "")
+EXPECTED_SUPABASE_PROJECT_REF = os.getenv("EXPECTED_SUPABASE_PROJECT_REF", "")
 GOOGLE_TTS_API_KEY           = os.getenv("GOOGLE_TTS_API_KEY")
 SUPABASE_URL                 = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY         = os.getenv("SUPABASE_SERVICE_KEY")
@@ -132,6 +135,44 @@ from reading_validator import validate_passage, validate_questions
 
 app = FastAPI()
 
+
+def _supabase_project_ref(url: str) -> Optional[str]:
+    """Return the project ref from a standard Supabase project URL."""
+    try:
+        hostname = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return None
+    suffix = ".supabase.co"
+    if not hostname.endswith(suffix):
+        return None
+    project_ref = hostname[:-len(suffix)]
+    return project_ref or None
+
+
+def _validate_environment_isolation(
+    app_env: str,
+    expected_project_ref: str,
+    supabase_url: str,
+) -> None:
+    """Fail closed when a deployment points at an unexpected Supabase project."""
+    environment = (app_env or "").strip().lower()
+    if environment not in {"development", "staging", "production"}:
+        raise RuntimeError("APP_ENV must be development, staging, or production")
+
+    expected = (expected_project_ref or "").strip().lower()
+    if environment in {"staging", "production"} and not expected:
+        raise RuntimeError(
+            "EXPECTED_SUPABASE_PROJECT_REF is required outside development"
+        )
+    if not expected:
+        return
+
+    actual = _supabase_project_ref(supabase_url or "")
+    if actual != expected:
+        raise RuntimeError(
+            "Supabase project does not match the expected deployment environment"
+        )
+
 # ── Background scheduler (APScheduler) ────────────────────────────────────────
 _scheduler = BackgroundScheduler(daemon=True)
 
@@ -142,6 +183,11 @@ async def startup_event():
     (non-blocking — server accepts requests immediately).
     Every 6 hours: top up to target_per_subtype.
     """
+    _validate_environment_isolation(
+        APP_ENV,
+        EXPECTED_SUPABASE_PROJECT_REF,
+        SUPABASE_URL or "",
+    )
     _scheduler.start()
     # 6-hourly top-up
     _scheduler.add_job(
