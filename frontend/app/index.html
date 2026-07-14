@@ -4646,7 +4646,7 @@
                     part2Topic.bullet_2,
                     part2Topic.bullet_3,
                     part2Topic.bullet_4,
-                ].map(b => `<li>${b}</li>`).join('');
+                ].map(b => `<li>${escapeHtml(b)}</li>`).join('');
             }
             p2ShowOnly('p2-card');
         }
