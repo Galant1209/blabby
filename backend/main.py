@@ -23,8 +23,11 @@ import time
 import uuid
 import hmac
 import hashlib
+from contextlib import asynccontextmanager
 from defusedxml import ElementTree as SafeElementTree
 from xml.etree import ElementTree
+from hachoir.metadata import extractMetadata
+from hachoir.parser import createParser
 from collections import Counter
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -1118,7 +1121,7 @@ def run_groq(messages):
     ) from last_error
 
 
-def run_claude(messages: list[dict]) -> dict:
+def run_claude(messages: list[dict], request_timeout: Optional[float] = None) -> dict:
     """
     Claude Sonnet 4.6 for feedback + drill scoring.
     Retry logic mirrors run_groq(): 3 attempts, exponential backoff 1s→2s.
@@ -1133,11 +1136,16 @@ def run_claude(messages: list[dict]) -> dict:
                 (m["content"] for m in messages if m["role"] == "system"), ""
             )
             user_messages = [m for m in messages if m["role"] != "system"]
+            request_kwargs = {
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 2048,
+                "system": system_content,
+                "messages": user_messages,
+            }
+            if request_timeout is not None:
+                request_kwargs["timeout"] = request_timeout
             response = anthropic_client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=2048,
-                system=system_content,
-                messages=user_messages,
+                **request_kwargs,
             )
             content = (response.content[0].text or "").strip()
             # Strip ```json fences if present
@@ -5747,6 +5755,174 @@ async def my_diagnosis(
 
 _part2_topics: list[dict] = []
 
+PART2_MAX_AUDIO_BYTES = 15 * 1024 * 1024
+PART2_MAX_DURATION_SECONDS = 125.0
+PART2_PROVIDER_TIMEOUT_SECONDS = 60.0
+PART2_REQUEST_TIMEOUT_SECONDS = 130.0
+PART2_ALLOWED_MIME_TYPES = {
+    "audio/webm", "video/webm", "audio/mp4", "video/mp4", "audio/x-m4a",
+}
+_part2_active_users: set[str] = set()
+_part2_active_users_guard = asyncio.Lock()
+
+
+async def _read_upload_bounded(upload: UploadFile, max_bytes: int) -> bytes:
+    """Read at most max_bytes + 1 without buffering an unbounded request body."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(min(64 * 1024, max_bytes + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail="Audio file too large")
+    if total == 0:
+        raise HTTPException(status_code=400, detail="Audio file is empty")
+    return b"".join(chunks)
+
+
+def _detect_audio_container(data: bytes) -> tuple[str, str]:
+    """Return (container, safe suffix) from bytes, never client metadata."""
+    if len(data) >= 16 and data[:4] == b"\x1aE\xdf\xa3":
+        return "webm", ".webm"
+    if len(data) >= 16 and data[4:8] == b"ftyp":
+        atom_size = int.from_bytes(data[:4], "big")
+        if 8 <= atom_size <= len(data):
+            return "mp4", ".m4a"
+    raise HTTPException(status_code=415, detail="Unsupported or invalid audio container")
+
+
+def _media_duration_seconds(path: str) -> float:
+    """Extract duration with hachoir's structural media parser."""
+    parser = createParser(path)
+    if parser is None:
+        raise ValueError("Unrecognized or truncated audio")
+    with parser:
+        metadata = extractMetadata(parser, quality=1.0)
+    seconds = 0.0
+    if metadata is not None and metadata.has("duration"):
+        seconds = float(metadata.get("duration").total_seconds())
+    elif path.lower().endswith(".webm"):
+        with open(path, "rb") as media_file:
+            seconds = _webm_duration_seconds(media_file.read(PART2_MAX_AUDIO_BYTES + 1))
+    if seconds <= 0:
+        raise ValueError("Audio duration is unavailable or invalid")
+    return seconds
+
+
+def _ebml_vint(data: bytes, offset: int) -> tuple[int, int]:
+    if offset >= len(data):
+        raise ValueError("Truncated EBML integer")
+    first = data[offset]
+    mask = 0x80
+    width = 1
+    while width <= 8 and not (first & mask):
+        mask >>= 1
+        width += 1
+    if width > 8 or offset + width > len(data):
+        raise ValueError("Invalid EBML integer")
+    value = first & (mask - 1)
+    for byte in data[offset + 1:offset + width]:
+        value = (value << 8) | byte
+    return value, width
+
+
+def _webm_duration_seconds(data: bytes) -> float:
+    """Conservatively derive WebM duration from bounded EBML structures.
+
+    MediaRecorder WebM commonly omits the optional Segment Duration field, so
+    generic metadata readers report no duration. Cluster Timecode + SimpleBlock
+    relative timestamps are mandatory for playable media and provide a safe
+    upper-bound check. Malformed/out-of-bounds elements fail closed.
+    """
+    if len(data) < 16 or data[:4] != b"\x1aE\xdf\xa3":
+        raise ValueError("Invalid WebM header")
+    scale_ns = 1_000_000
+    scale_pos = data.find(b"\x2a\xd7\xb1")
+    if scale_pos >= 0:
+        size, size_width = _ebml_vint(data, scale_pos + 3)
+        start = scale_pos + 3 + size_width
+        if not 1 <= size <= 8 or start + size > len(data):
+            raise ValueError("Invalid WebM timecode scale")
+        scale_ns = int.from_bytes(data[start:start + size], "big")
+
+    max_units = -1
+    cursor = 0
+    saw_cluster = False
+    saw_block = False
+    while True:
+        cluster = data.find(b"\x1fC\xb6u", cursor)
+        if cluster < 0:
+            break
+        saw_cluster = True
+        cluster_size, cluster_width = _ebml_vint(data, cluster + 4)
+        cluster_start = cluster + 4 + cluster_width
+        cluster_end = min(len(data), cluster_start + cluster_size)
+        timecode_pos = data.find(b"\xe7", cluster_start, cluster_end)
+        if timecode_pos < 0:
+            raise ValueError("WebM cluster has no timecode")
+        tc_size, tc_width = _ebml_vint(data, timecode_pos + 1)
+        tc_start = timecode_pos + 1 + tc_width
+        if not 1 <= tc_size <= 8 or tc_start + tc_size > cluster_end:
+            raise ValueError("Invalid WebM cluster timecode")
+        cluster_time = int.from_bytes(data[tc_start:tc_start + tc_size], "big")
+
+        block_cursor = tc_start + tc_size
+        while True:
+            block = data.find(b"\xa3", block_cursor, cluster_end)
+            if block < 0:
+                break
+            try:
+                block_size, block_width = _ebml_vint(data, block + 1)
+                payload = block + 1 + block_width
+                block_end = payload + block_size
+                if block_end > cluster_end:
+                    raise ValueError("Truncated WebM block")
+                _track, track_width = _ebml_vint(data, payload)
+                if payload + track_width + 3 > block_end:
+                    raise ValueError("Truncated WebM block header")
+                relative = int.from_bytes(
+                    data[payload + track_width:payload + track_width + 2],
+                    "big", signed=True,
+                )
+                max_units = max(max_units, cluster_time + relative)
+                saw_block = True
+                block_cursor = block_end
+            except ValueError:
+                block_cursor = block + 1
+        cursor = cluster_end
+
+    if not saw_cluster or not saw_block or max_units < 0:
+        raise ValueError("WebM contains no complete media blocks")
+    # Opus MediaRecorder packets are normally 20 ms. Adding one packet keeps
+    # the derived value from under-reporting the final block timestamp.
+    return (max_units * scale_ns / 1_000_000_000) + 0.020
+
+
+def _transcribe_audio_file(path: str):
+    with open(path, "rb") as audio_file:
+        return groq_client.audio.transcriptions.create(
+            model="whisper-large-v3-turbo",
+            file=audio_file,
+            response_format="text",
+            timeout=PART2_PROVIDER_TIMEOUT_SECONDS,
+        )
+
+
+@asynccontextmanager
+async def _part2_user_slot(user_id: str):
+    async with _part2_active_users_guard:
+        if user_id in _part2_active_users:
+            raise HTTPException(status_code=409, detail="A Part 2 submission is already in progress")
+        _part2_active_users.add(user_id)
+    try:
+        yield
+    finally:
+        async with _part2_active_users_guard:
+            _part2_active_users.discard(user_id)
+
 
 def _load_part2_topics() -> list[dict]:
     global _part2_topics
@@ -5957,6 +6133,33 @@ async def part2_evaluate(
 ):
     user_id = verify_token(authorization)
 
+    async with _part2_user_slot(user_id):
+        try:
+            return await asyncio.wait_for(
+                _part2_evaluate_for_user(
+                    user_id=user_id,
+                    audio=audio,
+                    topic_title=topic_title,
+                    bullet_points=bullet_points,
+                    notes=notes,
+                ),
+                timeout=PART2_REQUEST_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(status_code=504, detail="Part 2 request timed out") from exc
+
+
+async def _part2_evaluate_for_user(
+    user_id: str,
+    audio: UploadFile,
+    topic_title: str,
+    bullet_points: str,
+    notes: str = "",
+):
+    content_type = (audio.content_type or "").split(";", 1)[0].strip().lower()
+    if content_type not in PART2_ALLOWED_MIME_TYPES:
+        raise HTTPException(status_code=415, detail="Unsupported audio content type")
+
     try:
         bullets: list[str] = json.loads(bullet_points)
     except (json.JSONDecodeError, TypeError):
@@ -5965,49 +6168,72 @@ async def part2_evaluate(
     notes_clean: Optional[str] = (notes or "").strip() or None
 
     # Step 1: transcribe via Groq Whisper
-    audio_bytes = await audio.read()
-    # iOS Safari 錄出 audio/mp4(.m4a),Groq 靠副檔名選容器解碼器,
-    # 副檔名必須跟著前端實際格式走,與 /process 的邏輯一致。
-    ext = os.path.splitext(audio.filename or "")[1] or ".webm"
-    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+    audio_bytes = await _read_upload_bounded(audio, PART2_MAX_AUDIO_BYTES)
+    container, safe_suffix = _detect_audio_container(audio_bytes)
+    with tempfile.NamedTemporaryFile(suffix=safe_suffix, delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
     try:
-        with open(tmp_path, "rb") as f:
-            transcript = groq_client.audio.transcriptions.create(
-                model="whisper-large-v3-turbo",
-                file=f,
-                response_format="text",
+        try:
+            duration = await asyncio.to_thread(_media_duration_seconds, tmp_path)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=422, detail="Audio file is truncated or has no valid duration"
+            ) from exc
+        if duration > PART2_MAX_DURATION_SECONDS:
+            raise HTTPException(status_code=413, detail="Audio duration exceeds the Part 2 limit")
+
+        try:
+            transcript = await asyncio.wait_for(
+                asyncio.to_thread(_transcribe_audio_file, tmp_path),
+                timeout=PART2_PROVIDER_TIMEOUT_SECONDS,
             )
-    except Exception as e:
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(status_code=504, detail="Transcription timed out") from exc
+    except HTTPException:
+        raise
+    except Exception:
         logger.error(
-            "[/part2/evaluate] Groq transcription failed: user=%s filename=%s suffix=%s bytes=%d status=%s body=%s error=%s",
-            user_id, audio.filename, ext, len(audio_bytes),
-            getattr(e, "status_code", None), getattr(e, "body", None), e,
+            "[/part2/evaluate] transcription failed: user=%s container=%s bytes=%d",
+            user_id, container, len(audio_bytes), exc_info=True,
         )
         raise HTTPException(status_code=502, detail="Transcription failed, please try again.")
     finally:
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
 
     transcript = (transcript or "").strip()
     if not transcript:
         logger.warning(
-            "[/part2/evaluate] Groq returned empty transcript: user=%s filename=%s suffix=%s bytes=%d",
-            user_id, audio.filename, ext, len(audio_bytes),
+            "[/part2/evaluate] Groq returned empty transcript: user=%s container=%s bytes=%d",
+            user_id, container, len(audio_bytes),
         )
         raise HTTPException(status_code=422, detail="Could not transcribe audio — no speech detected")
     logger.info(
-        "[/part2/evaluate] transcription ok: user=%s suffix=%s bytes=%d chars=%d",
-        user_id, ext, len(audio_bytes), len(transcript),
+        "[/part2/evaluate] transcription ok: user=%s container=%s bytes=%d chars=%d",
+        user_id, container, len(audio_bytes), len(transcript),
     )
 
     # Step 2: Claude scoring (prep notes inform diagnosis only — see prompt rules)
     try:
         system_prompt = _build_part2_scoring_prompt(topic_title, bullets, notes_clean)
-        result = run_claude([
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": transcript},
-        ])
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                run_claude,
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": transcript},
+                ],
+                PART2_PROVIDER_TIMEOUT_SECONDS,
+            ),
+            timeout=PART2_PROVIDER_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("part2 claude scoring timed out", extra={"user_id": user_id})
+        _persist_part2(user_id, topic_title, transcript, None, notes_clean)
+        return {"transcript": transcript, "notes": notes_clean, "scoring_failed": True}
     except Exception:
         logger.exception("part2 claude scoring failed", extra={"user_id": user_id})
         _persist_part2(user_id, topic_title, transcript, None, notes_clean)

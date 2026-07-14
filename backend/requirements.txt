@@ -2,6 +2,7 @@ annotated-doc==0.0.4
 slowapi==0.1.9
 supabase==2.15.2
 groq==0.13.1
+hachoir==3.3.0
 anthropic>=0.25.0
 requests==2.32.3
 annotated-types==0.7.0
