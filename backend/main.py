@@ -23,6 +23,8 @@ import time
 import uuid
 import hmac
 import hashlib
+from defusedxml import ElementTree as SafeElementTree
+from xml.etree import ElementTree
 from collections import Counter
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -7949,6 +7951,76 @@ def _norm_text(s: str) -> str:
 _CHART_DATA_LABEL_MIN_RATIO = 0.5  # gate 3: at least half the data groups must appear in the SVG
 _CHART_TITLE_MIN_WORD_COVERAGE = 0.7  # gate 2 (soft): >=70% of title words must appear in the SVG
 
+_SAFE_SVG_TAGS = {
+    "svg", "g", "rect", "line", "text", "tspan", "path", "polyline",
+    "polygon", "circle", "defs", "marker", "title", "desc",
+}
+_SAFE_SVG_ATTRS = {
+    "viewBox", "xmlns", "x", "y", "x1", "y1", "x2", "y2", "cx", "cy",
+    "r", "rx", "ry", "width", "height", "d", "points", "fill", "stroke",
+    "stroke-width", "stroke-linecap", "stroke-linejoin", "fill-opacity",
+    "stroke-opacity", "opacity", "font-size", "font-weight", "font-family",
+    "text-anchor", "dominant-baseline", "transform", "id", "markerWidth",
+    "markerHeight", "refX", "refY", "orient", "markerUnits", "marker-end",
+}
+
+
+def _svg_local_name(name: str) -> str:
+    return name.rsplit("}", 1)[-1]
+
+
+def _safe_svg_fragment_reference(value: str) -> bool:
+    """Allow only same-document marker references such as url(#arrowhead)."""
+    if not value.startswith("url(#") or not value.endswith(")"):
+        return False
+    fragment = value[5:-1]
+    return bool(fragment) and all(ch.isalnum() or ch in "-_." for ch in fragment)
+
+
+def sanitize_chart_svg(svg: str) -> str:
+    """Parse and strictly allowlist model-generated SVG.
+
+    This is deliberately an XML tree sanitizer, not a regex filter. Unknown
+    elements/attributes fail closed; URL-bearing attributes, style, event
+    handlers, foreignObject, animation and external references are forbidden.
+    """
+    if not svg or len(svg.encode("utf-8")) > 200_000:
+        raise ValueError("SVG is empty or too large")
+    try:
+        root = SafeElementTree.fromstring(svg)
+    except Exception as exc:
+        raise ValueError("SVG is not well-formed XML") from exc
+    if _svg_local_name(root.tag) != "svg":
+        raise ValueError("SVG root element required")
+
+    for element in root.iter():
+        tag = _svg_local_name(element.tag)
+        if tag not in _SAFE_SVG_TAGS:
+            raise ValueError(f"Disallowed SVG element: {tag}")
+        if element is not root and tag == "svg":
+            raise ValueError("Nested SVG elements are forbidden")
+        for raw_name, value in element.attrib.items():
+            name = _svg_local_name(raw_name)
+            lowered = name.lower()
+            if lowered.startswith("on") or name not in _SAFE_SVG_ATTRS:
+                raise ValueError(f"Disallowed SVG attribute: {name}")
+            if name == "id" and not (
+                value and all(ch.isalnum() or ch in "-_." for ch in value)
+            ):
+                raise ValueError("Invalid SVG id")
+            if name == "marker-end" and not _safe_svg_fragment_reference(value):
+                raise ValueError("External SVG reference forbidden")
+            lowered_value = value.strip().lower()
+            if "url(" in lowered_value and name != "marker-end":
+                raise ValueError("SVG URL references are forbidden")
+            if "javascript:" in lowered_value or "data:" in lowered_value:
+                raise ValueError("Unsafe SVG URL")
+
+    # Register the default namespace so serialization does not introduce an
+    # ns0 prefix. ElementTree escapes all text/attribute content on output.
+    ElementTree.register_namespace("", "http://www.w3.org/2000/svg")
+    return ElementTree.tostring(root, encoding="unicode", short_empty_elements=True)
+
 
 def _validate_chart_svg(svg: str, chart_title: str, data_labels: list, subtype: str = "", chart_description: str = "") -> tuple:
     """Return (hard_ok, reason).
@@ -8295,6 +8367,15 @@ Chart type: {task1_subtype}"""
             content = content.strip()
             hard_ok, reason = _validate_chart_svg(content, title, data_labels, subtype=task1_subtype, chart_description=chart_description)
             if hard_ok:
+                try:
+                    content = sanitize_chart_svg(content)
+                except ValueError as exc:
+                    last_reason = f"unsafe_svg: {exc}"
+                    logger.warning(
+                        "generate_chart_svg sanitizer rejected output (attempt %d/%d): %s",
+                        attempt + 1, max_attempts, exc,
+                    )
+                    continue
                 logger.info(
                     "generate_chart_svg ok (attempt %d): title=%r, data_points=%d",
                     attempt + 1, title, len(data_labels),
@@ -8653,6 +8734,12 @@ async def writing_get_question(
                     subtype=task1_subtype,
                     chart_description=row.get("chart_description") or "",
                 )
+                if hard_ok:
+                    try:
+                        row["chart_svg"] = sanitize_chart_svg(row.get("chart_svg") or "")
+                    except ValueError as exc:
+                        hard_ok = False
+                        reason = f"unsafe_svg: {exc}"
                 if not hard_ok:
                     logger.warning(
                         "writing_pool_reject subtype=%s question_id=%s reason=%s",

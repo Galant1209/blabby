@@ -4826,74 +4826,105 @@
         function renderPart2Score(data) {
             p2ShowOnly('p2-score');
 
+            const textNode = (tag, className, value) => {
+                const element = document.createElement(tag);
+                if (className) element.className = className;
+                element.textContent = String(value ?? '');
+                return element;
+            };
+            const feedbackSection = (label, values) => {
+                const section = document.createElement('div');
+                section.className = 'p2-feedback-section';
+                section.appendChild(textNode('div', 'p2-feedback-label', label));
+                const list = document.createElement('ul');
+                list.className = 'p2-feedback-list';
+                (Array.isArray(values) ? values : []).forEach(value => {
+                    list.appendChild(textNode('li', '', value));
+                });
+                section.appendChild(list);
+                return section;
+            };
+
             const transcriptEl = p2El('p2-transcript-block');
             if (transcriptEl && data.transcript) {
                 transcriptEl.style.display = '';
-                transcriptEl.innerHTML =
-                    `<div class="p2-transcript-label">你剛剛說：</div>` +
-                    `<div>${data.transcript}</div>`;
+                transcriptEl.replaceChildren(
+                    textNode('div', 'p2-transcript-label', '你剛剛說：'),
+                    textNode('div', '', data.transcript),
+                );
             }
 
             const cardEl = p2El('p2-score-card');
             if (!cardEl) return;
 
             if (data.scoring_failed || !Array.isArray(data.criteria) || data.criteria.length === 0) {
-                cardEl.innerHTML =
-                    `<div class="p2-transcript-label" style="color:var(--muted)">
-                        AI 評分暫時無法使用，以下是你的逐字稿供參考。
-                    </div>`;
+                const unavailable = textNode(
+                    'div', 'p2-transcript-label',
+                    'AI 評分暫時無法使用，以下是你的逐字稿供參考。',
+                );
+                unavailable.style.color = 'var(--muted)';
+                cardEl.replaceChildren(unavailable);
                 return;
             }
 
             const pct = b => Math.max(0, Math.min(100, (Number(b) / 9) * 100));
-            const criteriaHtml = (data.criteria || []).map(c =>
-                `<div class="p2-crit-row">
-                    <div class="p2-crit-row__name">${c.name}</div>
-                    <div class="p2-crit-row__bar"><div class="p2-crit-row__fill" style="width:${pct(c.band)}%"></div></div>
-                    <div class="p2-crit-row__band">${c.band}</div>
-                </div>`
-            ).join('');
+            const content = document.createDocumentFragment();
+            if (isUserPro()) {
+                content.appendChild(textNode('div', 'pro-feedback-label', '✦ Pro 會員專屬診斷'));
+            }
+            const overall = document.createElement('div');
+            overall.className = 'p2-overall';
+            overall.append(
+                textNode('div', 'p2-overall-band', data.band_score),
+                textNode('div', 'p2-overall-label', 'Overall Band'),
+            );
+            content.appendChild(overall);
 
-            const liHtml = arr => (arr || []).map(s => `<li>${s}</li>`).join('');
+            const criteriaList = document.createElement('div');
+            criteriaList.className = 'p2-criteria-list';
+            data.criteria.forEach(criterion => {
+                const row = document.createElement('div');
+                row.className = 'p2-crit-row';
+                const bar = document.createElement('div');
+                bar.className = 'p2-crit-row__bar';
+                const fill = document.createElement('div');
+                fill.className = 'p2-crit-row__fill';
+                fill.style.width = `${pct(criterion?.band)}%`;
+                bar.appendChild(fill);
+                row.append(
+                    textNode('div', 'p2-crit-row__name', criterion?.name),
+                    bar,
+                    textNode('div', 'p2-crit-row__band', criterion?.band),
+                );
+                criteriaList.appendChild(row);
+            });
+            content.append(
+                criteriaList,
+                feedbackSection('Strengths', data.strengths),
+                feedbackSection('Improvements', data.improvements),
+            );
 
-            const proHeader = isUserPro()
-                ? `<div class="pro-feedback-label">✦ Pro 會員專屬診斷</div>`
-                : '';
-
-            const notesText = (data.notes || '').trim();
-            const notesHtml = notesText
-                ? `<div class="p2-notes-display">
-                       <div class="p2-notes-display__label">你的備考筆記</div>
-                       <div class="p2-notes-display__body">${escapeHtml(notesText)}</div>
-                   </div>`
-                : '';
-
-            // notes_analysis: LLM-produced "notes vs speech" diagnostic. Render between
-            // Improvements and the raw notes memo. null/empty → omit the whole section.
-            const notesAnalysis = (data.notes_analysis || '').trim();
-            const notesAnalysisHtml = notesAnalysis
-                ? `<div class="p2-feedback-section">
-                       <div class="p2-feedback-label">筆記 vs 實際表現</div>
-                       <div class="p2-notes-analysis">${escapeHtml(notesAnalysis)}</div>
-                   </div>`
-                : '';
-
-            cardEl.innerHTML =
-                `${proHeader}<div class="p2-overall">
-                    <div class="p2-overall-band">${data.band_score}</div>
-                    <div class="p2-overall-label">Overall Band</div>
-                </div>
-                <div class="p2-criteria-list">${criteriaHtml}</div>
-                <div class="p2-feedback-section">
-                    <div class="p2-feedback-label">Strengths</div>
-                    <ul class="p2-feedback-list">${liHtml(data.strengths)}</ul>
-                </div>
-                <div class="p2-feedback-section">
-                    <div class="p2-feedback-label">Improvements</div>
-                    <ul class="p2-feedback-list">${liHtml(data.improvements)}</ul>
-                </div>
-                ${notesAnalysisHtml}
-                ${notesHtml}`;
+            const notesAnalysis = String(data.notes_analysis || '').trim();
+            if (notesAnalysis) {
+                const section = document.createElement('div');
+                section.className = 'p2-feedback-section';
+                section.append(
+                    textNode('div', 'p2-feedback-label', '筆記 vs 實際表現'),
+                    textNode('div', 'p2-notes-analysis', notesAnalysis),
+                );
+                content.appendChild(section);
+            }
+            const notesText = String(data.notes || '').trim();
+            if (notesText) {
+                const notes = document.createElement('div');
+                notes.className = 'p2-notes-display';
+                notes.append(
+                    textNode('div', 'p2-notes-display__label', '你的備考筆記'),
+                    textNode('div', 'p2-notes-display__body', notesText),
+                );
+                content.appendChild(notes);
+            }
+            cardEl.replaceChildren(content);
         }
 
         // ── /Part 2 functions ─────────────────────────────────────────

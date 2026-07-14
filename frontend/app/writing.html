@@ -529,9 +529,17 @@
 
                 document.getElementById('question-prompt').textContent = data.prompt;
                 if (data.chart_svg) {
-                    // Render SVG chart
+                    // The backend applies a strict SVG allowlist. Render it in
+                    // an image document rather than inserting provider markup
+                    // into this page's DOM.
                     const svgContainer = document.getElementById('chart-svg-container');
-                    svgContainer.innerHTML = data.chart_svg;
+                    svgContainer.replaceChildren();
+                    const chartImage = document.createElement('img');
+                    chartImage.alt = 'IELTS Task 1 chart';
+                    chartImage.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(String(data.chart_svg))}`;
+                    chartImage.style.width = '100%';
+                    chartImage.style.height = 'auto';
+                    svgContainer.appendChild(chartImage);
                     showElement('chart-svg-container');
                     hideElement('chart-description');
                 } else if (data.chart_description) {
