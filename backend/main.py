@@ -33,6 +33,81 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+
+PART2_MAX_AUDIO_BYTES = 15 * 1024 * 1024
+# Allow bounded multipart framing and the small text fields in addition to the
+# maximum audio payload. The endpoint still independently enforces the tighter
+# audio-file limit below.
+PART2_MAX_REQUEST_BYTES = PART2_MAX_AUDIO_BYTES + 1024 * 1024
+
+
+class Part2RequestBodyLimitMiddleware:
+    """Reject oversized Part 2 bodies before Starlette parses multipart data."""
+
+    def __init__(self, app, max_bytes: int = PART2_MAX_REQUEST_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    @staticmethod
+    async def _reject(send) -> None:
+        payload = b'{"detail":"Request body too large"}'
+        await send({
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(payload)).encode("ascii")),
+            ],
+        })
+        await send({"type": "http.response.body", "body": payload})
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or scope.get("path") != "/part2/evaluate":
+            await self.app(scope, receive, send)
+            return
+
+        content_length = None
+        for name, value in scope.get("headers", []):
+            if name.lower() == b"content-length":
+                try:
+                    content_length = int(value)
+                except (TypeError, ValueError):
+                    content_length = None
+                break
+        if content_length is not None and content_length > self.max_bytes:
+            await self._reject(send)
+            return
+
+        # Buffer at most max_bytes + one received chunk before handing control
+        # to FastAPI. This guarantees multipart parsing and endpoint execution
+        # cannot begin for an oversized body, even if Content-Length is absent
+        # or forged smaller than the actual stream.
+        events = []
+        total = 0
+        while True:
+            message = await receive()
+            events.append(message)
+            if message.get("type") == "http.disconnect":
+                return
+            if message.get("type") != "http.request":
+                continue
+            total += len(message.get("body", b""))
+            if total > self.max_bytes:
+                await self._reject(send)
+                return
+            if not message.get("more_body", False):
+                break
+
+        event_iter = iter(events)
+
+        async def replay_receive():
+            try:
+                return next(event_iter)
+            except StopIteration:
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
 load_dotenv()
 
 GOOGLE_TTS_API_KEY           = os.getenv("GOOGLE_TTS_API_KEY")
@@ -1062,6 +1137,10 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=False,
     expose_headers=["X-Script-Bytes"],
+)
+app.add_middleware(
+    Part2RequestBodyLimitMiddleware,
+    max_bytes=PART2_MAX_REQUEST_BYTES,
 )
 
 
@@ -5755,7 +5834,6 @@ async def my_diagnosis(
 
 _part2_topics: list[dict] = []
 
-PART2_MAX_AUDIO_BYTES = 15 * 1024 * 1024
 PART2_MAX_DURATION_SECONDS = 125.0
 PART2_PROVIDER_TIMEOUT_SECONDS = 60.0
 PART2_REQUEST_TIMEOUT_SECONDS = 130.0

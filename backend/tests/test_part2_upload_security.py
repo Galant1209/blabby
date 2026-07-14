@@ -32,6 +32,112 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def _multipart(audio: bytes, mime: str = "audio/webm") -> bytes:
+    boundary = b"blabby-security-boundary"
+    return b"".join([
+        b"--" + boundary + b"\r\n",
+        b'Content-Disposition: form-data; name="audio"; filename="sample.bin"\r\n',
+        b"Content-Type: " + mime.encode("ascii") + b"\r\n\r\n",
+        audio,
+        b"\r\n--" + boundary + b"--\r\n",
+    ])
+
+
+def _run_body_limit(body: bytes, *, limit: int, content_length=None, chunks=None):
+    downstream_calls = []
+    sent = []
+
+    async def downstream(scope, receive, send):
+        downstream_calls.append(scope)
+        received = bytearray()
+        while True:
+            event = await receive()
+            received.extend(event.get("body", b""))
+            if not event.get("more_body", False):
+                break
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": bytes(received)})
+
+    headers = [(b"content-type", b"multipart/form-data; boundary=blabby-security-boundary")]
+    if content_length is not None:
+        headers.append((b"content-length", str(content_length).encode("ascii")))
+    scope = {
+        "type": "http", "method": "POST", "path": "/part2/evaluate",
+        "headers": headers,
+    }
+    pieces = chunks if chunks is not None else [body]
+    events = [
+        {"type": "http.request", "body": piece, "more_body": i < len(pieces) - 1}
+        for i, piece in enumerate(pieces)
+    ]
+
+    async def receive():
+        return events.pop(0)
+
+    async def send(message):
+        sent.append(message)
+
+    middleware = main.Part2RequestBodyLimitMiddleware(downstream, max_bytes=limit)
+    _run(middleware(scope, receive, send))
+    return sent, downstream_calls
+
+
+def _response_status_and_body(sent):
+    status = next(m["status"] for m in sent if m["type"] == "http.response.start")
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    return status, body
+
+
+def test_preparser_rejects_oversized_content_length_without_invoking_endpoint():
+    sent, calls = _run_body_limit(b"not-read", limit=8, content_length=9)
+    assert _response_status_and_body(sent) == (413, b'{"detail":"Request body too large"}')
+    assert calls == []
+
+
+def test_preparser_rejects_oversized_body_without_content_length():
+    sent, calls = _run_body_limit(b"123456789", limit=8)
+    assert _response_status_and_body(sent)[0] == 413
+    assert calls == []
+
+
+def test_preparser_rejects_forged_smaller_content_length():
+    sent, calls = _run_body_limit(b"123456789", limit=8, content_length=4)
+    assert _response_status_and_body(sent)[0] == 413
+    assert calls == []
+
+
+def test_preparser_rejects_chunked_multipart_before_endpoint_or_provider():
+    body = _multipart(VALID_WEBM_HEADER)
+    chunks = [body[:10], body[10:30], body[30:]]
+    sent, calls = _run_body_limit(body, limit=len(body) - 1, chunks=chunks)
+    assert _response_status_and_body(sent)[0] == 413
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("audio", "mime"),
+    [(REAL_WEBM, "audio/webm"), (REAL_MP4, "audio/mp4")],
+    ids=["valid-webm", "valid-mp4"],
+)
+def test_preparser_allows_valid_audio_below_limit(audio, mime):
+    body = _multipart(audio, mime)
+    sent, calls = _run_body_limit(body, limit=len(body), content_length=len(body))
+    assert _response_status_and_body(sent) == (204, body)
+    assert len(calls) == 1
+
+
+def test_preparser_rejection_creates_no_temporary_file(tmp_path):
+    old_tempdir = main.tempfile.tempdir
+    main.tempfile.tempdir = str(tmp_path)
+    try:
+        sent, calls = _run_body_limit(b"x" * 9, limit=8)
+        assert _response_status_and_body(sent)[0] == 413
+        assert calls == []
+        assert list(tmp_path.iterdir()) == []
+    finally:
+        main.tempfile.tempdir = old_tempdir
+
+
 def test_empty_file_rejected():
     with pytest.raises(HTTPException) as exc:
         _run(main._read_upload_bounded(_upload(b""), 100))
