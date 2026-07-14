@@ -7,7 +7,8 @@ from groq import Groq
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -23,6 +24,7 @@ import time
 import uuid
 import hmac
 import hashlib
+import math
 from contextlib import asynccontextmanager
 from defusedxml import ElementTree as SafeElementTree
 from xml.etree import ElementTree
@@ -8291,6 +8293,116 @@ def _chart_data_labels(chart_description: str) -> list:
     return labels
 
 
+class PieChartData(BaseModel):
+    """The only accepted data contract for deterministic pie rendering."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chart_type: Literal["pie_chart"]
+    title: str = Field(min_length=1, max_length=120)
+    labels: list[str] = Field(min_length=2, max_length=8)
+    values: list[float] = Field(min_length=2, max_length=8)
+    unit: str = Field(min_length=1, max_length=24)
+
+    @field_validator("title", "unit")
+    @classmethod
+    def _normalise_text(cls, value: str) -> str:
+        cleaned = re.sub(r"\s+", " ", value).strip()
+        if re.search(
+            r"\b(?:of|in|for|to|by)(?:household|population|people|energy|spending|expenditure|transport|food|housing)\b",
+            cleaned,
+            flags=re.IGNORECASE,
+        ):
+            raise ValueError("text contains a missing word boundary")
+        return cleaned
+
+    @field_validator("labels")
+    @classmethod
+    def _validate_labels(cls, labels: list[str]) -> list[str]:
+        cleaned = [re.sub(r"\s+", " ", label).strip() for label in labels]
+        if any(not label for label in cleaned):
+            raise ValueError("labels must not be empty")
+        if any(len(label) > 80 for label in cleaned):
+            raise ValueError("labels must be at most 80 characters")
+        return cleaned
+
+    @model_validator(mode="after")
+    def _validate_values(self):
+        if len(self.labels) != len(self.values):
+            raise ValueError("labels and values must have the same length")
+        if any(not math.isfinite(value) for value in self.values):
+            raise ValueError("values must be finite")
+        if any(value < 0 for value in self.values):
+            raise ValueError("values must be non-negative")
+        total = sum(self.values)
+        if total <= 0:
+            raise ValueError("values must not all be zero")
+        if self.unit.strip().lower() in {"%", "percent", "percentage"} and not 99 <= total <= 101:
+            raise ValueError("percentage values must total between 99 and 101")
+        return self
+
+
+class PieQuestionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    context: str = Field(default="", max_length=240)
+    chart: PieChartData
+
+
+def _deterministic_pie_prompt(chart: PieChartData) -> str:
+    """Build task wording locally; never trust the model to produce the lead-in."""
+    return (
+        f"The pie chart below shows {chart.title}. "
+        "Summarise the information by selecting and reporting the main features, "
+        "and make comparisons where relevant."
+    )
+
+
+def _pie_chart_description(chart: PieChartData) -> str:
+    header = f"Category | Value ({chart.unit})"
+    rows = [f"{label} | {value:g}" for label, value in zip(chart.labels, chart.values)]
+    return "\n".join([header, *rows])
+
+
+def parse_legacy_chart_description(
+    chart_description: str,
+    title: str,
+) -> Optional[PieChartData]:
+    """Convert a single-pie legacy pipe table to the validated chart contract."""
+    lines = [line.strip() for line in (chart_description or "").splitlines() if line.strip()]
+    if len(lines) < 3:
+        return None
+    rows = [[cell.strip() for cell in line.split("|")] for line in lines]
+    if any(len(row) != 2 for row in rows):
+        return None  # Multi-period legacy pies safely fall back to text.
+    header = rows[0]
+    unit_match = re.search(r"\(([^()]+)\)", header[1])
+    inferred_unit = unit_match.group(1).strip() if unit_match else "%"
+    try:
+        labels = [row[0] for row in rows[1:]]
+        values = [float(row[1].rstrip("%").strip()) for row in rows[1:]]
+        return PieChartData(
+            chart_type="pie_chart",
+            title=title,
+            labels=labels,
+            values=values,
+            unit=inferred_unit,
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _pie_artifacts_from_response(parsed: dict) -> dict:
+    """Create every cache/API artifact without invoking an SVG model."""
+    payload = PieQuestionPayload.model_validate(parsed)
+    return {
+        "prompt": _deterministic_pie_prompt(payload.chart),
+        "chart_description": _pie_chart_description(payload.chart),
+        "chart_data": payload.chart.model_dump(),
+        "chart_svg": None,
+    }
+
+
 def _norm_text(s: str) -> str:
     """Lowercase, collapse whitespace, unify dash variants — tolerant matching
     against text the model rendered into the SVG."""
@@ -8805,28 +8917,19 @@ def _writing_question_prompt(subtype: str) -> str:
             )
             example = '"Year | Urban | Rural\\n2000 | 22 | 15\\n2005 | 34 | 29\\n2010 | 41 | 38\\n2015 | 58 | 47"'
     elif subtype == "pie_chart":
-        # 1-4 periods; weighted toward 2 and 4 (the shapes real IELTS papers use)
-        n_periods = random.choice([1, 2, 2, 3, 4, 4])
-        if n_periods == 1:
-            structure = (
-                "STRUCTURE: parts of a whole for ONE period. "
-                "chart_description format: 'Category | Value' with one value column only, 4-6 rows. "
-                "The values MUST sum to between 95 and 105 so the pie fills exactly once — no gap, no overrun."
-            )
-            example = '"Sector | Share\\nHousing | 34\\nTransport | 26\\nFood | 22\\nLeisure | 18"'
-        else:
-            structure = (
-                f"STRUCTURE: the same categories compared across {n_periods} periods "
-                f"({n_periods} pies will be drawn — the number of pies equals the number of period columns). "
-                f"chart_description format: 'Category | <period 1> | ... | <period {n_periods}>', exactly {n_periods} "
-                "period columns, 4-6 rows. Period labels are years or decades. "
-                "EACH period's column MUST sum to between 95 and 105 so each pie fills exactly once — no gap, no overrun."
-            )
-            example = {
-                2: '"Sector | 2015 | 2023\\nHousing | 30 | 38\\nTransport | 28 | 22\\nFood | 24 | 21\\nLeisure | 18 | 19"',
-                3: '"Sector | 2000 | 2010 | 2020\\nHousing | 30 | 34 | 38\\nTransport | 28 | 24 | 22\\nFood | 24 | 23 | 21\\nLeisure | 18 | 19 | 19"',
-                4: '"Sector | 1990 | 2000 | 2010 | 2020\\nHousing | 30 | 32 | 35 | 38\\nTransport | 28 | 26 | 23 | 22\\nFood | 24 | 23 | 22 | 21\\nLeisure | 18 | 19 | 20 | 19"',
-            }[n_periods]
+        return (
+            "You are an IELTS data-set designer. Produce one realistic single pie "
+            "chart with 2-8 categories. Return ONLY valid JSON with no markdown. "
+            "The chart title must be a noun phrase, not an IELTS instruction. "
+            "Values must be finite, non-negative percentages totalling 99-101. "
+            "Do not provide SVG, HTML, coordinates, colours, radius, offset, style, "
+            "transform, URLs, or any geometry. The context is optional background; "
+            "the application constructs the question wording itself. Schema: "
+            '{"context":"brief factual context", "chart":{'
+            '"chart_type":"pie_chart", "title":"Household expenditure by category", '
+            '"labels":["Housing","Transport","Food","Leisure","Other"], '
+            '"values":[38,28,18,12,4], "unit":"%"}}'
+        )
     elif subtype == "table":
         structure = (
             "STRUCTURE: a readable plain-text table with real-looking data — a header "
@@ -8892,20 +8995,23 @@ def _pregenerate_task1_subtype(subtype: str, target_per_subtype: int = 8):
                     content = re.sub(r"^```(?:json)?\s*", "", content)
                     content = re.sub(r"\s*```$", "", content)
                 parsed = json.loads(content)
-                if "prompt" not in parsed:
-                    raise ValueError("missing prompt key")
-
-                # Generate SVG. A Task 1 question that names a chart but has no
-                # valid chart is a visual lie — discard it and try a fresh one;
-                # the pool must only ever contain questions with a valid chart.
-                chart_svg = ""
-                if parsed.get("chart_description"):
-                    chart_svg = generate_chart_svg(subtype, parsed["chart_description"], parsed["prompt"])
-                if not chart_svg:
-                    logger.warning(
-                        f"pregenerate: task1/{subtype} question had no valid chart_svg — discarded (attempt {attempts}/{needed * 2})"
-                    )
-                    continue
+                if subtype == "pie_chart":
+                    pie_artifacts = _pie_artifacts_from_response(parsed)
+                    parsed = pie_artifacts
+                    chart_svg = pie_artifacts["chart_svg"]
+                else:
+                    if "prompt" not in parsed:
+                        raise ValueError("missing prompt key")
+                    chart_svg = ""
+                    if parsed.get("chart_description"):
+                        chart_svg = generate_chart_svg(
+                            subtype, parsed["chart_description"], parsed["prompt"]
+                        )
+                    if not chart_svg:
+                        logger.warning(
+                            f"pregenerate: task1/{subtype} question had no valid chart_svg — discarded (attempt {attempts}/{needed * 2})"
+                        )
+                        continue
 
                 ins = supabase_admin.table("writing_questions").insert({
                     "task_type": "task1",
@@ -9076,33 +9182,44 @@ async def writing_get_question(
             if not pool_resp.data:
                 break
             row = pool_resp.data[0]
+            chart_data = None
             if task_type == "task1":
-                hard_ok, reason = _validate_chart_svg(
-                    row.get("chart_svg") or "",
-                    _derive_chart_title(row["prompt"]),
-                    _chart_data_labels(row.get("chart_description") or ""),
-                    subtype=task1_subtype,
-                    chart_description=row.get("chart_description") or "",
-                )
-                if hard_ok:
-                    try:
-                        row["chart_svg"] = sanitize_chart_svg(row.get("chart_svg") or "")
-                    except ValueError as exc:
-                        hard_ok = False
-                        reason = f"unsafe_svg: {exc}"
-                if not hard_ok:
-                    logger.warning(
-                        "writing_pool_reject subtype=%s question_id=%s reason=%s",
-                        task1_subtype, row["id"], reason,
+                if task1_subtype == "pie_chart":
+                    legacy_chart = parse_legacy_chart_description(
+                        row.get("chart_description") or "",
+                        _derive_chart_title(row["prompt"]),
                     )
-                    try:
-                        supabase_admin.table("writing_questions").update(
-                            {"is_pregenerated": False}
-                        ).eq("id", row["id"]).execute()
-                    except Exception:
-                        logger.exception("pool reject: failed to retire question %s", row["id"])
-                    excluded_ids.append(row["id"])
-                    continue
+                    chart_data = legacy_chart.model_dump() if legacy_chart else None
+                    # Legacy SVG is intentionally ignored. If parsing fails the
+                    # frontend receives only the safe textual description.
+                    row["chart_svg"] = None
+                else:
+                    hard_ok, reason = _validate_chart_svg(
+                        row.get("chart_svg") or "",
+                        _derive_chart_title(row["prompt"]),
+                        _chart_data_labels(row.get("chart_description") or ""),
+                        subtype=task1_subtype,
+                        chart_description=row.get("chart_description") or "",
+                    )
+                    if hard_ok:
+                        try:
+                            row["chart_svg"] = sanitize_chart_svg(row.get("chart_svg") or "")
+                        except ValueError as exc:
+                            hard_ok = False
+                            reason = f"unsafe_svg: {exc}"
+                    if not hard_ok:
+                        logger.warning(
+                            "writing_pool_reject subtype=%s question_id=%s reason=%s",
+                            task1_subtype, row["id"], reason,
+                        )
+                        try:
+                            supabase_admin.table("writing_questions").update(
+                                {"is_pregenerated": False}
+                            ).eq("id", row["id"]).execute()
+                        except Exception:
+                            logger.exception("pool reject: failed to retire question %s", row["id"])
+                        excluded_ids.append(row["id"])
+                        continue
             try:
                 supabase_admin.table("writing_questions").update(
                     {"used_count": (row.get("used_count") or 0) + 1}
@@ -9139,7 +9256,8 @@ async def writing_get_question(
                 "task1_subtype": row.get("task1_subtype"),
                 "prompt": row["prompt"],
                 "chart_description": row.get("chart_description"),
-                "chart_svg": row.get("chart_svg"),
+                "chart_data": chart_data,
+                "chart_svg": row.get("chart_svg") if task1_subtype != "pie_chart" else None,
                 "essay_type": row.get("essay_type"),
             }
         if excluded_ids:
@@ -9184,36 +9302,50 @@ async def writing_get_question(
         logger.exception("writing question generation parse failed", extra={"user_id": user_id})
         raise HTTPException(status_code=500, detail="Question generation failed: invalid response from AI") from exc
 
-    if not isinstance(parsed, dict) or "prompt" not in parsed:
+    if not isinstance(parsed, dict):
         raise HTTPException(status_code=500, detail="Question generation failed: invalid response from AI")
 
     chart_svg = ""
+    chart_data = None
     if task_type == "task1":
-        # Three-stage degradation: (1) generate_chart_svg retries internally;
-        # (2) regenerate the WHOLE question once — fresh data may render where
-        # the first set could not; (3) refuse with a structured error. A Task 1
-        # question that names a chart but shows none is a visual lie and is
-        # never served.
-        if parsed.get("chart_description"):
-            chart_svg = generate_chart_svg(task1_subtype, parsed["chart_description"], parsed["prompt"])
-        if not chart_svg:
-            logger.warning(
-                f"live task1/{task1_subtype}: first question yielded no valid chart — regenerating whole question once"
-            )
+        if task1_subtype == "pie_chart":
             try:
-                reparsed = _generate_question_json()
-                if isinstance(reparsed, dict) and "prompt" in reparsed and reparsed.get("chart_description"):
-                    svg_retry = generate_chart_svg(task1_subtype, reparsed["chart_description"], reparsed["prompt"])
-                    if svg_retry:
-                        parsed = reparsed
-                        chart_svg = svg_retry
-            except Exception:
-                logger.exception(f"live task1/{task1_subtype}: full-question regeneration failed")
-        if not chart_svg:
-            raise HTTPException(
-                status_code=503,
-                detail="The examination question is being prepared with due care. Pray attempt once more in a moment.",
-            )
+                pie_artifacts = _pie_artifacts_from_response(parsed)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="The examination question is being prepared with due care. Pray attempt once more in a moment.",
+                ) from exc
+            chart_data = pie_artifacts["chart_data"]
+            parsed = pie_artifacts
+            chart_svg = pie_artifacts["chart_svg"]
+        else:
+            if "prompt" not in parsed:
+                raise HTTPException(status_code=500, detail="Question generation failed: invalid response from AI")
+            # Non-pie Task 1 subtypes retain their legacy SVG renderer until a
+            # deterministic renderer exists for each chart family.
+            if parsed.get("chart_description"):
+                chart_svg = generate_chart_svg(task1_subtype, parsed["chart_description"], parsed["prompt"])
+            if not chart_svg:
+                logger.warning(
+                    f"live task1/{task1_subtype}: first question yielded no valid chart — regenerating whole question once"
+                )
+                try:
+                    reparsed = _generate_question_json()
+                    if isinstance(reparsed, dict) and "prompt" in reparsed and reparsed.get("chart_description"):
+                        svg_retry = generate_chart_svg(task1_subtype, reparsed["chart_description"], reparsed["prompt"])
+                        if svg_retry:
+                            parsed = reparsed
+                            chart_svg = svg_retry
+                except Exception:
+                    logger.exception(f"live task1/{task1_subtype}: full-question regeneration failed")
+            if not chart_svg:
+                raise HTTPException(
+                    status_code=503,
+                    detail="The examination question is being prepared with due care. Pray attempt once more in a moment.",
+                )
+    elif "prompt" not in parsed:
+        raise HTTPException(status_code=500, detail="Question generation failed: invalid response from AI")
 
     insert_data = {
         "task_type": task_type,
@@ -9235,6 +9367,7 @@ async def writing_get_question(
         "task1_subtype": task1_subtype,
         "prompt": parsed["prompt"],
         "chart_description": parsed.get("chart_description"),
+        "chart_data": chart_data,
         "chart_svg": chart_svg if chart_svg else None,
         "essay_type": parsed.get("essay_type"),
     }

@@ -27,11 +27,34 @@ def test_part2_renderer_uses_text_nodes_not_html_templates():
         assert payload not in renderer
 
 
-def test_writing_chart_is_rendered_as_image_not_live_svg_dom():
+def test_writing_pie_chart_uses_canvas_and_text_only_legend():
     source = (APP_DIR / "writing.html").read_text(encoding="utf-8")
-    block = source.split("if (data.chart_svg)", 1)[1].split(
-        "} else if (data.chart_description)", 1
+    renderer = source.split("function renderPieChart(raw)", 1)[1].split(
+        "window.addEventListener('resize'", 1
     )[0]
-    assert "createElement('img')" in block
-    assert "encodeURIComponent" in block
-    assert ".innerHTML" not in block
+    assert "createElement('canvas')" in renderer
+    assert "calculatePieSlices" in renderer
+    assert "text.textContent" in renderer
+    assert "replaceChildren" in renderer
+    assert "innerHTML" not in renderer
+    assert "fetch(" not in renderer
+    assert "raw.offset" not in renderer
+    assert "raw.transform" not in renderer
+
+
+def test_writing_legacy_svg_is_not_used_for_pie_or_injected_into_live_dom():
+    source = (APP_DIR / "writing.html").read_text(encoding="utf-8")
+    request_block = source.split("if (renderPieChart(data.chart_data))", 1)[1].split(
+        "showElement('question-display')", 1
+    )[0]
+    assert "data.task1_subtype !== 'pie_chart' && data.chart_svg" in request_block
+    assert "innerHTML" not in request_block
+    assert "insertAdjacentHTML" not in source
+
+
+def test_writing_legend_is_responsive_without_fixed_chart_width():
+    source = (APP_DIR / "writing.html").read_text(encoding="utf-8")
+    assert ".pie-chart-legend { display: grid" in source
+    assert "auto-fit" in source
+    assert "overflow-wrap: anywhere" in source
+    assert "#chart-container { width: 100%; max-width: 100%; overflow: hidden" in source

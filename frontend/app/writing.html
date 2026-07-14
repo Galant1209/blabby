@@ -161,7 +161,12 @@
         #writing-panel { margin-top: 20px; }
         #question-prompt { font-family: var(--serif); font-size: 18px; line-height: 1.6; }
         #chart-description { background: var(--surface-alt, #f5f5f5); padding: 12px; font-size: 13px; overflow-x: auto; margin-top: 12px; white-space: pre; font-family: var(--sans); }
-        #chart-svg-container svg { max-width: 100%; height: auto; display: block; }
+        #chart-container { width: 100%; max-width: 100%; overflow: hidden; margin-top: 16px; }
+        .pie-chart-canvas { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
+        .pie-chart-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 8px 16px; width: 100%; margin-top: 12px; }
+        .pie-chart-legend-item { display: flex; align-items: flex-start; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+        .pie-chart-swatch { flex: 0 0 12px; width: 12px; height: 12px; margin-top: 3px; border-radius: 2px; }
+        .pie-chart-label { min-width: 0; line-height: 1.35; }
         #question-loading, #submit-loading { font-family: var(--serif); font-style: italic; color: var(--muted); margin: 12px 0; }
         #essay-input {
             width: 100%;
@@ -355,7 +360,7 @@
                     <p class="question-label">The Question</p>
                     <p id="question-prompt"></p>
                     <pre id="chart-description" style="display:none"></pre>
-                    <div id="chart-svg-container" style="display:none; margin-top: 16px; overflow-x: auto;"></div>
+                    <div id="chart-container" style="display:none"></div>
                 </div>
             </div>
 
@@ -528,28 +533,20 @@
                 currentQuestionPrompt = data.prompt;
 
                 document.getElementById('question-prompt').textContent = data.prompt;
-                if (data.chart_svg) {
-                    // The backend applies a strict SVG allowlist. Render it in
-                    // an image document rather than inserting provider markup
-                    // into this page's DOM.
-                    const svgContainer = document.getElementById('chart-svg-container');
-                    svgContainer.replaceChildren();
-                    const chartImage = document.createElement('img');
-                    chartImage.alt = 'IELTS Task 1 chart';
-                    chartImage.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(String(data.chart_svg))}`;
-                    chartImage.style.width = '100%';
-                    chartImage.style.height = 'auto';
-                    svgContainer.appendChild(chartImage);
-                    showElement('chart-svg-container');
+                if (renderPieChart(data.chart_data)) {
+                    showElement('chart-container');
+                    hideElement('chart-description');
+                } else if (data.task1_subtype !== 'pie_chart' && data.chart_svg) {
+                    renderLegacyChartImage(data.chart_svg);
+                    showElement('chart-container');
                     hideElement('chart-description');
                 } else if (data.chart_description) {
-                    // Fallback: text description
                     document.getElementById('chart-description').textContent = data.chart_description;
                     showElement('chart-description');
-                    hideElement('chart-svg-container');
+                    hideElement('chart-container');
                 } else {
                     hideElement('chart-description');
-                    hideElement('chart-svg-container');
+                    hideElement('chart-container');
                 }
                 showElement('question-display');
                 showElement('writing-panel');
@@ -564,6 +561,119 @@
                 hideElement('question-loading');
             }
         }
+
+        const PIE_COLOURS = ['#1A3550', '#C9A84C', '#2D5016', '#6B1A1A', '#7A4B7A', '#356A78', '#8A5A2B', '#56636F'];
+        let currentPieChartData = null;
+        let pieResizeFrame = null;
+
+        // PURE_GEOMETRY_START
+        function calculatePieSlices(values, cx, cy, radius) {
+            const total = values.reduce((sum, value) => sum + value, 0);
+            let cursor = -Math.PI / 2;
+            return values.map((value, index) => {
+                const startAngle = cursor;
+                const endAngle = index === values.length - 1
+                    ? -Math.PI / 2 + Math.PI * 2
+                    : startAngle + (value / total) * Math.PI * 2;
+                cursor = endAngle;
+                return { index, value, cx, cy, radius, offset: 0, startAngle, endAngle };
+            });
+        }
+        // PURE_GEOMETRY_END
+
+        function validatePieChartData(raw) {
+            if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+            const allowed = new Set(['chart_type', 'title', 'labels', 'values', 'unit']);
+            if (Object.keys(raw).some(key => !allowed.has(key))) return null;
+            if (raw.chart_type !== 'pie_chart' || typeof raw.title !== 'string' || typeof raw.unit !== 'string') return null;
+            if (!Array.isArray(raw.labels) || !Array.isArray(raw.values)) return null;
+            if (raw.labels.length < 2 || raw.labels.length > 8 || raw.labels.length !== raw.values.length) return null;
+            if (raw.labels.some(label => typeof label !== 'string' || !label.trim() || label.length > 80)) return null;
+            if (raw.values.some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0)) return null;
+            const total = raw.values.reduce((sum, value) => sum + value, 0);
+            if (!(total > 0)) return null;
+            if (['%', 'percent', 'percentage'].includes(raw.unit.trim().toLowerCase()) && (total < 99 || total > 101)) return null;
+            return {
+                chart_type: 'pie_chart',
+                title: raw.title.replace(/\s+/g, ' ').trim(),
+                labels: raw.labels.map(label => label.replace(/\s+/g, ' ').trim()),
+                values: raw.values.slice(),
+                unit: raw.unit.replace(/\s+/g, ' ').trim(),
+            };
+        }
+
+        function renderPieChart(raw) {
+            const data = validatePieChartData(raw);
+            const container = document.getElementById('chart-container');
+            container.replaceChildren();
+            currentPieChartData = data;
+            if (!data) return false;
+
+            const logicalWidth = Math.max(240, Math.min(container.clientWidth || 520, 520));
+            const logicalHeight = 280;
+            const dpr = Math.max(1, window.devicePixelRatio || 1);
+            const canvas = document.createElement('canvas');
+            canvas.className = 'pie-chart-canvas';
+            canvas.width = Math.round(logicalWidth * dpr);
+            canvas.height = Math.round(logicalHeight * dpr);
+            canvas.style.aspectRatio = `${logicalWidth} / ${logicalHeight}`;
+            canvas.setAttribute('role', 'img');
+            canvas.setAttribute('aria-label', data.title);
+            container.appendChild(canvas);
+
+            const context = canvas.getContext('2d');
+            context.setTransform(dpr, 0, 0, dpr, 0, 0);
+            context.clearRect(0, 0, logicalWidth, logicalHeight);
+            const cx = logicalWidth / 2;
+            const cy = logicalHeight / 2;
+            const radius = Math.min(110, logicalWidth * 0.34, logicalHeight * 0.39);
+            const slices = calculatePieSlices(data.values, cx, cy, radius);
+            slices.forEach(slice => {
+                context.beginPath();
+                context.moveTo(slice.cx, slice.cy);
+                context.arc(slice.cx, slice.cy, slice.radius, slice.startAngle, slice.endAngle);
+                context.closePath();
+                context.fillStyle = PIE_COLOURS[slice.index % PIE_COLOURS.length];
+                context.fill();
+                context.strokeStyle = '#ffffff';
+                context.lineWidth = 1;
+                context.stroke();
+            });
+
+            const legend = document.createElement('div');
+            legend.className = 'pie-chart-legend';
+            data.labels.forEach((label, index) => {
+                const item = document.createElement('div');
+                item.className = 'pie-chart-legend-item';
+                const swatch = document.createElement('span');
+                swatch.className = 'pie-chart-swatch';
+                swatch.style.backgroundColor = PIE_COLOURS[index % PIE_COLOURS.length];
+                const text = document.createElement('span');
+                text.className = 'pie-chart-label';
+                text.textContent = `${label}: ${data.values[index]}` + (data.unit === '%' ? '%' : ` ${data.unit}`);
+                item.append(swatch, text);
+                legend.appendChild(item);
+            });
+            container.appendChild(legend);
+            return true;
+        }
+
+        function renderLegacyChartImage(svg) {
+            const container = document.getElementById('chart-container');
+            container.replaceChildren();
+            const image = document.createElement('img');
+            image.alt = 'IELTS Task 1 chart';
+            image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(String(svg))}`;
+            image.style.width = '100%';
+            image.style.height = 'auto';
+            container.appendChild(image);
+        }
+
+        window.addEventListener('resize', () => {
+            if (!currentPieChartData) return;
+            if (pieResizeFrame) cancelAnimationFrame(pieResizeFrame);
+            pieResizeFrame = requestAnimationFrame(() => renderPieChart(currentPieChartData));
+        });
 
         function onEssayInput() {
             const text = document.getElementById('essay-input').value;
@@ -714,8 +824,9 @@
         function resetAll() {
             resetWritingPanel();
             hideElement('question-display');
-            hideElement('chart-svg-container');
-            document.getElementById('chart-svg-container').innerHTML = '';
+            hideElement('chart-container');
+            document.getElementById('chart-container').replaceChildren();
+            currentPieChartData = null;
             currentQuestionId = null;
             currentQuestionPrompt = null;
         }
