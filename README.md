@@ -32,8 +32,10 @@ IELTS Academic Reading practice. One AI-generated passage (700–900 words) plus
 
 Backend tests live in `backend/tests/`. The suite runs on a clean checkout with
 **no `.env` and no provider credentials at all** — `tests/conftest.py` blanks the
-Supabase vars and `setdefault`s dummy `GROQ_API_KEY` / `ANTHROPIC_API_KEY`, which
-is required because `main.py` constructs both provider clients at import time.
+Supabase vars and `setdefault`s dummy `GROQ_API_KEY` / `OPENAI_API_KEY` /
+`ANTHROPIC_API_KEY`. That is required because `main.py` constructs all three
+provider clients at *import* time (lines 128, 220, 130), so a missing key fails
+pytest during collection and the affected modules' tests never run at all.
 
 ```sh
 cd blabby/backend

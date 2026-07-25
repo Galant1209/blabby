@@ -21,11 +21,19 @@ if _BACKEND_DIR not in sys.path:
 os.environ["SUPABASE_URL"] = ""
 os.environ["SUPABASE_SERVICE_KEY"] = ""
 
-# main.py constructs the provider clients at *import* time, not lazily, so a
-# missing key breaks pytest during collection rather than inside a test:
-# `Groq(api_key=None)` raises GroqError.  setdefault (not assignment) so a real
-# key in the environment still wins for the credential-gated e2e tests.
-# ANTHROPIC_API_KEY already defaults to "" at its construction site, but is
-# pinned here too so the invariant is stated in one place.
-os.environ.setdefault("GROQ_API_KEY", "test-key")
-os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
+# main.py constructs all three provider clients at *import* time, not lazily, so
+# a missing key breaks pytest during collection rather than inside a test — the
+# whole module fails to import and its tests never run at all:
+#
+#   main.py:128  Groq(api_key=os.getenv("GROQ_API_KEY"))            -> GroqError
+#   main.py:220  OpenAI(api_key=os.getenv("OPENAI_API_KEY"))        -> OpenAIError
+#   main.py:130  anthropic.Anthropic(api_key=os.environ.get(..., ""))  safe today
+#
+# Anthropic is safe only because of that `, ""` default; it is pinned here anyway
+# so the invariant lives in one place and a future `os.environ[...]` cannot
+# silently reintroduce the same collection failure.
+#
+# setdefault, not assignment: a real key already in the environment still wins,
+# which is what the credential-gated e2e tests need.
+for _var in ("GROQ_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+    os.environ.setdefault(_var, "test-key")
