@@ -30,10 +30,39 @@ IELTS Academic Reading practice. One AI-generated passage (700–900 words) plus
 
 ### Tests
 
-Backend tests live in `backend/tests/`. Pure-validator tests run without any credentials; e2e integration tests skip unless `READING_E2E_BASE_URL` and `READING_E2E_USER_TOKEN` are set (see `tests/test_reading_e2e.py` for full env-var doc).
+Backend tests live in `backend/tests/`. The suite runs on a clean checkout with
+**no `.env` and no provider credentials at all** — `tests/conftest.py` blanks the
+Supabase vars and `setdefault`s dummy `GROQ_API_KEY` / `ANTHROPIC_API_KEY`, which
+is required because `main.py` constructs both provider clients at import time.
 
 ```sh
 cd blabby/backend
-./venv/bin/pip install -r requirements-dev.txt   # one-time
-./venv/bin/pytest tests -v
+python3 -m venv venv                                              # one-time
+./venv/bin/pip install -r requirements.txt -r requirements-dev.txt  # one-time
+./venv/bin/pytest tests -q
 ```
+
+Expected on a clean environment: **99 passed, 10 skipped, 0 failed**.
+
+The 10 skips are credential-gated integration tests and are expected to stay
+skipped locally and in CI. To run them, set the following against a **staging**
+environment — never production:
+
+| Test module | Required env vars |
+|---|---|
+| `test_reading_e2e.py` (8 tests) | `READING_E2E_BASE_URL`, `READING_E2E_USER_TOKEN` |
+| `test_reading_e2e.py` (1 Pro test) | additionally `READING_E2E_PRO_USER_TOKEN` |
+| `test_supabase_p1_permissions.py` (1 test) | `SUPABASE_SECURITY_TEST_URL`, `SUPABASE_SECURITY_TEST_ANON_KEY`, `SUPABASE_SECURITY_TEST_SERVICE_KEY`, `SUPABASE_SECURITY_TEST_USER_A_TOKEN`, `SUPABASE_SECURITY_TEST_USER_B_TOKEN` |
+
+### CI
+
+`.github/workflows/test.yml` runs the command above on every push and pull
+request. It holds no secrets, so the 10 credential-gated tests stay skipped
+there by design.
+
+**Python version:** CI pins **3.11** (`python-version: '3.11'` — minor pinned,
+patch floats so the runner picks up interpreter security fixes). The local
+`backend/venv` is 3.10.0 and the suite passes on both; the Render production
+runtime is not declared anywhere in this repo, so 3.11 is a deliberate choice
+rather than a mirror of production. If Render's runtime is ever pinned
+explicitly, align this value to it.

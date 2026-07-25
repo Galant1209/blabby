@@ -1,0 +1,36 @@
+name: test
+
+# Deliberately minimal: this workflow exists so a red light is visible, not to
+# be a full pipeline. No lint, no formatter, no type check, no coverage gate,
+# no security scanner, no deploy job — adding any of those would land a large
+# unrelated diff and make the very first run red, which is how CI gets turned
+# off. Scope grows only when a specific failure justifies it.
+#
+# No secrets are configured here. The 10 credential-gated integration tests in
+# backend/tests/ therefore stay skipped, which is the intended behaviour: CI
+# must never call a real provider API or touch a real Supabase project.
+#
+# A `migration-replay` job (clean-Postgres replay of supabase/migrations/) is
+# planned as a second job in this file.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Pinned deliberately — see the "Python version" note in README.md.
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Run backend tests
+        working-directory: backend
+        run: pytest tests -q

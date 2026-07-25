@@ -20,3 +20,12 @@ if _BACKEND_DIR not in sys.path:
 # load_dotenv() deliberately does not override variables already in os.environ.
 os.environ["SUPABASE_URL"] = ""
 os.environ["SUPABASE_SERVICE_KEY"] = ""
+
+# main.py constructs the provider clients at *import* time, not lazily, so a
+# missing key breaks pytest during collection rather than inside a test:
+# `Groq(api_key=None)` raises GroqError.  setdefault (not assignment) so a real
+# key in the environment still wins for the credential-gated e2e tests.
+# ANTHROPIC_API_KEY already defaults to "" at its construction site, but is
+# pinned here too so the invariant is stated in one place.
+os.environ.setdefault("GROQ_API_KEY", "test-key")
+os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
