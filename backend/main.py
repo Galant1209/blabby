@@ -6397,6 +6397,42 @@ READING_PASSAGE_MAX_TOKENS = 6000
 READING_QUESTIONS_MAX_TOKENS = 4000
 READING_LLM_RETRIES = 2  # so 1 initial + 2 retries = 3 total attempts
 
+# Columns of reading_questions the client may see while still ANSWERING.
+# Mirrors the column-level grant given to `authenticated` in
+# supabase/migrations/20260714_p1_rls_and_reading_answers.sql:69-71.
+#
+# correct_answer / explanation / evidence_quote are deliberately absent. Those
+# are revealed only after submission, by /reading/attempt/submit and
+# GET /reading/attempt/{id} (which requires status == 'submitted'). The
+# migration's column grant cannot protect this path: the backend reads these
+# rows as service_role, so anything it puts in a response bypasses PostgREST
+# entirely. The allowlist below is the only gate.
+READING_QUESTION_CLIENT_FIELDS = (
+    "id",
+    "passage_id",
+    "question_type",
+    "question_text",
+    "options",
+    "order_idx",
+    "created_at",
+)
+
+
+def _client_reading_questions(rows: list[dict]) -> list[dict]:
+    """Project persisted reading_questions rows down to the answer-free set.
+
+    Allowlist, not denylist: a column added to the table later is excluded by
+    default rather than silently served. Keys absent from a given row are
+    simply omitted — callers select different column sets.
+    """
+    return sorted(
+        [
+            {k: row[k] for k in READING_QUESTION_CLIENT_FIELDS if k in row}
+            for row in rows
+        ],
+        key=lambda r: r["order_idx"],
+    )
+
 # IELTS Reading raw-to-band mapping for the 9-question Blabby format. Scales
 # proportionally from the standard 40-question Academic Reading band table.
 _READING_BAND_BY_SCORE: dict[int, float] = {
@@ -7752,8 +7788,7 @@ async def reading_generate_questions(
             "[READING_QUESTIONS_IDEMPOTENT] user_id=%s passage_id=%s",
             user_id, passage_id,
         )
-        client_questions = sorted(existing, key=lambda r: r["order_idx"])
-        return {"questions": client_questions}
+        return {"questions": _client_reading_questions(existing)}
     if 0 < len(existing) < READING_TOTAL_QUESTIONS:
         # Schema-level invariant violated. Don't try to "fix" by inserting
         # missing rows; the existing partial set may have valid attempt
@@ -7830,8 +7865,7 @@ async def reading_generate_questions(
         user_id, passage_id, len(inserted),
     )
 
-    client_questions = sorted(inserted, key=lambda r: r["order_idx"])
-    return {"questions": client_questions}
+    return {"questions": _client_reading_questions(inserted)}
 
 
 @app.post("/reading/attempt/start")
