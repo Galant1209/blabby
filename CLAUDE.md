@@ -157,12 +157,21 @@ main.py:938
 ## Part 2
 已實作：
 
-- topic card
-- 1 分鐘準備倒數
+- topic card（含 #p2-notes 筆記欄，**無計時**）
 - 2 分鐘錄音
 - Whisper transcription
-- Claude evaluation
-- Supabase persistence
+- Claude evaluation（含 schema 驗證，失敗走 scoring_failed fallback）
+- Supabase persistence（寫入失敗回 5xx，不顯示分數卡）
+- Free 月配額 10 次（`FREE_PART2_MONTHLY_QUOTA`），超出回 403 `part2_quota_reached`
+
+**尚未實作：1 分鐘準備倒數。**
+`p2ShowOnly()` 只有三態：`p2-card` / `p2-record` / `p2-score`，沒有 prep 階段、
+沒有 prep timer、沒有 `p2-prep` 元素。筆記欄放在 card 上但不計時，使用者可以
+無限時間準備。
+
+真實 IELTS Part 2 有 1 分鐘準備時間，所以這是有價值的待辦，不是該刪的構想——
+但它是產品決策（要不要強制計時？超時自動進錄音還是提示？），且需要新增 UI 狀態，
+不屬於既有任務範圍。要做的話應該獨立開一個任務。
 
 ### 題庫系統
 backend/data/ielts_part2_topics.json

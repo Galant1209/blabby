@@ -4648,6 +4648,9 @@
                     part2Topic.bullet_4,
                 ].map(b => `<li>${escapeHtml(b)}</li>`).join('');
             }
+            window.analytics?.track('part2_topic_loaded', {
+                category: part2Topic.category || null,
+            });
             p2ShowOnly('p2-card');
         }
 
@@ -4693,6 +4696,10 @@
                 showP2Modal('無法錄音', msg, [{ label: '知道了', action: () => {} }]);
                 return;
             }
+            window.analytics?.track('part2_recording_started', {
+                topic: (part2Topic && part2Topic.title) || null,
+                has_notes: !!(p2El('p2-notes')?.value || '').trim(),
+            });
             p2Chunks = [];
             p2RecMime = pickRecMime();
             p2MediaRecorder = new MediaRecorder(stream, { mimeType: p2RecMime });
@@ -4783,6 +4790,12 @@
             form.append('bullet_points', JSON.stringify(bullets));
             form.append('notes', (p2El('p2-notes')?.value || '').trim());
 
+            window.analytics?.track('part2_submitted', {
+                topic: (part2Topic && part2Topic.title) || null,
+                audio_bytes: blob.size,
+                has_notes: !!(p2El('p2-notes')?.value || '').trim(),
+            });
+
             try {
                 const controller = new AbortController();
                 const tid = setTimeout(() => controller.abort(), 90000);
@@ -4799,10 +4812,41 @@
                 }
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({}));
-                    throw new Error(err.detail || `HTTP ${res.status}`);
+                    // Structured quota refusal gets its own paywall rather than
+                    // the generic "評分失敗，請檢查網路連線" — a spent allowance is
+                    // not a network fault and retrying cannot fix it.
+                    const detail = err && err.detail;
+                    if (res.status === 403 && detail && detail.error === 'part2_quota_reached') {
+                        window.analytics?.track('part2_quota_blocked', {
+                            limit: detail.limit ?? null,
+                            used: detail.used ?? null,
+                        });
+                        if (stopBtn) { stopBtn.disabled = false; stopBtn.textContent = '完成，提交'; }
+                        if (loader)  loader.hidden = true;
+                        showP2Modal(
+                            'Your monthly allowance is spent',
+                            `Free members may attempt ${detail.limit ?? ''} Part 2 long turns each month. `
+                            + 'Your recording is safe and this attempt has not been counted. '
+                            + 'Pray return when the month turns, or take up Pro for practice without limit.',
+                            [
+                                { label: '升級 Pro', action: () => { window.location.href = '/upgrade.html'; }, variant: 'primary' },
+                                { label: '知道了',   action: () => {},                                        variant: 'secondary' },
+                            ]
+                        );
+                        return;
+                    }
+                    throw new Error((typeof detail === 'string' ? detail : detail && detail.message) || `HTTP ${res.status}`);
                 }
                 const data = await res.json();
                 reportRecLog({ part: 2, mime: p2RecMime, recorderMime: (p2MediaRecorder && p2MediaRecorder.mimeType) || '', ext, size: blob.size, chunkCount: p2Chunks.length, forcedMp4: IS_APPLE_WEBKIT, status: res.status, error: null });
+                // Tracked at the call site, not inside renderPart2Score — that
+                // function's DOM construction is locked by
+                // test_frontend_xss_regression.py and must not be edited.
+                window.analytics?.track('part2_score_viewed', {
+                    scoring_failed: !!data.scoring_failed,
+                    band_score: data.band_score ?? null,
+                    is_pro: !!data.is_pro,
+                });
                 renderPart2Score(data);
             } catch (err) {
                 console.error('Part 2 submit error', err);

@@ -2036,10 +2036,16 @@ async def process(
                 month_start = datetime.now(timezone.utc).replace(
                     day=1, hour=0, minute=0, second=0, microsecond=0
                 ).isoformat()
+                # mode filter: without it this counted EVERY practice_record,
+                # so a Part 2 long turn (mode='part2') silently burned one of
+                # the 20 monthly /process feedback sessions. Users experienced
+                # it as "my correction quota vanished without me using it".
+                # Part 2 now has its own allowance (FREE_PART2_MONTHLY_QUOTA).
                 mq_resp = (
                     supabase_admin.table("practice_records")
                     .select("id", count="exact")
                     .eq("user_id", user_id)
+                    .neq("mode", "part2")
                     .gte("created_at", month_start)
                     .limit(1)
                     .execute()
@@ -6132,6 +6138,233 @@ PART2_ALLOWED_MIME_TYPES = {
 _part2_active_users: set[str] = set()
 _part2_active_users_guard = asyncio.Lock()
 
+# Free-tier allowance for Part 2, counted per UTC calendar month against
+# practice_records rows with mode='part2'.
+#
+# Deliberately the same WINDOW as /process's 20-per-month so the product has one
+# sentence to explain, not three. The count is lower because a Part 2 turn costs
+# roughly twice a /process turn: up to 125s of Whisper audio plus a Sonnet
+# scoring pass, versus one short answer through Groq.
+#
+# (Pre-existing inconsistency, deliberately NOT touched here: drill uses
+# 20-per-7-days, which is far more generous to free users than either of these.
+# That is a pricing bug in its own right and belongs to its own task.)
+FREE_PART2_MONTHLY_QUOTA = 10
+
+# The four official IELTS speaking criteria, in the order the scoring prompt
+# demands them. Used by validate_part2_response() to reject a response that
+# silently drops or renames a criterion.
+PART2_CRITERIA_NAMES = (
+    "Fluency & Coherence",
+    "Lexical Resource",
+    "Grammatical Range & Accuracy",
+    "Pronunciation",
+)
+
+# Bounds for a defensible IELTS band. 0 is not a real band but is accepted as
+# the floor so an honest "no assessable speech" verdict is not rejected.
+PART2_BAND_MIN = 0.0
+PART2_BAND_MAX = 9.0
+
+# Upper bounds on free-text fields. These exist to stop a malformed or
+# adversarial model response from being persisted and rendered, not to enforce
+# style — they are generous.
+PART2_MAX_LIST_ITEMS = 10
+PART2_MAX_TEXT_LEN = 2000
+
+
+def _part2_enhanced_feedback(result: dict, user_id: str) -> dict:
+    """Free/Pro divergence point for the Part 2 score payload.
+
+    Today both tiers get identical content — the only existing "Pro" marker is a
+    decorative label in the DOM (index.html), which is not a product difference.
+    This is the seam where a real one goes: enrich `enhanced` for Pro, leave the
+    Free shape untouched. Kept as a function rather than an inline branch so the
+    insertion point is greppable and so adding Pro depth never means touching
+    the persistence or validation path again.
+
+    Contract: MUST NOT mutate `result`, and MUST NOT remove keys the Free tier
+    already receives — the frontend renders from the same shape for both.
+    """
+    payload = dict(result)
+    payload["is_pro"] = get_user_pro_status(user_id)
+    # Pro-only enrichment goes here. Intentionally empty: shipping a fake
+    # difference is worse than shipping none.
+    return payload
+
+
+def _part2_monthly_count(user_id: str) -> int:
+    """Part 2 turns this user has used in the current UTC calendar month.
+
+    Counts only mode='part2' rows, so it is symmetric with the mode filter now
+    applied to /process's monthly count — neither feature can spend the other's
+    allowance.
+    """
+    month_start = datetime.now(timezone.utc).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    ).isoformat()
+    resp = (
+        supabase_admin.table("practice_records")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .eq("mode", "part2")
+        .gte("created_at", month_start)
+        .limit(1)
+        .execute()
+    )
+    return resp.count or 0
+
+
+def _enforce_part2_quota(user_id: str) -> None:
+    """Refuse a free user's Part 2 turn once the monthly allowance is spent.
+
+    FAIL-CLOSED, deliberately. /process's equivalent block logs and continues
+    when the count query errors, so a flaky Supabase read silently hands out
+    unlimited free Whisper+Sonnet. Part 2 is the most expensive call in the
+    product; an unavailable quota check here means "refuse", not "give it away".
+    A 503 is honest about the cause and is retryable, unlike a 403.
+    """
+    # No database configured: not this gate's failure mode to report. Every
+    # caller reaches here only after verify_token(), which already raises 503
+    # when supabase_admin is unset (main.py:758-759), so in production this
+    # branch is unreachable. Refusing again here would just relabel an auth
+    # misconfiguration as a quota problem.
+    if supabase_admin is None:
+        return
+
+    if get_user_pro_status(user_id):
+        return
+
+    try:
+        used = _part2_monthly_count(user_id)
+    except Exception as exc:
+        logger.exception("part2 quota count failed; failing closed",
+                         extra={"user_id": user_id})
+        raise HTTPException(
+            status_code=503,
+            detail="Could not verify your practice allowance. Pray try again shortly.",
+        ) from exc
+
+    if used >= FREE_PART2_MONTHLY_QUOTA:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "part2_quota_reached",
+                "limit": FREE_PART2_MONTHLY_QUOTA,
+                "used": used,
+                "message": (
+                    f"Free users may attempt up to {FREE_PART2_MONTHLY_QUOTA} "
+                    "Part 2 long turns per month. Upgrade to Pro for unlimited "
+                    "practice."
+                ),
+            },
+        )
+
+
+def _is_half_step_band(value: float) -> bool:
+    """IELTS bands move in 0.5 increments. 6.5 is valid, 6.3 is not."""
+    return abs(value * 2 - round(value * 2)) < 1e-9
+
+
+def validate_part2_response(data, has_notes: bool) -> tuple[bool, str]:
+    """Validate the Part 2 scoring response shape.
+
+    Returns (is_valid, error_reason). Reasons are for logging only and are
+    never shown to the user — a failure routes to the existing scoring_failed
+    fallback (transcript only, nothing persisted), exactly like a provider
+    timeout.
+
+    Shaped after validate_correction_response(): same (bool, reason) contract,
+    same "reject rather than coerce" stance. Part 1 has had this since the
+    beginning; Part 2 shipped without it, so `run_claude`'s isinstance-dict
+    check was the only thing standing between a malformed model response and
+    both the database and the DOM.
+    """
+    if not isinstance(data, dict):
+        return False, f"response is {type(data).__name__}, not dict"
+
+    # ── band_score ───────────────────────────────────────────────────────
+    if "band_score" not in data:
+        return False, "band_score missing"
+    band = data["band_score"]
+    if isinstance(band, bool) or not isinstance(band, (int, float)):
+        return False, f"band_score is {type(band).__name__}, not a number"
+    band = float(band)
+    if not (PART2_BAND_MIN <= band <= PART2_BAND_MAX):
+        return False, f"band_score {band} out of range"
+    if not _is_half_step_band(band):
+        return False, f"band_score {band} is not a 0.5 increment"
+
+    # ── criteria ─────────────────────────────────────────────────────────
+    criteria = data.get("criteria")
+    if criteria is None:
+        return False, "criteria missing"
+    if not isinstance(criteria, list):
+        return False, f"criteria is {type(criteria).__name__}, not list"
+    if len(criteria) != len(PART2_CRITERIA_NAMES):
+        return False, f"criteria has {len(criteria)} entries, expected {len(PART2_CRITERIA_NAMES)}"
+
+    for idx, item in enumerate(criteria):
+        if not isinstance(item, dict):
+            return False, f"criteria[{idx}] is {type(item).__name__}, not dict"
+        for field in ("name", "band", "description"):
+            if field not in item:
+                return False, f"criteria[{idx}].{field} missing"
+        if not isinstance(item["name"], str) or not item["name"].strip():
+            return False, f"criteria[{idx}].name is not a non-empty string"
+        if len(item["name"]) > PART2_MAX_TEXT_LEN:
+            return False, f"criteria[{idx}].name too long"
+        item_band = item["band"]
+        if isinstance(item_band, bool) or not isinstance(item_band, (int, float)):
+            return False, f"criteria[{idx}].band is {type(item_band).__name__}, not a number"
+        if not (PART2_BAND_MIN <= float(item_band) <= PART2_BAND_MAX):
+            return False, f"criteria[{idx}].band {item_band} out of range"
+        if not _is_half_step_band(float(item_band)):
+            return False, f"criteria[{idx}].band {item_band} is not a 0.5 increment"
+        if not isinstance(item["description"], str):
+            return False, f"criteria[{idx}].description is not a string"
+        if len(item["description"]) > PART2_MAX_TEXT_LEN:
+            return False, f"criteria[{idx}].description too long"
+        # improvement is optional in older responses; validate only if present.
+        if "improvement" in item and not isinstance(item["improvement"], str):
+            return False, f"criteria[{idx}].improvement is not a string"
+
+    # ── strengths / improvements ─────────────────────────────────────────
+    for key in ("strengths", "improvements"):
+        if key not in data:
+            return False, f"{key} missing"
+        value = data[key]
+        if not isinstance(value, list):
+            return False, f"{key} is {type(value).__name__}, not list"
+        if len(value) > PART2_MAX_LIST_ITEMS:
+            return False, f"{key} has {len(value)} items, max {PART2_MAX_LIST_ITEMS}"
+        for idx, entry in enumerate(value):
+            if not isinstance(entry, str):
+                return False, f"{key}[{idx}] is {type(entry).__name__}, not string"
+            if len(entry) > PART2_MAX_TEXT_LEN:
+                return False, f"{key}[{idx}] too long ({len(entry)} chars)"
+
+    # ── notes_analysis ───────────────────────────────────────────────────
+    # The prompt REQUIRES this field whenever the student submitted notes
+    # (see the notes_schema_line branch in the prompt builder). Nothing checked
+    # that it came back, so a silently-dropped notes diagnosis looked identical
+    # to a successful one.
+    if has_notes:
+        notes_analysis = data.get("notes_analysis")
+        if notes_analysis is None:
+            return False, "notes_analysis missing though notes were submitted"
+        if not isinstance(notes_analysis, str):
+            return False, f"notes_analysis is {type(notes_analysis).__name__}, not string"
+        if not notes_analysis.strip():
+            return False, "notes_analysis is empty though notes were submitted"
+        if len(notes_analysis) > PART2_MAX_TEXT_LEN:
+            return False, "notes_analysis too long"
+    elif "notes_analysis" in data and data["notes_analysis"] is not None:
+        if not isinstance(data["notes_analysis"], str):
+            return False, "notes_analysis is neither null nor string"
+
+    return True, ""
+
 
 async def _read_upload_bounded(upload: UploadFile, max_bytes: int) -> bytes:
     """Read at most max_bytes + 1 without buffering an unbounded request body."""
@@ -6438,9 +6671,9 @@ def _persist_part2(
     notes: Optional[str] = None,
 ) -> None:
     if supabase_admin is None:
-        return
+        raise HTTPException(status_code=503, detail="Database not configured")
     try:
-        supabase_admin.table("practice_records").insert({
+        insert_resp = supabase_admin.table("practice_records").insert({
             "user_id":          user_id,
             "topic":            topic_title,
             "question":         topic_title,
@@ -6449,8 +6682,21 @@ def _persist_part2(
             "notes":            (notes or "").strip() or None,
             "mode":             "part2",
         }).execute()
-    except Exception:
+    except HTTPException:
+        raise
+    except Exception as exc:
         logger.exception("part2 practice_record insert failed", extra={"user_id": user_id})
+        raise HTTPException(
+            status_code=500, detail="Failed to persist practice record"
+        ) from exc
+
+    # 不要信任 200:寫入沒回傳 row 代表這次 Part 2 紀錄沒落地,
+    # 不可靜默放行讓 UI 顯示完整分數卡。與 /process 的 drill / normal
+    # 兩條寫入路徑同一個 pattern。
+    if not (insert_resp.data or []):
+        logger.error("part2 practice_record insert returned no rows",
+                     extra={"user_id": user_id})
+        raise HTTPException(status_code=500, detail="Failed to persist practice record")
 
 
 @app.post("/api/debug/rec-log")
@@ -6528,9 +6774,20 @@ async def _part2_evaluate_for_user(
         raise HTTPException(status_code=415, detail="Unsupported audio content type")
 
     try:
-        bullets: list[str] = json.loads(bullet_points)
+        bullets = json.loads(bullet_points)
     except (json.JSONDecodeError, TypeError):
         raise HTTPException(status_code=422, detail="bullet_points must be a JSON array string")
+
+    # The `list[str]` annotation was decorative — json.loads("5") yields an int
+    # and json.loads('{"a":1}') a dict, both of which flowed straight into the
+    # prompt builder's `"\n".join(f"- {b}" for b in bullets)`: the first raised a
+    # bare TypeError (500), the second silently used the dict's KEYS as bullets.
+    # Validate the shape the annotation only claimed.
+    if not isinstance(bullets, list) or not all(isinstance(b, str) for b in bullets):
+        raise HTTPException(
+            status_code=422,
+            detail="bullet_points must be a JSON array of strings",
+        )
 
     notes_clean: Optional[str] = (notes or "").strip() or None
 
@@ -6549,6 +6806,14 @@ async def _part2_evaluate_for_user(
             ) from exc
         if duration > PART2_MAX_DURATION_SECONDS:
             raise HTTPException(status_code=413, detail="Audio duration exceeds the Part 2 limit")
+
+        # Free-tier gate. Placed here deliberately: after the cheap local
+        # request-shape checks (415 MIME / 422 bullets / 422 truncated audio /
+        # 413 duration) and immediately before the first provider call, so a
+        # malformed request is still rejected on its own merits rather than
+        # being masked by a quota or database answer, while no Whisper or
+        # Claude budget is ever spent on a turn we are going to refuse.
+        _enforce_part2_quota(user_id)
 
         try:
             transcript = await asyncio.wait_for(
@@ -6606,10 +6871,24 @@ async def _part2_evaluate_for_user(
         _persist_part2(user_id, topic_title, transcript, None, notes_clean)
         return {"transcript": transcript, "notes": notes_clean, "scoring_failed": True}
 
+    # Step 2b: validate the model's shape BEFORE it reaches the database or the
+    # DOM. A malformed response now takes the same route as a provider timeout:
+    # transcript only, nothing persisted, no score card rendered.
+    is_valid, reason = validate_part2_response(result, has_notes=bool(notes_clean))
+    if not is_valid:
+        logger.warning("part2 response failed schema validation: %s",
+                       reason, extra={"user_id": user_id})
+        _persist_part2(user_id, topic_title, transcript, None, notes_clean)
+        return {"transcript": transcript, "notes": notes_clean, "scoring_failed": True}
+
     # Step 3: persist to practice_records
     _persist_part2(user_id, topic_title, transcript, result, notes_clean)
 
-    return {**result, "transcript": transcript, "notes": notes_clean}
+    return {
+        **_part2_enhanced_feedback(result, user_id),
+        "transcript": transcript,
+        "notes": notes_clean,
+    }
 
 
 # =============================================================================
