@@ -274,8 +274,22 @@ GRANT SELECT ON public.reading_passages  TO authenticated;
 -- handle_new_user() is the auth.users signup trigger. It is invoked by the
 -- trigger as its definer, never called directly by a client, so anon EXECUTE
 -- is likewise unnecessary. Revoking it does NOT break signup.
+--
+-- FROM PUBLIC, not just FROM anon — corrected 2026-07-27 after executing this
+-- against production and verifying the result rather than the exit status.
+-- Postgres grants EXECUTE to PUBLIC by default on CREATE FUNCTION, and every
+-- role is a member of PUBLIC. Revoking only from anon removed anon's explicit
+-- entry from the ACL while leaving the inherited PUBLIC grant intact, so the
+-- statement "succeeded" and changed nothing: anon could still call
+-- is_user_pro() through the published anon key and read any user's Pro status.
+--
+-- Safe for the roles that must keep it: authenticated and service_role each
+-- hold an EXPLICIT grant (verified in the live ACL), so a PUBLIC revoke does
+-- not touch them. Post-fix production ACL is exactly:
+--   postgres=X/postgres | authenticated=X/postgres | service_role=X/postgres
 -- ────────────────────────────────────────────────────────────────────────────
 
+REVOKE EXECUTE ON FUNCTION public.is_user_pro(uuid) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.is_user_pro(uuid) FROM anon;
 
 DO $$ BEGIN
@@ -283,6 +297,7 @@ DO $$ BEGIN
         SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'public' AND p.proname = 'handle_new_user'
     ) THEN
+        EXECUTE 'REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC';
         EXECUTE 'REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM anon';
     END IF;
 END $$;
