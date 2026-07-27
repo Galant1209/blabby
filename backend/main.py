@@ -25,6 +25,7 @@ import uuid
 import hmac
 import hashlib
 import math
+from urllib.parse import quote_plus
 from contextlib import asynccontextmanager
 from defusedxml import ElementTree as SafeElementTree
 from xml.etree import ElementTree
@@ -119,6 +120,8 @@ GOOGLE_TTS_API_KEY           = os.getenv("GOOGLE_TTS_API_KEY")
 SUPABASE_URL                 = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY         = os.getenv("SUPABASE_SERVICE_KEY")
 LEMONSQUEEZY_WEBHOOK_SECRET  = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET", "")
+ECPAY_HASH_KEY               = os.getenv("ECPAY_HASH_KEY", "")
+ECPAY_HASH_IV                = os.getenv("ECPAY_HASH_IV", "")
 ADMIN_EMAILS         = {
     email.strip().lower()
     for email in os.getenv("ADMIN_EMAILS", "").split(",")
@@ -2921,7 +2924,29 @@ async def lemonsqueezy_webhook(request: Request):
 
     forced = HANDLED[event]
     is_pro = (status == "active") if forced is None else forced
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    # Replay protection. LemonSqueezy signs the body but ships no event id and
+    # no signed timestamp, so a captured request stays valid forever against
+    # HMAC alone — the signature check at :2878 cannot tell a replay from the
+    # original. The digest of the raw body is therefore the idempotency key:
+    # an identical replay collides on the ledger's unique index and is dropped,
+    # while a genuine follow-up event differs in at least its timestamps and
+    # lands normally. This is strictly stronger than a timestamp window, which
+    # without a *signed* timestamp an attacker could simply replay inside.
+    body_digest = hashlib.sha256(body).hexdigest()
+    if not _record_payment_event({
+        "source":            "lemonsqueezy",
+        "merchant_trade_no": body_digest,
+        "rtn_code":          event,
+        "rtn_msg":           (status or "")[:500],
+        "checkmac_valid":    True,
+        "user_id":           user_id,
+        "raw_payload":       payload,
+    }):
+        logger.warning("[webhook/ls] replayed webhook body ignored (event=%s)", event)
+        return {"status": "duplicate", "event": event}
 
     try:
         upd = supabase_admin.table("profiles") \
@@ -2936,6 +2961,30 @@ async def lemonsqueezy_webhook(request: Request):
         logger.error("[webhook/ls] profile update returned no rows for %s", user_id)
         raise HTTPException(status_code=500, detail="Profile update returned no rows")
 
+    # Mirror the paid state into subscriptions so LemonSqueezy revenue is
+    # visible in /api/admin/subscriptions and, more importantly, so the
+    # time-windowed is_user_pro() can see an expiry for it. Without this row a
+    # LS subscriber is Pro only through the bare profiles.is_pro flag.
+    ls_order_id = f"LS-{payload.get('data', {}).get('id') or body_digest[:12]}"
+    renewal = attrs.get("renews_at") or attrs.get("ends_at")
+    try:
+        supabase_admin.table("subscriptions").upsert({
+            "user_id":    user_id,
+            "order_id":   ls_order_id,
+            "plan":       "lemonsqueezy",
+            "status":     "active" if is_pro else "cancelled",
+            "amount":     0,
+            "started_at": now_iso,
+            "expires_at": renewal or (now + timedelta(days=30)).isoformat(),
+            "updated_at": now_iso,
+        }, on_conflict="order_id").execute()
+    except Exception:
+        # Non-fatal: profiles.is_pro is already committed and is what gates the
+        # product today. A missing mirror row is a reporting gap, not a
+        # entitlement failure, and must not make LS retry a processed event.
+        logger.exception("[webhook/ls] subscriptions mirror failed for %s", ls_order_id)
+
+    _mark_payment_event_processed("lemonsqueezy", body_digest, None)
     logger.info(
         "[webhook/ls] %s → is_pro=%s (event=%s, status=%s)",
         email, is_pro, event, status,
@@ -3023,10 +3072,128 @@ async def covenant_sign(
     return {"signed": True, "name": name, "signed_at": now_iso}
 
 
-# ─── Payment (ECPay/綠界 skeleton) ────────────────────────────────────────────
-# Skeleton only — replace payment_url and add CheckMacValue verification once
-# the merchant credentials are issued. Pro entitlement uses the existing
-# profiles.is_pro mechanism; subscriptions table is the audit/billing log.
+# ─── Payment (ECPay/綠界) ─────────────────────────────────────────────────────
+# Pro entitlement uses the existing profiles.is_pro mechanism; subscriptions is
+# the billing record; payment_events is the append-only ledger that makes every
+# provider callback idempotent and replayable-once.
+
+
+def _ecpay_check_mac_value(params: dict, hash_key: str, hash_iv: str) -> str:
+    """Compute ECPay's CheckMacValue over a callback's form parameters.
+
+    ECPay AIO spec: drop CheckMacValue, sort the remaining keys
+    case-insensitively, wrap with HashKey/HashIV, URL-encode the whole string
+    .NET-style (lowercase percent escapes, space as '+'), SHA256, uppercase.
+
+    The `.NET` compatibility replacements below are not optional — ECPay
+    generates the digest with HttpUtility.UrlEncode, which leaves these seven
+    characters unescaped where Python's quote_plus escapes them. Without the
+    replacements every signature mismatches.
+    """
+    pairs = sorted(
+        ((k, v) for k, v in params.items() if k != "CheckMacValue"),
+        key=lambda kv: kv[0].lower(),
+    )
+    raw = "&".join(f"{k}={v}" for k, v in pairs)
+    raw = f"HashKey={hash_key}&{raw}&HashIV={hash_iv}"
+
+    encoded = quote_plus(raw).lower()
+    for escape, literal in (
+        ("%2d", "-"), ("%5f", "_"), ("%2e", "."), ("%21", "!"),
+        ("%2a", "*"), ("%28", "("), ("%29", ")"),
+    ):
+        encoded = encoded.replace(escape, literal)
+
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest().upper()
+
+
+def _ecpay_signature_is_valid(params: dict) -> bool:
+    """Constant-time comparison of the supplied CheckMacValue against ours.
+
+    Only EncryptType=1 (SHA256) is implemented. Anything else fails closed —
+    a rejected callback is recoverable, a forged one is not.
+    """
+    supplied = (params.get("CheckMacValue") or "").strip().upper()
+    if not supplied:
+        return False
+    encrypt_type = (params.get("EncryptType") or "1").strip()
+    if encrypt_type != "1":
+        logger.error("[payment/ecpay] unsupported EncryptType=%r", encrypt_type)
+        return False
+    expected = _ecpay_check_mac_value(params, ECPAY_HASH_KEY, ECPAY_HASH_IV)
+    return hmac.compare_digest(expected, supplied)
+
+
+def _is_unique_violation(exc: Exception) -> bool:
+    """True when a Supabase/PostgREST write failed on a UNIQUE constraint.
+
+    Used to turn a duplicate-key error into an idempotent no-op rather than a
+    500. Checks the structured code first and only then falls back to message
+    matching, so a change in driver error formatting degrades to "not a
+    duplicate" (→ surfaces as 500) rather than silently swallowing writes.
+    """
+    code = getattr(exc, "code", None)
+    if code == "23505":
+        return True
+    details = getattr(exc, "details", None) or ""
+    message = getattr(exc, "message", None) or str(exc)
+    haystack = f"{details} {message}".lower()
+    return "23505" in haystack or "duplicate key" in haystack
+
+
+def _record_payment_event(event: dict) -> bool:
+    """Append one row to the payment_events ledger.
+
+    Returns True when this call is the first observation of the event, False
+    when the idempotency key already exists (i.e. a replay/retry). The unique
+    index (merchant_trade_no, total_success_times, source) NULLS NOT DISTINCT
+    is what makes this safe against ECPay's up-to-4 retries of one callback.
+
+    A False return MUST stop the caller from touching entitlement again.
+    """
+    try:
+        supabase_admin.table("payment_events").insert(event).execute()
+        return True
+    except Exception as exc:
+        if _is_unique_violation(exc):
+            logger.info(
+                "[payment] duplicate callback ignored source=%s mtn=%s tst=%s",
+                event.get("source"),
+                event.get("merchant_trade_no"),
+                event.get("total_success_times"),
+            )
+            return False
+        logger.exception("[payment] payment_events insert failed")
+        raise HTTPException(status_code=500, detail="Payment ledger write failed")
+
+
+def _mark_payment_event_processed(source: str, merchant_trade_no: str,
+                                  total_success_times) -> None:
+    """Stamp processed_at so reconciliation can find events that never landed.
+
+    Best-effort: entitlement is already committed at this point, so a failure
+    here must not fail the request. It is logged loudly instead — an
+    unprocessed row with a live subscription is a reconciliation signal, not a
+    user-facing error.
+    """
+    try:
+        query = (
+            supabase_admin.table("payment_events")
+            .update({"processed_at": datetime.now(timezone.utc).isoformat()})
+            .eq("source", source)
+            .eq("merchant_trade_no", merchant_trade_no)
+        )
+        if total_success_times is None:
+            query = query.is_("total_success_times", "null")
+        else:
+            query = query.eq("total_success_times", total_success_times)
+        query.execute()
+    except Exception:
+        logger.exception(
+            "[payment] failed to mark event processed source=%s mtn=%s",
+            source, merchant_trade_no,
+        )
+
 
 @app.post("/api/payment/create-order")
 @limiter.limit("5/minute")
@@ -3062,52 +3229,117 @@ async def payment_create_order(
 
 
 @app.post("/api/payment/callback")
+@limiter.limit("30/minute")
 async def payment_callback(request: Request):
     """
     綠界付款完成 webhook。Form-encoded body.
-    TODO: verify CheckMacValue before trusting MerchantTradeNo / RtnCode.
-    成功 (RtnCode=1) → subscriptions.status=active + profiles.is_pro=true。
-    Always 200 — webhook providers retry on non-2xx.
+
+    Every callback must clear four gates before it can move entitlement:
+
+      1. merchant credentials configured  → else 503 (fail closed)
+      2. CheckMacValue verifies           → else 401, nothing written anywhere
+      3. not already in payment_events    → else 200 duplicate, no re-grant
+      4. both entitlement writes return a row → else 500
+
+    Deliberately NOT "always 200". The previous handler swallowed every
+    exception and returned 200 unconditionally, which made a forged or failed
+    callback indistinguishable from a real one in the logs. Providers retry on
+    non-2xx, and a retry of a *rejected* callback is exactly what we want —
+    gate 3 makes retries of *accepted* callbacks free.
     """
+    if not ECPAY_HASH_KEY or not ECPAY_HASH_IV:
+        logger.error("[payment/ecpay] ECPAY_HASH_KEY / ECPAY_HASH_IV not set")
+        raise HTTPException(status_code=503, detail="Payment not configured")
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
     try:
         form = await request.form()
-        order_id       = form.get("MerchantTradeNo") or ""
-        payment_status = form.get("RtnCode") or ""
-        logger.info("payment_callback order_id=%s status=%s", order_id, payment_status)
-
-        if payment_status == "1" and supabase_admin is not None:
-            now = datetime.now(timezone.utc)
-            now_iso = now.isoformat()
-            expires_iso = (now + timedelta(days=30)).isoformat()
-
-            supabase_admin.table("subscriptions").update({
-                "status":     "active",
-                "started_at": now_iso,
-                "expires_at": expires_iso,
-                "updated_at": now_iso,
-            }).eq("order_id", order_id).execute()
-
-            sub_resp = (
-                supabase_admin.table("subscriptions")
-                .select("user_id")
-                .eq("order_id", order_id)
-                .limit(1)
-                .execute()
-            )
-            if sub_resp.data:
-                uid = sub_resp.data[0]["user_id"]
-                # Mirror the LemonSqueezy webhook path: paid status lives
-                # on profiles.is_pro (PK = id, not user_id). Admin grants
-                # are kept separate on profiles.is_pro_grant.
-                supabase_admin.table("profiles").update({
-                    "is_pro":     True,
-                    "updated_at": now_iso,
-                }).eq("id", uid).execute()
-
-        return {"status": "ok"}
     except Exception:
-        logger.exception("payment_callback failed")
-        return {"status": "error"}
+        raise HTTPException(status_code=400, detail="Malformed callback body")
+    params = {k: str(v) for k, v in form.items()}
+
+    # Gate 2. Nothing is persisted before this passes — an unauthenticated
+    # caller must not be able to append to the ledger either.
+    if not _ecpay_signature_is_valid(params):
+        logger.warning(
+            "[payment/ecpay] rejected callback: bad CheckMacValue mtn=%r",
+            params.get("MerchantTradeNo"),
+        )
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    order_id = (params.get("MerchantTradeNo") or "").strip()
+    if not order_id:
+        raise HTTPException(status_code=400, detail="MerchantTradeNo required")
+    rtn_code = (params.get("RtnCode") or "").strip()
+
+    raw_tst = (params.get("TotalSuccessTimes") or "").strip()
+    try:
+        total_success_times = int(raw_tst) if raw_tst else None
+    except ValueError:
+        total_success_times = None
+
+    # Gate 3. The ledger row IS the idempotency check.
+    first_observation = _record_payment_event({
+        "source":              "return_url",
+        "merchant_trade_no":   order_id,
+        "total_success_times": total_success_times,
+        "rtn_code":            rtn_code,
+        "rtn_msg":             (params.get("RtnMsg") or "")[:500],
+        "checkmac_valid":      True,
+        "raw_payload":         params,
+    })
+    if not first_observation:
+        return {"status": "duplicate", "order_id": order_id}
+
+    if rtn_code != "1":
+        logger.info("[payment/ecpay] non-success callback mtn=%s rtn=%s",
+                    order_id, rtn_code)
+        _mark_payment_event_processed("return_url", order_id, total_success_times)
+        return {"status": "recorded", "order_id": order_id}
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    expires_iso = (now + timedelta(days=30)).isoformat()
+
+    try:
+        sub_upd = supabase_admin.table("subscriptions").update({
+            "status":     "active",
+            "started_at": now_iso,
+            "expires_at": expires_iso,
+            "updated_at": now_iso,
+        }).eq("order_id", order_id).execute()
+    except Exception as exc:
+        logger.exception("[payment/ecpay] subscriptions update failed")
+        raise HTTPException(status_code=500, detail="Subscription update failed") from exc
+
+    # Gate 4. A 200 from PostgREST with zero rows means the order_id matched
+    # nothing — never let that read as a successful upgrade.
+    if not sub_upd.data:
+        logger.error("[payment/ecpay] no subscription row for order_id=%s", order_id)
+        raise HTTPException(status_code=500, detail="Subscription update returned no rows")
+
+    uid = sub_upd.data[0].get("user_id")
+    if not uid:
+        logger.error("[payment/ecpay] subscription %s has no user_id", order_id)
+        raise HTTPException(status_code=500, detail="Subscription has no user")
+
+    try:
+        prof_upd = supabase_admin.table("profiles").update({
+            "is_pro":     True,
+            "updated_at": now_iso,
+        }).eq("id", uid).execute()
+    except Exception as exc:
+        logger.exception("[payment/ecpay] profiles update failed")
+        raise HTTPException(status_code=500, detail="Profile update failed") from exc
+
+    if not prof_upd.data:
+        logger.error("[payment/ecpay] profile update returned no rows for %s", uid)
+        raise HTTPException(status_code=500, detail="Profile update returned no rows")
+
+    _mark_payment_event_processed("return_url", order_id, total_success_times)
+    logger.info("[payment/ecpay] activated order_id=%s user_id=%s", order_id, uid)
+    return {"status": "ok", "order_id": order_id}
 
 
 @app.get("/api/payment/return")
@@ -3232,12 +3464,21 @@ async def admin_extend_subscription(
             "status":     "active",
             "updated_at": now_iso,
         }).eq("id", sub_id).execute()
-        # Re-promote the user to Pro in case status had lapsed.
+        # Re-promote the user to Pro in case status had lapsed — via the GRANT
+        # column, not the paid one. An admin extending a subscription by hand is
+        # an act of granting, and writing profiles.is_pro here would count the
+        # user as a paying customer in get_admin_pro_breakdown's paying_users,
+        # defeating the whole point of 20260501_separate_paid_vs_granted_pro.
+        # The grant is given the same expiry as the subscription so it cannot
+        # outlive the window the admin actually authorised.
         uid = sub.data[0].get("user_id")
         if uid:
             supabase_admin.table("profiles").update({
-                "is_pro":     True,
-                "updated_at": now_iso,
+                "is_pro_grant":         True,
+                "pro_grant_reason":     "admin subscription extend",
+                "pro_grant_at":         now_iso,
+                "pro_grant_expires_at": new_expires.isoformat(),
+                "updated_at":           now_iso,
             }).eq("id", uid).execute()
     except Exception:
         logger.exception("admin_extend_subscription update failed")
@@ -5776,7 +6017,7 @@ async def admin_user_diagnosis(
         raise
     except Exception as exc:
         logger.exception("admin diagnosis endpoint failed", extra={"target_user_id": user_id})
-        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(exc)}") from exc
+        raise HTTPException(status_code=500, detail="Internal error, please try again") from exc
 
 
 async def _refresh_diagnosis_cache(user_id: str):
@@ -5873,7 +6114,7 @@ async def my_diagnosis(
         raise
     except Exception as exc:
         logger.exception("my_diagnosis endpoint failed")
-        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(exc)}") from exc
+        raise HTTPException(status_code=500, detail="Internal error, please try again") from exc
 
 
 # ---------------------------------------------------------------------------
