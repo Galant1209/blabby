@@ -1,7 +1,14 @@
 # Backend P1 Security — Rollout Plan
 
 分支：`release/backend-p1-security`（= `origin/main` + 封存的 9 個 backend commit）
-狀態：草案已備妥並 push。**migration 未執行、未 merge main。** 等 Galant 決定順序。
+狀態（2026-07-26 更正）：**已完成。** migration 已於 production 執行 —— Supabase ledger
+`20260714054716 p1_rls_and_reading_answers`（2026-07-14 13:47:16 +08），並於
+`20260714054836` 重跑驗冪等。分支內容亦已 merge 進 `main`（即本文件所述路徑 A 的結果，
+commit `6737be2`）。
+
+> 上一行原文為「migration 未執行、未 merge main。等 Galant 決定順序」，自 2026-07-14
+> 起即已過時，於 2026-07-26 更正。migration 執行後的 row-count 覆核見
+> `docs/RLS_MIGRATION_BASELINE_20260714.md` §1.1。
 
 ## ⚠️ 前提修正（重要）
 
@@ -38,7 +45,7 @@
 ```
 1. merge release 分支 → main（依上方路徑 A）→ Render auto-deploy
 2. 確認 backend 起得來：env isolation guard 通過（已用 Render 正式值驗證會 PASS）
-   確認 /healthz 或首頁 200、log 無 RuntimeError
+   確認 /health 或首頁 200、log 無 RuntimeError   # 更正：/healthz 不存在，只有 /health（main.py:2849-2851）
 3. 執行 RLS migration（production DB，手動）
 4. 對照 docs/RLS_MIGRATION_BASELINE_20260714.md：
    - row count 8 張表完全不變

@@ -78,6 +78,13 @@ REVOKE EXECUTE ON FUNCTION get_admin_pro_breakdown() FROM public, anon, authenti
 GRANT  EXECUTE ON FUNCTION get_admin_pro_breakdown() TO service_role;
 
 -- Step 5: Update admin users RPC — expose pro_grant_expires_at + update is_pro_effective.
+-- Replay guard (added 2026-07-26): this file changes the function's OUT
+-- parameter list, and CREATE OR REPLACE cannot do that - a clean replay of
+-- supabase/migrations/ fails here with "cannot change return type of
+-- existing function". Production is unaffected (already executed, never
+-- re-run); the DROP simply makes the file replayable from empty.
+DROP FUNCTION IF EXISTS public.get_admin_users_full();
+
 CREATE OR REPLACE FUNCTION public.get_admin_users_full()
 RETURNS TABLE (
   user_id uuid,

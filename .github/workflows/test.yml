@@ -10,8 +10,8 @@ name: test
 # backend/tests/ therefore stay skipped, which is the intended behaviour: CI
 # must never call a real provider API or touch a real Supabase project.
 #
-# A `migration-replay` job (clean-Postgres replay of supabase/migrations/) is
-# planned as a second job in this file.
+# Two independent jobs, no dependency between them: backend-tests runs pytest,
+# migration-replay proves supabase/migrations/ still builds from empty.
 
 on:
   push:
@@ -34,3 +34,42 @@ jobs:
       - name: Run backend tests
         working-directory: backend
         run: pytest tests -q
+
+  # Replays supabase/migrations/ into an empty Postgres and asserts the four
+  # admin RPCs get built. Eight tables used to have no CREATE TABLE anywhere in
+  # the repo, so this replay was impossible until 00000000_baseline_from_
+  # production.sql landed — and nothing would have told us when it broke again.
+  #
+  # Independent of backend-tests: neither needs the other, and a red replay
+  # must not mask a red test suite (or vice versa).
+  #
+  # Uses a throwaway service container. No production credentials, no network
+  # calls to Supabase — the only thing under test is the SQL in this repo.
+  migration-replay:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Production is Postgres 17; pinned to match rather than float.
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Replay migrations into an empty database
+        env:
+          PGURI: postgresql://postgres:postgres@localhost:5432/postgres
+        run: ./supabase/replay/replay.sh

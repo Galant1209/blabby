@@ -1,5 +1,20 @@
 # Blabby staging bootstrap
 
+> **STATUS (2026-07-26): PLANNED ONLY — the staging environment has never been
+> built.** This document is a checklist of intent, not a record of anything that
+> exists. No Supabase staging project, Render staging service or Vercel staging
+> project has been created.
+>
+> The empty tables in §8 (Render topology record), §9 (browser and audio
+> validation matrix) and §10 (GO / NO-GO criteria) are blank because there is
+> nothing to record — **not** because the work was done and left undocumented.
+> They are deliberately left empty: filling them with plausible-looking values
+> would turn this file into a false record of validation that never happened.
+>
+> Consequence to be aware of: the 10 credential-gated tests in `backend/tests/`
+> (8 × `READING_E2E_*`, 1 × Pro, 1 × `SUPABASE_SECURITY_TEST_*`) have no
+> environment to run against and stay skipped everywhere, including CI.
+
 This checklist creates an isolated validation environment. Do not substitute
 production credentials, projects, databases, domains, or user accounts.
 

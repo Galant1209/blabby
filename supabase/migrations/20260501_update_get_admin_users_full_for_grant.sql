@@ -3,6 +3,13 @@
 -- Existing churn/conversion logic is preserved; conversion_score still treats
 -- effective Pro (paid OR granted) as Pro for waitlist exclusion purposes.
 
+-- Replay guard (added 2026-07-26): this file changes the function's OUT
+-- parameter list, and CREATE OR REPLACE cannot do that - a clean replay of
+-- supabase/migrations/ fails here with "cannot change return type of
+-- existing function". Production is unaffected (already executed, never
+-- re-run); the DROP simply makes the file replayable from empty.
+DROP FUNCTION IF EXISTS public.get_admin_users_full();
+
 create or replace function public.get_admin_users_full()
 returns table (
   user_id uuid,
