@@ -659,6 +659,49 @@
         }
 
         [hidden] { display: none !important; }
+
+        /* ── Pro upsell modal (quota-exceeded paywall) ─────── */
+        .pro-modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(28,16,8,0.55);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 999; padding: 20px;
+        }
+        .pro-modal-overlay[hidden] { display: none; }
+        .pro-modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            max-width: 480px; width: 100%;
+            max-height: 90vh; overflow-y: auto;
+            padding: 28px 24px;
+        }
+        .pro-modal-kicker {
+            font-family: var(--sans);
+            font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+            color: var(--gold); margin: 0 0 12px;
+        }
+        .pro-modal-title {
+            font-family: var(--serif);
+            font-size: 21px; font-weight: 700; font-style: italic;
+            color: var(--ink); line-height: 1.35; margin: 0 0 10px;
+        }
+        .pro-modal-sub { font-size: 14px; color: var(--muted); line-height: 1.6; margin: 0 0 18px; }
+        .pro-modal-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; }
+        .pro-modal-table th, .pro-modal-table td { padding: 7px 8px; border-bottom: 1px dashed var(--border); text-align: left; }
+        .pro-modal-table th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 1px solid var(--gold); }
+        .pro-modal-table td.col-free, .pro-modal-table th.col-free { color: var(--muted); text-align: center; }
+        .pro-modal-table td.col-pro, .pro-modal-table th.col-pro { color: var(--green); font-weight: 600; text-align: center; }
+        .pro-modal-actions { display: flex; gap: 10px; }
+        .pro-modal-cta {
+            flex: 1; min-height: 44px; border: 1px solid var(--green); background: var(--green); color: var(--surface);
+            font-family: var(--sans); font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none;
+            display: inline-flex; align-items: center; justify-content: center;
+        }
+        .pro-modal-cta:hover { opacity: 0.88; }
+        .pro-modal-dismiss {
+            flex: 0 0 auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--border); background: transparent; color: var(--muted);
+            font-family: var(--sans); font-size: 13px; cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -758,6 +801,31 @@
         <span id="error-banner-text"></span>
         <button id="error-banner-retry" type="button" hidden>Try again</button>
         <button id="error-banner-dismiss" type="button">Dismiss</button>
+    </div>
+
+    <!-- Pro upsell modal (quota-exceeded paywall) -->
+    <div class="pro-modal-overlay" id="pro-modal-overlay" hidden>
+        <div class="pro-modal" role="dialog" aria-modal="true" aria-labelledby="pro-modal-title">
+            <p class="pro-modal-kicker" id="pro-modal-kicker"></p>
+            <h2 class="pro-modal-title" id="pro-modal-title"></h2>
+            <p class="pro-modal-sub" id="pro-modal-sub"></p>
+            <table class="pro-modal-table">
+                <thead><tr><th>項目</th><th class="col-free">Free</th><th class="col-pro">Pro</th></tr></thead>
+                <tbody>
+                    <tr><td>Writing 習作批改</td><td class="col-free">每日 3 篇</td><td class="col-pro">無限</td></tr>
+                    <tr><td>Writing Task 1（圖表寫作）</td><td class="col-free">不開放</td><td class="col-pro">開放</td></tr>
+                    <tr><td>Reading 篇章</td><td class="col-free">每日 1 篇</td><td class="col-pro">無限</td></tr>
+                    <tr><td>Speaking 一般批改</td><td class="col-free">每月 20 次</td><td class="col-pro">無限</td></tr>
+                    <tr><td>Speaking 弱點訓練（Drill）</td><td class="col-free">每週 20 次</td><td class="col-pro">無限</td></tr>
+                    <tr><td>Speaking Part 2 長篇獨白</td><td class="col-free">每月 10 次</td><td class="col-pro">無限</td></tr>
+                    <tr><td>跨場次弱點修正記憶</td><td class="col-free">不提供</td><td class="col-pro">提供</td></tr>
+                </tbody>
+            </table>
+            <div class="pro-modal-actions">
+                <a class="pro-modal-cta" id="pro-modal-cta" href="/upgrade.html">加入 Pro，NT$199／月 →</a>
+                <button class="pro-modal-dismiss" id="pro-modal-dismiss" type="button">知道了</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -971,6 +1039,28 @@
         }
         $('error-banner-dismiss').addEventListener('click', () => {
             $('error-banner').hidden = true;
+        });
+
+        // ── Pro upsell modal (quota-exceeded paywall) ──────────────
+        const PRO_MODAL_COPY = {
+            reading_quota: {
+                kicker: '今日篇章已閱畢',
+                title: 'Thou hast read thy one passage for today.',
+                sub: '免費版每日開放 1 篇閱讀，Pro 不限次數。',
+            },
+        };
+
+        function showProModal(source) {
+            const copy = PRO_MODAL_COPY[source];
+            if (!copy) return;
+            $('pro-modal-kicker').textContent = copy.kicker;
+            $('pro-modal-title').textContent = copy.title;
+            $('pro-modal-sub').textContent = copy.sub;
+            $('pro-modal-cta').href = `/upgrade.html?source=${encodeURIComponent(source)}`;
+            $('pro-modal-overlay').hidden = false;
+        }
+        $('pro-modal-dismiss').addEventListener('click', () => {
+            $('pro-modal-overlay').hidden = true;
         });
 
         // ── Loading overlay: phased progression ────────────────────
@@ -1614,7 +1704,8 @@
 
             if (streamRes.status === 403) {
                 window.analytics.track('reading_paywall_hit', { stage: 'generate' });
-                window.location.href = '/upgrade.html?source=reading_quota';
+                showState('landing');
+                showProModal('reading_quota');
                 return;
             }
             if (!streamRes.ok) {
@@ -1790,7 +1881,8 @@
             });
             if (startRes.status === 403) {
                 window.analytics.track('reading_paywall_hit', { stage: 'start' });
-                window.location.href = '/upgrade.html?source=reading_quota';
+                showState('landing');
+                showProModal('reading_quota');
                 return;
             }
             if (!startRes.ok) {
@@ -1823,7 +1915,8 @@
                     window.analytics.track('reading_paywall_hit', {
                         stage: 'generate',
                     });
-                    window.location.href = '/upgrade.html?source=reading_quota';
+                    showState('landing');
+                    showProModal('reading_quota');
                     return;
                 }
                 if (!genRes.ok) {
@@ -1853,7 +1946,8 @@
                 );
                 if (startRes.status === 403) {
                     window.analytics.track('reading_paywall_hit', { stage: 'start' });
-                    window.location.href = '/upgrade.html?source=reading_quota';
+                    showState('landing');
+                    showProModal('reading_quota');
                     return;
                 }
                 if (!startRes.ok) {

@@ -135,34 +135,6 @@
             color: var(--muted);
         }
 
-        /* ── Prop list ──────────────────────────────────────── */
-        .prop-list {
-            list-style: none;
-            margin: 0;
-            padding: 0;
-            border-top: 1px solid var(--border);
-        }
-
-        .prop-list li {
-            position: relative;
-            padding: 13px 0 13px 22px;
-            border-bottom: 1px dashed var(--border);
-            font-family: 'EB Garamond', 'Noto Serif TC', serif;
-            font-size: 17px;
-            line-height: 1.6;
-            color: var(--ink);
-        }
-
-        .prop-list li::before {
-            content: '—';
-            position: absolute;
-            left: 0;
-            top: 13px;
-            color: var(--gold);
-            font-family: 'EB Garamond', serif;
-            line-height: 1.6;
-        }
-
         /* ── Price banner ───────────────────────────────────── */
         .price-banner {
             padding: 16px 0;
@@ -175,87 +147,11 @@
             text-align: center;
             letter-spacing: 0.02em;
         }
-        .urgency-note {
-            font-size: 13px;
-            color: var(--gold);
-            font-style: italic;
-            text-align: center;
-            margin: 0 0 16px;
-            letter-spacing: 0.02em;
-        }
 
-        /* ── Form ───────────────────────────────────────────── */
-        form { display: grid; gap: 14px; }
-
-        fieldset { margin: 0; padding: 0; border: 0; display: grid; gap: 8px; }
-
-        legend {
-            padding: 0;
-            margin-bottom: 10px;
-            font-family: 'Libre Baskerville', serif;
-            font-size: 11px;
-            font-style: italic;
-            font-weight: 400;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: var(--muted);
-        }
-
-        .price-grid { display: grid; gap: 8px; }
-
-        .price-option { position: relative; display: block; }
-
-        .price-option input {
-            position: absolute;
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .price-card {
-            display: block;
-            width: 100%;
-            padding: 13px 16px;
-            border: 1px solid var(--border);
-            background: var(--surface);
-            color: var(--ink);
-            font-family: 'Libre Baskerville', serif;
-            font-size: 15px;
-            line-height: 1.3;
-            cursor: pointer;
-            transition: border-color 0.12s, background 0.12s;
-        }
-
-        .price-option input:checked + .price-card {
-            border-color: var(--accent);
-            border-left: 3px solid var(--gold);
-            background: var(--accent-soft);
-            padding-left: 14px;
-        }
-
-        .price-option input:focus-visible + .price-card {
-            outline: 2px solid rgba(201, 168, 76, 0.4);
-            outline-offset: 2px;
-        }
-
-        input[type="email"] {
-            width: 100%;
-            min-height: 46px;
-            padding: 11px 14px;
-            border: 1px solid var(--border);
-            background: var(--surface);
-            color: var(--ink);
-            font-family: 'Libre Baskerville', serif;
-            font-size: 15px;
-            outline: none;
-            transition: border-color 0.12s;
-        }
-
-        input[type="email"]:focus       { border-color: var(--accent); }
-
-        input[type="email"]:invalid:not(:placeholder-shown) { border-color: var(--error); }
-
+        /* ── Checkout button ────────────────────────────────── */
         button {
             min-height: 48px;
+            width: 100%;
             border: 1px solid var(--accent);
             background: var(--accent);
             color: var(--surface);
@@ -277,123 +173,47 @@
             font-style: italic;
             font-size: 13px;
             line-height: 1.5;
-        }
-
-        /* ── Success / followup (rendered by JS) ────────────── */
-        .success {
-            padding: 28px 0;
-            font-family: 'Playfair Display', serif;
-            font-size: 21px;
-            font-weight: 700;
-            color: var(--accent);
-            line-height: 1.45;
-        }
-
-        .success small {
-            display: block;
             margin-top: 10px;
-            font-family: 'Libre Baskerville', serif;
-            font-size: 13px;
+        }
+
+        .login-note {
+            font-size: 14px;
+            color: var(--muted);
             font-style: italic;
-            font-weight: 400;
-            color: var(--muted);
-            line-height: 1.55;
+            text-align: center;
+            margin-top: 12px;
         }
-
-        .followup {
-            display: grid;
-            gap: 12px;
-            padding-top: 20px;
-            margin-top: 20px;
-            border-top: 1px solid var(--border);
-        }
-
-        .followup-label {
-            font-family: 'Libre Baskerville', serif;
-            font-size: 15px;
-            font-weight: 700;
-            color: var(--ink);
-            line-height: 1.4;
-        }
-
-        textarea {
-            width: 100%;
-            min-height: 96px;
-            padding: 11px 14px;
-            border: 1px solid var(--border);
-            background: var(--surface);
-            color: var(--ink);
-            font-family: 'Libre Baskerville', serif;
-            font-size: 15px;
-            line-height: 1.55;
-            resize: vertical;
-            outline: none;
-            transition: border-color 0.12s;
-        }
-
-        textarea:focus { border-color: var(--accent); }
-
-        .followup-actions { display: flex; gap: 10px; }
-        .followup-actions button { flex: 1; }
-
-        .btn-ghost {
-            background: transparent;
-            border-color: var(--border);
-            color: var(--muted);
-            font-weight: 400;
-        }
+        .login-note a { color: var(--gold); }
 
         /* ── Responsive ─────────────────────────────────────── */
         @media (min-width: 600px) {
             main { padding: 72px 0 96px; }
             h1.hero__headline { font-size: 50px; }
-            .price-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
-        /* === Context-aware paywall additions === */
-        .hero__context {
-            font-size: 14px;
-            color: var(--muted);
-            font-style: italic;
-            margin: 12px 0 0;
-            padding: 10px 14px;
-            border-left: 3px solid var(--gold);
-            background: rgba(201,168,76,0.06);
-            border-radius: 0 4px 4px 0;
-        }
+        /* ── Free/Pro comparison table ─────────────────────── */
         .compare-table {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
+            width: 100%;
+            border-collapse: collapse;
             margin: 16px 0;
+            font-family: 'EB Garamond', 'Noto Serif TC', serif;
+            font-size: 14px;
         }
-        .compare-col {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            overflow: hidden;
+        .compare-table th, .compare-table td {
+            padding: 10px 12px;
+            border-bottom: 1px dashed var(--border);
+            text-align: left;
         }
-        .compare-header {
-            padding: 10px 16px;
+        .compare-table th {
+            font-family: 'Libre Baskerville', serif;
             font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
-            font-weight: 600;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            border-bottom: 1px solid var(--gold);
         }
-        .compare-header.free  { background: var(--border); color: var(--muted); }
-        .compare-header.pro   { background: #2D5016; color: var(--gold); }
-        .compare-list {
-            list-style: none;
-            margin: 0;
-            padding: 12px 16px;
-            font-size: 13px;
-            line-height: 1.8;
-            color: var(--ink);
-        }
-        .pro-list li::before {
-            content: '✓ ';
-            color: #2D5016;
-            font-weight: 600;
-        }
+        .compare-table th.col-free, .compare-table td.col-free { color: var(--muted); }
+        .compare-table th.col-pro,  .compare-table td.col-pro  { color: #2D5016; font-weight: 600; }
+        .compare-table td.col-free, .compare-table td.col-pro { text-align: center; white-space: nowrap; }
         body { padding-bottom: 88px; }
         #bottom-nav {
             position: fixed; bottom: 0; left: 0; right: 0;
@@ -460,10 +280,9 @@
 <main>
 
     <header class="hero">
-        <p class="hero__kicker">Blabby Pro</p>
-        <h1 class="hero__headline">免費版讓你<br>再犯一次同樣的錯。</h1>
-        <p class="hero__sub">Pro 會陪你練到你不再犯為止。</p>
-        <p id="practice-context" class="hero__context" style="display:none"></p>
+        <p class="hero__kicker" id="hero-kicker">Blabby Pro</p>
+        <h1 class="hero__headline" id="hero-headline">Thou mayest enter, but the Chamber's<br>full counsel is reserved for those who hold Pro.</h1>
+        <p class="hero__sub" id="hero-sub">免費版讓你看見問題所在，Pro 陪你把每一個問題修到好。</p>
     </header>
 
     <div class="rule" aria-hidden="true">
@@ -473,346 +292,228 @@
     </div>
 
     <section class="section">
-        <h2 class="section__title">Pro 適合你，如果</h2>
-        <ul class="prop-list">
-            <li>你已經練習超過 10 次，但分數沒有進步</li>
-            <li>你知道自己英文有問題，但不知道具體在哪</li>
-            <li>你想在 3 個月內從 Band 5.5 升到 Band 6.5</li>
-            <li>你需要有人告訴你「今天只修這一件事」</li>
-        </ul>
+        <h2 class="section__title">Free 與 Pro 的差異</h2>
+        <table class="compare-table">
+            <thead>
+                <tr>
+                    <th>項目</th>
+                    <th class="col-free">Free</th>
+                    <th class="col-pro">Pro</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Writing 習作批改</td><td class="col-free">每日 3 篇</td><td class="col-pro">無限</td></tr>
+                <tr><td>Writing Task 1（圖表寫作）</td><td class="col-free">不開放</td><td class="col-pro">開放</td></tr>
+                <tr><td>Reading 篇章</td><td class="col-free">每日 1 篇</td><td class="col-pro">無限</td></tr>
+                <tr><td>Speaking 一般批改</td><td class="col-free">每月 20 次</td><td class="col-pro">無限</td></tr>
+                <tr><td>Speaking 弱點訓練（Drill）</td><td class="col-free">每週 20 次</td><td class="col-pro">無限</td></tr>
+                <tr><td>Speaking Part 2 長篇獨白</td><td class="col-free">每月 10 次</td><td class="col-pro">無限</td></tr>
+                <tr><td>跨場次弱點修正記憶</td><td class="col-free">不提供</td><td class="col-pro">提供</td></tr>
+            </tbody>
+        </table>
     </section>
 
-    <section class="section">
-        <h2 class="section__title">Pro 為你做什麼</h2>
-        <div class="compare-table">
-            <div class="compare-col">
-                <div class="compare-header free">Free</div>
-                <ul class="compare-list">
-                    <li>找到你的弱點</li>
-                    <li>每週 3 次針對性訓練</li>
-                    <li>AI 診斷報告（基本版）</li>
-                    <li>每日練習題</li>
-                </ul>
-            </div>
-            <div class="compare-col">
-                <div class="compare-header pro">Pro</div>
-                <ul class="compare-list pro-list">
-                    <li>無限針對性訓練</li>
-                    <li>完整 Before/After 分析</li>
-                    <li>7 天弱點修正計畫</li>
-                    <li>進階 AI 診斷（含例句）</li>
-                    <li>優先新功能</li>
-                </ul>
-            </div>
-        </div>
-    </section>
-
-    <section id="intent-section" class="section">
-        <p class="price-banner">每月 NT$259 &nbsp;·&nbsp; 隨時可以取消</p>
-        <p class="urgency-note">現在登記，Pro 上線時第一個知道。不會是很久以後的事。</p>
-        <form id="upgrade-form" novalidate>
-            <fieldset>
-                <legend>這個價格值得嗎？</legend>
-                <div class="price-grid">
-                    <label class="price-option">
-                        <input type="radio" name="price_choice" value="149">
-                        <span class="price-card">NT$149 / 月</span>
-                    </label>
-                    <label class="price-option">
-                        <input type="radio" name="price_choice" value="259">
-                        <span class="price-card">NT$259 / 月</span>
-                    </label>
-                    <label class="price-option">
-                        <input type="radio" name="price_choice" value="499">
-                        <span class="price-card">NT$499 / 月</span>
-                    </label>
-                    <label class="price-option">
-                        <input type="radio" name="price_choice" value="0">
-                        <span class="price-card">暫時不加入</span>
-                    </label>
-                </div>
-            </fieldset>
-
-            <input id="email" type="email" placeholder="電子郵件（必填）" autocomplete="email" required>
-            <button id="submit-btn" type="submit">我要修好這個弱點 →</button>
-            <div id="error" class="error" role="status" aria-live="polite"></div>
-        </form>
+    <section id="checkout-section" class="section">
+        <p class="price-banner">NT$199 / 月</p>
+        <button id="checkout-btn" type="button">加入 Pro，NT$199／月 →</button>
+        <div id="checkout-error" class="error" role="status" aria-live="polite"></div>
+        <p id="login-note" class="login-note" style="display:none">請先<a href="/index.html">登入</a>才能加入 Pro。</p>
     </section>
 
 </main>
 
+<form id="ecpay-form" method="POST" style="display:none"></form>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-// ---- URL context — paywall is reached from drill quota / diagnosis /
-//      weakness summary / direct link. Headline + sub copy adapts.
+const API_BASE = 'https://blabby-backend.onrender.com';
+
+// ---- URL context — paywall is reached from Hub's persistent entry point or
+//      from a quota-exceeded modal in Writing/Reading/Speaking. Headline +
+//      sub copy adapts; the comparison table and checkout flow are the same
+//      regardless of source.
 const params = new URLSearchParams(window.location.search);
 const source = params.get('source') || 'direct';
-const weaknessTag = params.get('weakness_tag') || '';
-const practiceCount = parseInt(params.get('practice_count') || '0', 10);
 
 const HEADLINES = {
-    drill_quota: {
-        kicker: '本週訓練次數已用完',
-        headline: '你找到問題了。\n現在你需要重複練習。',
-        sub: 'Pro 讓你無限次針對同一個弱點訓練，直到真正修好為止。',
-    },
-    diagnosis: {
-        kicker: 'AI 診斷完成',
-        headline: '免費版告訴你問題在哪。\nPro 陪你把問題修掉。',
-        sub: '診斷只是開始。修好才算數。',
-    },
-    weakness: {
-        kicker: weaknessTag === 'lack_detail' ? '弱點：缺少具體細節'
-              : weaknessTag === 'weak_vocab'  ? '弱點：用字太安全'
-              : '弱點已識別',
-        headline: '你的弱點已經找到。\n現在需要的是重複修正。',
-        sub: 'Pro 讓你針對這個弱點無限練習，不是讓你做更多題目。',
-    },
     direct: {
         kicker: 'Blabby Pro',
-        headline: '免費版讓你\n再犯一次同樣的錯。',
-        sub: 'Pro 會陪你練到你不再犯為止。',
+        headline: "Thou mayest enter, but the Chamber's full counsel<br>is reserved for those who hold Pro.",
+        sub: '免費版讓你看見問題所在，Pro 陪你把每一個問題修到好。',
+    },
+    writing_quota: {
+        kicker: '今日習作已滿',
+        headline: 'Thou hast submitted thy three essays for today.',
+        sub: '免費版每日開放 3 篇批改，Pro 不限次數。',
+    },
+    reading_quota: {
+        kicker: '今日篇章已閱畢',
+        headline: 'Thou hast read thy one passage for today.',
+        sub: '免費版每日開放 1 篇閱讀，Pro 不限次數。',
+    },
+    feedback_quota: {
+        kicker: '本月批改已滿',
+        headline: "Thou hast spent this month's twenty counsels.",
+        sub: '免費版每月開放 20 次批改，Pro 不限次數。',
+    },
+    drill_quota: {
+        kicker: '本週弱點訓練已滿',
+        headline: "Thou hast spent this week's twenty trials upon thy chosen weakness.",
+        sub: '免費版每週開放 20 次弱點訓練，Pro 不限次數。',
+    },
+    part2_quota: {
+        kicker: '本月長篇獨白已滿',
+        headline: "Thou hast spent this month's ten long turns.",
+        sub: '免費版每月開放 10 次長篇獨白，Pro 不限次數。',
+    },
+    writing_task1: {
+        kicker: 'Task 1 僅限 Pro',
+        headline: 'Task 1 chart writing is reserved for those who hold Pro.',
+        sub: '免費版不開放 Task 1（圖表寫作），Pro 可練習。',
     },
 };
 const copy = HEADLINES[source] || HEADLINES.direct;
 (function applyHeroCopy() {
-    const k = document.querySelector('.hero__kicker');
-    const h = document.querySelector('.hero__headline');
-    const s = document.querySelector('.hero__sub');
+    const k = document.getElementById('hero-kicker');
+    const h = document.getElementById('hero-headline');
+    const s = document.getElementById('hero-sub');
     if (k) k.textContent = copy.kicker;
-    if (h) h.innerHTML = copy.headline.replace('\n', '<br>');
+    if (h) h.innerHTML = copy.headline;
     if (s) s.textContent = copy.sub;
-    if (practiceCount > 0) {
-        const ctx = document.getElementById('practice-context');
-        if (ctx) {
-            ctx.textContent = `你已經練習了 ${practiceCount} 次。Blabby 看到了你的進步，也看到了卡點。`;
-            ctx.style.display = '';
-        }
-    }
 })();
 
-const form = document.getElementById('upgrade-form');
-const intentSection = document.getElementById('intent-section');
-const emailInput = document.getElementById('email');
-const errorEl = document.getElementById('error');
-const submitBtn = document.getElementById('submit-btn');
-const priceInputs = document.querySelectorAll('input[name="price_choice"]');
+window.analytics?.track('paywall_viewed', { source });
 
-// ---- tracking events (written to upgrade_intent.metadata on submit) ----
-const trackedEvents = [];
-
-function track(name, props = {}) {
-    trackedEvents.push({
-        name,
-        ts: new Date().toISOString(),
-        ...props,
-    });
-}
-
-// 1. page viewed — also surface to PostHog with the URL context.
-track('upgrade_page_viewed');
-window.analytics?.track('paywall_viewed', {
-    source: source,
-    weakness_tag: weaknessTag,
-    practice_count: practiceCount,
-});
-
-// 2. price selected (fires on change)
-priceInputs.forEach(input => {
-    input.addEventListener('change', () => {
-        track('price_selected', { value: parseInt(input.value, 10) });
-        updateButtonLabel();
-    });
-});
-
-// 3. email entered (fires on blur, only if non-empty + valid)
-emailInput.addEventListener('blur', () => {
-    const v = emailInput.value.trim();
-    if (v && emailInput.checkValidity()) {
-        track('email_entered');
+// ---- auth ----
+const CFG = window.BLABBY_CONFIG || {};
+let sb = null;
+try {
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+        sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
     }
-});
-
-// ---- dynamic submit button label ----
-function selectedPrice() {
-    const selected = document.querySelector('input[name="price_choice"]:checked');
-    return selected ? parseInt(selected.value, 10) : null;
+} catch (err) {
+    console.error('Supabase init failed:', err);
 }
 
-function updateButtonLabel() {
-    const price = selectedPrice();
-    if (price === null) {
-        submitBtn.textContent = 'Continue';
-    } else if (price === 0) {
-        submitBtn.textContent = 'Tell us why (next survey)';
-    } else {
-        submitBtn.textContent = `I'd pay $${price}/mo for this`;
+async function getToken() {
+    if (!sb) return null;
+    try {
+        const { data: { session } } = await sb.auth.getSession();
+        return (session && session.access_token) || null;
+    } catch (_) {
+        return null;
     }
 }
 
-// ---- helpers ----
-function configValue(name) {
-    const config = window.BLABBY_CONFIG || {};
-    return typeof config[name] === 'string' ? config[name].trim() : '';
-}
+const checkoutBtn = document.getElementById('checkout-btn');
+const checkoutError = document.getElementById('checkout-error');
+const loginNote = document.getElementById('login-note');
+const ecpayForm = document.getElementById('ecpay-form');
+let checkoutInFlight = false;
 
 function setError(message) {
-    errorEl.textContent = message;
+    checkoutError.textContent = message;
 }
 
-// ---- submit ----
-async function submitIntent(event) {
-    event.preventDefault();
+async function goToCheckout() {
+    // Guard before any await — two rapid clicks must not mint two orders.
+    if (checkoutInFlight || checkoutBtn.disabled) return;
+    checkoutInFlight = true;
+    checkoutBtn.disabled = true;
     setError('');
 
-    const price = selectedPrice();
-    if (price === null) {
-        setError('Please select a price.');
+    const token = await getToken();
+    if (!token) {
+        setError('請先登入才能加入 Pro。');
+        checkoutInFlight = false;
+        checkoutBtn.disabled = false;
         return;
     }
 
-    const emailValue = emailInput.value.trim();
-    if (!emailValue) {
-        setError('Email is required so we can let you know when Pro launches.');
-        emailInput.focus();
-        return;
-    }
-    if (!emailInput.checkValidity()) {
-        setError('Please enter a valid email.');
-        emailInput.focus();
-        return;
-    }
+    window.analytics?.track('paywall_cta_clicked', { source });
 
-    const supabaseUrl = configValue('supabaseUrl');
-    const supabaseAnonKey = configValue('supabaseAnonKey');
-    if (!supabaseUrl || !supabaseAnonKey) {
-        setError('Config is missing. Please try again later.');
-        return;
-    }
-
-    submitBtn.disabled = true;
-
-    track('intent_submitted', { price });
-    window.analytics?.track('paywall_cta_clicked', {
-        source: source,
-        weakness_tag: weaknessTag,
-        practice_count: practiceCount,
-    });
-
-    const metadata = {
-        opt_out: price === 0,
-        events: trackedEvents,
-        page_url: window.location.href,
-    };
-
+    let res;
     try {
-        const response = await fetch(`${supabaseUrl}/rest/v1/upgrade_intent`, {
+        res = await fetch(`${API_BASE}/api/payment/create-order`, {
             method: 'POST',
-            headers: {
-                apikey: supabaseAnonKey,
-                Authorization: `Bearer ${supabaseAnonKey}`,
-                'Content-Type': 'application/json',
-                Prefer: 'return=representation',
-            },
-            body: JSON.stringify({
-                email: emailValue,
-                reserved_price: price,
-                source: 'upgrade_page',
-                user_agent: navigator.userAgent,
-                metadata,
-            }),
+            headers: { Authorization: `Bearer ${token}` },
         });
-
-        if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            throw new Error(`Supabase insert failed: ${response.status} ${text}`);
-        }
-
-        const rows = await response.json().catch(() => []);
-        const rowId = rows[0]?.id ?? null;
-
-        if (price === 0) {
-            renderOptOutFollowUp(rowId, supabaseUrl, supabaseAnonKey, metadata);
-        } else {
-            intentSection.innerHTML =
-                `<div class="success">Reserved at $${price}/mo.` +
-                `<small>We'll email you the moment Pro is ready. No spam.</small></div>`;
-        }
-    } catch (error) {
-        console.error('upgrade_intent insert failed:', error);
-        setError('Something went wrong. Please try again.');
-        submitBtn.disabled = false;
+    } catch (err) {
+        console.error('create-order request failed:', err);
+        setError('無法連線至付款系統，請檢查網路連線後再試。');
+        checkoutInFlight = false;
+        checkoutBtn.disabled = false;
+        return;
     }
-}
 
-// ---- opt-out follow-up ----
-function renderOptOutFollowUp(rowId, supabaseUrl, supabaseAnonKey, metadata) {
-    intentSection.innerHTML =
-        '<div class="success">Got it. Thanks for the honest signal.' +
-        '<small>Your signal helps us build the right thing.</small>' +
-        '<div class="followup">' +
-            '<label class="followup-label" for="opt-out-reason">What would change your mind?</label>' +
-            '<textarea id="opt-out-reason" placeholder="e.g. If it tracked my progress over time, or if there was a free trial…" maxlength="500"></textarea>' +
-            '<div class="followup-actions">' +
-                '<button id="followup-send-btn" type="button">Send</button>' +
-                '<button id="followup-skip-btn" type="button" class="btn-ghost">Skip</button>' +
-            '</div>' +
-            '<div id="followup-error" class="error" role="status" aria-live="polite"></div>' +
-        '</div>' +
-        '</div>';
+    if (res.status === 401) {
+        setError('登入已過期，請重新整理頁面後再試。');
+        checkoutInFlight = false;
+        checkoutBtn.disabled = false;
+        return;
+    }
+    if (res.status === 403) {
+        setError('目前無法建立訂單。若你已是 Pro，無需再次付款。');
+        checkoutInFlight = false;
+        checkoutBtn.disabled = false;
+        return;
+    }
+    if (res.status === 503) {
+        setError('付款系統暫時無法使用，請稍後再試。');
+        checkoutInFlight = false;
+        checkoutBtn.disabled = false;
+        return;
+    }
+    if (!res.ok) {
+        console.error('create-order failed:', res.status);
+        setError('系統暫時無法處理付款，請稍後再試。');
+        checkoutInFlight = false;
+        checkoutBtn.disabled = false;
+        return;
+    }
 
-    const reasonEl = document.getElementById('opt-out-reason');
-    const sendBtn  = document.getElementById('followup-send-btn');
-    const skipBtn  = document.getElementById('followup-skip-btn');
-    const errEl    = document.getElementById('followup-error');
+    let body;
+    try {
+        body = await res.json();
+    } catch (err) {
+        setError('系統回應異常，請稍後再試。');
+        checkoutInFlight = false;
+        checkoutBtn.disabled = false;
+        return;
+    }
 
-    sendBtn.addEventListener('click', async () => {
-        const reason = reasonEl.value.trim();
-        if (!reason) {
-            errEl.textContent = 'Please write something, or click Skip.';
-            return;
-        }
-        sendBtn.disabled = true;
-        skipBtn.disabled = true;
-        errEl.textContent = '';
+    if (!body || !body.action_url || !body.params) {
+        setError('系統回應異常，請稍後再試。');
+        checkoutInFlight = false;
+        checkoutBtn.disabled = false;
+        return;
+    }
 
-        try {
-            if (rowId) {
-                const updatedMetadata = { ...metadata, opt_out_reason: reason };
-                await fetch(`${supabaseUrl}/rest/v1/upgrade_intent?id=eq.${rowId}`, {
-                    method: 'PATCH',
-                    headers: {
-                        apikey: supabaseAnonKey,
-                        Authorization: `Bearer ${supabaseAnonKey}`,
-                        'Content-Type': 'application/json',
-                        Prefer: 'return=minimal',
-                    },
-                    body: JSON.stringify({ metadata: updatedMetadata }),
-                });
-            }
-            track('opt_out_reason_submitted', { length: reason.length });
-        } catch (e) {
-            console.error('opt_out_reason patch failed:', e);
-            // Don't surface to user — reason is a bonus signal, not critical
-        }
-
-        showOptOutFinal();
+    // Frontend auto-POSTs params to action_url — ECPay's cashier is reached
+    // by form POST, not by redirect (see create-order's docstring).
+    ecpayForm.action = body.action_url;
+    ecpayForm.innerHTML = '';
+    Object.entries(body.params).forEach(([key, value]) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = value;
+        ecpayForm.appendChild(input);
     });
-
-    skipBtn.addEventListener('click', () => {
-        track('opt_out_reason_skipped');
-        showOptOutFinal();
-    });
-
-    reasonEl.focus();
+    ecpayForm.submit();
+    // Leave disabled/inFlight after submit — navigation to ECPay is expected.
 }
 
-function showOptOutFinal() {
-    intentSection.innerHTML =
-        '<div class="success">Thanks for being honest with us.' +
-        '<small>We\'ll keep building. If anything changes, come back.</small></div>';
-}
+checkoutBtn.addEventListener('click', goToCheckout);
 
-form.addEventListener('submit', submitIntent);
+// ---- boot: disable checkout (with a login prompt) if not signed in ----
+(async function boot() {
+    const token = await getToken();
+    if (!token) {
+        checkoutBtn.disabled = true;
+        loginNote.style.display = '';
+    }
+})();
 </script>
 
 <nav id="bottom-nav" aria-label="Main navigation">

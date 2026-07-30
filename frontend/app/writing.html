@@ -156,6 +156,49 @@
         #task1-lock { padding: 24px; border: 1px solid var(--border); text-align: center; }
         #task1-lock p { font-family: var(--serif); font-size: 17px; margin-bottom: 12px; }
         #task1-lock a { color: var(--accent); }
+
+        /* ── Pro upsell modal (quota-exceeded paywall) ─────── */
+        .pro-modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(28,16,8,0.55);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 999; padding: 20px;
+        }
+        .pro-modal-overlay[hidden] { display: none; }
+        .pro-modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            max-width: 480px; width: 100%;
+            max-height: 90vh; overflow-y: auto;
+            padding: 28px 24px;
+        }
+        .pro-modal-kicker {
+            font-family: var(--sans);
+            font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+            color: var(--gold); margin: 0 0 12px;
+        }
+        .pro-modal-title {
+            font-family: var(--serif);
+            font-size: 21px; font-weight: 700; font-style: italic;
+            color: var(--ink); line-height: 1.35; margin: 0 0 10px;
+        }
+        .pro-modal-sub { font-size: 14px; color: var(--muted); line-height: 1.6; margin: 0 0 18px; }
+        .pro-modal-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; }
+        .pro-modal-table th, .pro-modal-table td { padding: 7px 8px; border-bottom: 1px dashed var(--border); text-align: left; }
+        .pro-modal-table th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 1px solid var(--gold); }
+        .pro-modal-table td.col-free, .pro-modal-table th.col-free { color: var(--muted); text-align: center; }
+        .pro-modal-table td.col-pro, .pro-modal-table th.col-pro { color: var(--green); font-weight: 600; text-align: center; }
+        .pro-modal-actions { display: flex; gap: 10px; }
+        .pro-modal-cta {
+            flex: 1; min-height: 44px; border: 1px solid var(--green); background: var(--green); color: var(--surface);
+            font-family: var(--sans); font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none;
+            display: inline-flex; align-items: center; justify-content: center;
+        }
+        .pro-modal-cta:hover { opacity: 0.88; }
+        .pro-modal-dismiss {
+            flex: 0 0 auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--border); background: transparent; color: var(--muted);
+            font-family: var(--sans); font-size: 13px; cursor: pointer;
+        }
         #question-display { padding: 28px 28px 24px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 16px; border-radius: 2px; }
         .question-label { font-family: var(--sans); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
         #writing-panel { margin-top: 20px; }
@@ -349,7 +392,7 @@
             <!-- Task 1 Pro lock overlay -->
             <div id="task1-lock" style="display:none">
                 <p>Task 1 practice is reserved for Pro members.</p>
-                <a href="/upgrade.html">Enquire about Pro membership</a>
+                <a href="/upgrade.html?source=writing_task1">Enquire about Pro membership</a>
             </div>
 
             <!-- Question panel -->
@@ -404,6 +447,30 @@
             </div>
 
         </main>
+    </div>
+
+    <div class="pro-modal-overlay" id="pro-modal-overlay" hidden>
+        <div class="pro-modal" role="dialog" aria-modal="true" aria-labelledby="pro-modal-title">
+            <p class="pro-modal-kicker" id="pro-modal-kicker"></p>
+            <h2 class="pro-modal-title" id="pro-modal-title"></h2>
+            <p class="pro-modal-sub" id="pro-modal-sub"></p>
+            <table class="pro-modal-table">
+                <thead><tr><th>項目</th><th class="col-free">Free</th><th class="col-pro">Pro</th></tr></thead>
+                <tbody>
+                    <tr><td>Writing 習作批改</td><td class="col-free">每日 3 篇</td><td class="col-pro">無限</td></tr>
+                    <tr><td>Writing Task 1（圖表寫作）</td><td class="col-free">不開放</td><td class="col-pro">開放</td></tr>
+                    <tr><td>Reading 篇章</td><td class="col-free">每日 1 篇</td><td class="col-pro">無限</td></tr>
+                    <tr><td>Speaking 一般批改</td><td class="col-free">每月 20 次</td><td class="col-pro">無限</td></tr>
+                    <tr><td>Speaking 弱點訓練（Drill）</td><td class="col-free">每週 20 次</td><td class="col-pro">無限</td></tr>
+                    <tr><td>Speaking Part 2 長篇獨白</td><td class="col-free">每月 10 次</td><td class="col-pro">無限</td></tr>
+                    <tr><td>跨場次弱點修正記憶</td><td class="col-free">不提供</td><td class="col-pro">提供</td></tr>
+                </tbody>
+            </table>
+            <div class="pro-modal-actions">
+                <a class="pro-modal-cta" id="pro-modal-cta" href="/upgrade.html">加入 Pro，NT$199／月 →</a>
+                <button class="pro-modal-dismiss" id="pro-modal-dismiss" type="button">知道了</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -708,6 +775,16 @@
                 });
                 const data = await res.json();
                 if (!res.ok) {
+                    if (res.status === 403 && data.detail?.error === 'daily_quota_reached') {
+                        showProModal('writing_quota');
+                        document.getElementById('btn-submit').disabled = false;
+                        return;
+                    }
+                    if (res.status === 403 && data.detail?.error === 'pro_required') {
+                        showProModal('writing_task1');
+                        document.getElementById('btn-submit').disabled = false;
+                        return;
+                    }
                     const msg = data.detail?.message || data.detail || "Submission could not be processed.";
                     showError(msg);
                     document.getElementById('btn-submit').disabled = false;
@@ -830,6 +907,34 @@
             currentQuestionId = null;
             currentQuestionPrompt = null;
         }
+
+        // ---- Pro upsell modal (quota-exceeded paywall) ----
+        const PRO_MODAL_COPY = {
+            writing_quota: {
+                kicker: '今日習作已滿',
+                title: 'Thou hast submitted thy three essays for today.',
+                sub: '免費版每日開放 3 篇批改，Pro 不限次數。',
+            },
+            writing_task1: {
+                kicker: 'Task 1 僅限 Pro',
+                title: 'Task 1 chart writing is reserved for those who hold Pro.',
+                sub: '免費版不開放 Task 1（圖表寫作），Pro 可練習。',
+            },
+        };
+
+        function showProModal(source) {
+            const copy = PRO_MODAL_COPY[source];
+            if (!copy) return;
+            document.getElementById('pro-modal-kicker').textContent = copy.kicker;
+            document.getElementById('pro-modal-title').textContent = copy.title;
+            document.getElementById('pro-modal-sub').textContent = copy.sub;
+            document.getElementById('pro-modal-cta').href = `/upgrade.html?source=${encodeURIComponent(source)}`;
+            document.getElementById('pro-modal-overlay').hidden = false;
+        }
+
+        document.getElementById('pro-modal-dismiss').addEventListener('click', () => {
+            document.getElementById('pro-modal-overlay').hidden = true;
+        });
     </script>
 </body>
 </html>
