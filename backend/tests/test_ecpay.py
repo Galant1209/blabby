@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 import re
 import string
@@ -508,12 +509,21 @@ class _FakeTable:
 class _FakeSupabase:
     def __init__(self, subscriptions_data=None):
         self.subscriptions_data = (
-            [{"user_id": USER_ID}] if subscriptions_data is None
+            [{
+                "user_id": USER_ID,
+                "amount": ecpay.PRO_MONTHLY_TWD,
+                "status": "pending",
+                "expires_at": None,
+            }] if subscriptions_data is None
             else subscriptions_data
         )
         self.writes = []
         self.seen_keys = set()
         self.last_event_key = None
+        self.rpc_calls = []
+        self.accepted_events = []
+        self.activations = []
+        self.activated_orders = set()
 
     def table(self, name):
         return _FakeTable(self, name)
@@ -528,13 +538,39 @@ class _FakeSupabase:
     def rows(self, name, op):
         return [w for w in self.writes if w[0] == name and w[1] == op]
 
+    def rpc(self, name, params):
+        self.rpc_calls.append((name, params))
+        if name != "accept_ecpay_payment":
+            raise AssertionError(f"unexpected RPC: {name}")
+
+        def execute():
+            order = params["p_merchant_trade_no"]
+            key = (order, params["p_total_success_times"], "ecpay_callback")
+            if order in self.activated_orders or key in self.seen_keys:
+                return _Resp([{"result": "duplicate"}])
+            self.seen_keys.add(key)
+            self.activated_orders.add(order)
+            self.accepted_events.append({
+                "source": "ecpay_callback",
+                "merchant_trade_no": order,
+                "rtn_code": params["p_rtn_code"],
+                "rtn_msg": params["p_rtn_msg"],
+                "raw_payload": params["p_raw_payload"],
+            })
+            self.activations.append(params)
+            return _Resp([{"result": "activated"}])
+
+        return MagicMock(execute=execute)
+
 
 def _signed_form(**overrides):
     params = {
+        "MerchantID":      "3002607",
         "MerchantTradeNo": "BLB2607301405ABCDEFG",
         "RtnCode":         "1",
         "RtnMsg":          "Succeeded",
         "TradeAmt":        "199",
+        "CustomField1":     USER_ID,
         "EncryptType":     "1",
     }
     params.update(overrides)
@@ -549,8 +585,104 @@ def _callback(form_params, fake, hash_key=HASH_KEY, hash_iv=HASH_IV):
     with patch.object(main.limiter, "enabled", False), \
          patch.object(main, "ECPAY_HASH_KEY", hash_key), \
          patch.object(main, "ECPAY_HASH_IV", hash_iv), \
+         patch.object(ecpay, "_CONFIG", STAGE_CONFIG), \
+         patch.object(ecpay, "_CONFIG_ERROR", None), \
          patch.object(main, "supabase_admin", fake):
         return asyncio.run(main.payment_callback(request=request))
+
+
+def _assert_exact_ack(response):
+    assert response.status_code == 200
+    assert response.body == b"1|OK"
+    assert len(response.body) == 4
+    assert response.media_type == "text/plain"
+
+
+# ── TASK 6A-R.1: trust gates must precede every mutation ─────────────────
+def test_callback_rejects_signed_merchant_mismatch_without_mutation(caplog):
+    fake = _FakeSupabase()
+    response = _callback(_signed_form(MerchantID="9999999"), fake)
+
+    _assert_exact_ack(response)
+    assert fake.writes == []
+    assert fake.rpc_calls == []
+    assert "merchant" in caplog.text.lower()
+
+
+def test_callback_rejects_signed_amount_mismatch_without_poisoning_retry(caplog):
+    fake = _FakeSupabase()
+    rejected = _callback(_signed_form(TradeAmt="1"), fake)
+
+    _assert_exact_ack(rejected)
+    assert fake.rows("payment_events", "insert") == []
+    assert fake.rows("subscriptions", "update") == []
+    assert fake.rpc_calls == []
+    assert "amount" in caplog.text.lower()
+
+    accepted = _callback(_signed_form(), fake)
+    _assert_exact_ack(accepted)
+    assert len(fake.rpc_calls) == 1
+    assert len(fake.activations) == 1
+    assert len(fake.accepted_events) == 1
+
+
+def test_callback_rejects_ownership_mismatch_before_activation(caplog):
+    fake = _FakeSupabase()
+    response = _callback(
+        _signed_form(CustomField1="00000000-0000-0000-0000-000000000099"),
+        fake,
+    )
+
+    _assert_exact_ack(response)
+    assert fake.rows("subscriptions", "update") == []
+    assert fake.rows("payment_events", "insert") == []
+    assert fake.rpc_calls == []
+    assert "owner" in caplog.text.lower()
+
+
+def test_callback_with_invalid_ecpay_env_acknowledges_without_mutation():
+    fake = _FakeSupabase()
+    request = MagicMock()
+    request.form = AsyncMock(return_value=_signed_form())
+    with patch.object(main.limiter, "enabled", False), \
+         patch.object(main, "ECPAY_HASH_KEY", HASH_KEY), \
+         patch.object(main, "ECPAY_HASH_IV", HASH_IV), \
+         patch.object(ecpay, "_CONFIG", None), \
+         patch.object(ecpay, "_CONFIG_ERROR",
+                      "ECPAY_ENV must be 'stage' or 'production'"), \
+         patch.object(main, "supabase_admin", fake):
+        response = asyncio.run(main.payment_callback(request=request))
+
+    _assert_exact_ack(response)
+    assert fake.writes == []
+    assert fake.rpc_calls == []
+
+
+def test_callback_performs_no_mutation_until_all_trust_gates_pass():
+    rejected_forms = [
+        _signed_form(MerchantID="wrong"),
+        _signed_form(TradeAmt="not-an-integer"),
+        _signed_form(CustomField1="wrong-owner"),
+        _signed_form(SimulatePaid="1"),
+    ]
+    for form in rejected_forms:
+        fake = _FakeSupabase()
+        config = PROD_CONFIG if form.get("SimulatePaid") == "1" else STAGE_CONFIG
+        response = _callback_with_env(form, fake, config)
+        _assert_exact_ack(response)
+        assert fake.rows("subscriptions", "update") == []
+        assert fake.rows("payment_events", "insert") == []
+        assert fake.rpc_calls == []
+
+
+def test_success_uses_one_atomic_rpc_not_separate_http_mutations():
+    fake = _FakeSupabase()
+    response = _callback(_signed_form(), fake)
+
+    _assert_exact_ack(response)
+    assert [name for name, _ in fake.rpc_calls] == ["accept_ecpay_payment"]
+    assert fake.rows("payment_events", "insert") == []
+    assert fake.rows("subscriptions", "update") == []
 
 
 # ── the six-cell response matrix ─────────────────────────────────────────
@@ -576,12 +708,13 @@ def test_matrix_3_duplicate_event_is_200_1ok_without_regranting():
     fake = _FakeSupabase()
     form = _signed_form()
     _callback(form, fake)
-    before = len(fake.rows("subscriptions", "update"))
+    before = len(fake.activations)
 
     response = _callback(form, fake)
     assert response.status_code == 200
     assert response.body == b"1|OK"
-    assert len(fake.rows("subscriptions", "update")) == before
+    assert len(fake.activations) == before == 1
+    assert len(fake.accepted_events) == 1
 
 
 def test_matrix_4_declined_payment_is_200_1ok_without_entitlement():
@@ -590,7 +723,7 @@ def test_matrix_4_declined_payment_is_200_1ok_without_entitlement():
     assert response.status_code == 200
     assert response.body == b"1|OK"
     assert fake.rows("subscriptions", "update") == []
-    assert len(fake.rows("payment_events", "insert")) == 1
+    assert fake.accepted_events == []
 
 
 # ── RtnCode != 1 is a routine path, not an edge case ─────────────────────
@@ -615,21 +748,15 @@ def test_no_non_success_code_can_grant_entitlement(rtn_code, rtn_msg):
     assert [w for w in fake.writes if w[0] == "profiles"] == []
 
 
-def test_the_failure_reason_is_preserved_for_measurement():
-    """The 3D drop-off rate is only knowable if the ledger keeps the code.
-
-    payment_events is the only server-side record of a conversion attempt, so
-    a failure row that loses rtn_code/rtn_msg makes "how many buyers does 3D
-    cost us" permanently unanswerable.
-    """
+def test_the_failure_reason_is_logged_without_consuming_success_identity(caplog):
+    """A failed observation stays measurable without poisoning a later success."""
+    caplog.set_level(logging.INFO, logger=main.logger.name)
     fake = _FakeSupabase()
     _callback(_signed_form(RtnCode="10100058",
                            RtnMsg="Authorisation declined"), fake)
-    row = fake.rows("payment_events", "insert")[0][2]
-    assert row["rtn_code"] == "10100058"
-    assert row["rtn_msg"] == "Authorisation declined"
-    assert row["checkmac_valid"] is True
-    assert row["raw_payload"]["MerchantTradeNo"] == "BLB2607301405ABCDEFG"
+    assert "10100058" in caplog.text
+    assert fake.accepted_events == []
+    assert fake.seen_keys == set()
 
 
 def test_a_failed_attempt_leaves_the_order_pending_not_active():
@@ -655,10 +782,8 @@ def test_buyer_retries_after_a_3d_failure_and_the_second_order_grants():
     ok = _callback(
         _signed_form(MerchantTradeNo="20260730BBBBBBBBBBBB", RtnCode="1"), fake)
     assert ok.body == b"1|OK"
-    updates = fake.rows("subscriptions", "update")
-    assert len(updates) == 1
-    assert updates[0][2]["status"] == "active"
-    assert len(fake.rows("payment_events", "insert")) == 2
+    assert len(fake.activations) == 1
+    assert len(fake.accepted_events) == 1
 
 
 def test_a_late_failure_callback_cannot_undo_an_earlier_success():
@@ -668,17 +793,15 @@ def test_a_late_failure_callback_cannot_undo_an_earlier_success():
                            RtnCode="1"), fake)
     _callback(_signed_form(MerchantTradeNo="20260730DDDDDDDDDDDD",
                            RtnCode="10100058"), fake)
-    updates = fake.rows("subscriptions", "update")
-    assert len(updates) == 1
-    assert updates[0][2]["status"] == "active"
+    assert len(fake.activations) == 1
 
 
-def test_a_failure_is_still_idempotent_on_resend():
+def test_a_failure_resend_never_consumes_accepted_success_identity():
     fake = _FakeSupabase()
     form = _signed_form(RtnCode="10100058")
     for _ in range(5):
         assert _callback(form, fake).body == b"1|OK"
-    assert len(fake.seen_keys) == 1
+    assert fake.seen_keys == set()
     assert fake.rows("subscriptions", "update") == []
 
 
@@ -687,17 +810,15 @@ def test_matrix_5_successful_payment_is_200_1ok_and_grants():
     response = _callback(_signed_form(), fake)
     assert response.status_code == 200
     assert response.body == b"1|OK"
-    updates = fake.rows("subscriptions", "update")
-    assert len(updates) == 1
-    assert updates[0][2]["status"] == "active"
-    assert updates[0][2]["expires_at"]
+    assert len(fake.activations) == 1
+    assert fake.activations[0]["p_expires_at"]
 
 
-def test_matrix_6_empty_row_is_500():
+def test_matrix_6_unknown_order_is_acknowledged_without_mutation():
     fake = _FakeSupabase(subscriptions_data=[])
-    with pytest.raises(HTTPException) as exc:
-        _callback(_signed_form(), fake)
-    assert exc.value.status_code == 500
+    response = _callback(_signed_form(), fake)
+    _assert_exact_ack(response)
+    assert fake.rpc_calls == []
 
 
 def test_ack_body_is_byte_exact_and_text_plain():
@@ -761,7 +882,7 @@ def test_matrix_7_simulated_payment_in_production_grants_nothing():
     assert response.status_code == 200
     assert response.body == b"1|OK", "ECPay must not be made to retry"
     assert fake.rows("subscriptions", "update") == [], "no entitlement"
-    assert len(fake.rows("payment_events", "insert")) == 1, "but it is recorded"
+    assert fake.accepted_events == [], "rejection must not poison a valid retry"
 
 
 def test_simulated_payment_on_stage_grants_normally():
@@ -770,7 +891,7 @@ def test_simulated_payment_on_stage_grants_normally():
     response = _callback_with_env(
         _signed_form(RtnCode="1", SimulatePaid="1"), fake, STAGE_CONFIG)
     assert response.body == b"1|OK"
-    assert len(fake.rows("subscriptions", "update")) == 1
+    assert len(fake.activations) == 1
 
 
 def test_a_real_payment_in_production_still_grants():
@@ -778,7 +899,7 @@ def test_a_real_payment_in_production_still_grants():
     fake = _FakeSupabase()
     _callback_with_env(_signed_form(RtnCode="1", SimulatePaid="0"),
                        fake, PROD_CONFIG)
-    assert len(fake.rows("subscriptions", "update")) == 1
+    assert len(fake.activations) == 1
 
 
 @pytest.mark.parametrize("value", ["1", "2", "y", "Y", "true", " 1 "])
@@ -815,43 +936,46 @@ def test_custom_field1_matching_the_order_owner_grants():
     fake = _FakeSupabase()
     response = _callback(_signed_form(RtnCode="1", CustomField1=USER_ID), fake)
     assert response.body == b"1|OK"
-    assert len(fake.rows("subscriptions", "update")) == 1
+    assert len(fake.activations) == 1
 
 
 def test_custom_field1_mismatch_refuses_to_grant():
     """Signed, so a mismatch is either our bug or someone playing games."""
     fake = _FakeSupabase()
-    with pytest.raises(HTTPException) as exc:
-        _callback(_signed_form(RtnCode="1", CustomField1="someone-else"), fake)
-    assert exc.value.status_code == 500
-    assert "mismatch" in exc.value.detail.lower()
+    response = _callback(
+        _signed_form(RtnCode="1", CustomField1="someone-else"), fake)
+    _assert_exact_ack(response)
+    assert fake.rpc_calls == []
 
 
-def test_custom_field1_absent_falls_back_to_the_database():
-    """The DB row keyed on merchant_trade_no is the authority, not this field."""
+def test_custom_field1_absent_fails_closed():
+    """Create-order always stamps it; absence cannot prove callback ownership."""
     fake = _FakeSupabase()
-    _callback(_signed_form(RtnCode="1"), fake)
-    assert len(fake.rows("subscriptions", "update")) == 1
+    form = _signed_form(RtnCode="1")
+    del form["CustomField1"]
+    form["CheckMacValue"] = ecpay.build_check_mac_value(form, HASH_KEY, HASH_IV)
+    response = _callback(form, fake)
+    _assert_exact_ack(response)
+    assert fake.rpc_calls == []
 
 
 # ── TradeNo ──────────────────────────────────────────────────────────────
 def test_ecpay_trade_no_is_persisted_for_support_conversations():
     fake = _FakeSupabase()
     _callback(_signed_form(RtnCode="1", TradeNo="2607301122334455"), fake)
-    written = fake.rows("subscriptions", "update")[0][2]
-    assert written["ecpay_trade_no"] == "2607301122334455"
+    assert fake.activations[0]["p_ecpay_trade_no"] == "2607301122334455"
 
 
 def test_a_missing_trade_no_is_stored_as_null_not_empty_string():
     fake = _FakeSupabase()
     _callback(_signed_form(RtnCode="1"), fake)
-    assert fake.rows("subscriptions", "update")[0][2]["ecpay_trade_no"] is None
+    assert fake.activations[0]["p_ecpay_trade_no"] is None
 
 
 def test_ledger_source_is_ecpay_callback():
     fake = _FakeSupabase()
     _callback(_signed_form(), fake)
-    assert fake.rows("payment_events", "insert")[0][2]["source"] == "ecpay_callback"
+    assert fake.accepted_events[0]["source"] == "ecpay_callback"
 
 
 def test_five_resends_grant_once_and_leave_one_ledger_row():
@@ -859,7 +983,8 @@ def test_five_resends_grant_once_and_leave_one_ledger_row():
     form = _signed_form()
     for _ in range(5):
         assert _callback(form, fake).body == b"1|OK"
-    assert len(fake.rows("subscriptions", "update")) == 1
+    assert len(fake.activations) == 1
+    assert len(fake.accepted_events) == 1
     assert len(fake.seen_keys) == 1
 
 

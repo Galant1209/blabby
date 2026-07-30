@@ -89,7 +89,9 @@ class _FakeTable:
 class _FakeSupabase:
     def __init__(self, subscriptions_data=None, profiles_data=None):
         self.subscriptions_data = (
-            [{"user_id": USER_ID}] if subscriptions_data is None else subscriptions_data
+            [{"user_id": USER_ID, "amount": main.ecpay.PRO_MONTHLY_TWD,
+              "status": "pending", "expires_at": None}]
+            if subscriptions_data is None else subscriptions_data
         )
         self.profiles_data = (
             [{"id": USER_ID}] if profiles_data is None else profiles_data
@@ -98,6 +100,10 @@ class _FakeSupabase:
         self.seen_keys = set()
         self.ledger_inserts = 0
         self.last_event_key = None
+        self.rpc_calls = []
+        self.activations = []
+        self.accepted_events = []
+        self.activated_orders = set()
 
     def table(self, name):
         return _FakeTable(self, name)
@@ -126,14 +132,33 @@ class _FakeSupabase:
     def ledger_rows(self):
         return [w for w in self.writes if w[0] == "payment_events" and w[1] == "insert"]
 
+    def rpc(self, name, params):
+        self.rpc_calls.append((name, params))
+        assert name == "accept_ecpay_payment"
+
+        def execute():
+            order = params["p_merchant_trade_no"]
+            key = (order, params["p_total_success_times"], "ecpay_callback")
+            if order in self.activated_orders or key in self.seen_keys:
+                return _Resp([{"result": "duplicate"}])
+            self.activated_orders.add(order)
+            self.seen_keys.add(key)
+            self.accepted_events.append(params)
+            self.activations.append(params)
+            return _Resp([{"result": "activated"}])
+
+        return MagicMock(execute=execute)
+
 
 # ── request plumbing ─────────────────────────────────────────────────────
 def _signed_form(**overrides):
     params = {
+        "MerchantID": "3002607",
         "MerchantTradeNo": ORDER_ID,
         "RtnCode": "1",
         "RtnMsg": "Succeeded",
-        "TradeAmt": "299",
+        "TradeAmt": str(main.ecpay.PRO_MONTHLY_TWD),
+        "CustomField1": USER_ID,
         "PaymentDate": "2026/07/26 10:00:00",
         "EncryptType": "1",
     }
@@ -155,6 +180,15 @@ def _call_callback(form_params, fake):
     with patch.object(main.limiter, "enabled", False), \
          patch.object(main, "ECPAY_HASH_KEY", HASH_KEY), \
          patch.object(main, "ECPAY_HASH_IV", HASH_IV), \
+         patch.object(main.ecpay, "_CONFIG", main.ecpay.EcpayConfig(
+             merchant_id="3002607",
+             env="stage",
+             action_url="https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5",
+             return_url="https://api.example.com/api/payment/callback",
+             client_back_url="https://app.example.com/success.html",
+             order_result_url="https://api.example.com/api/payment/return",
+         )), \
+         patch.object(main.ecpay, "_CONFIG_ERROR", None), \
          patch.object(main, "supabase_admin", fake):
         return asyncio.run(main.payment_callback(request=request))
 
@@ -199,7 +233,7 @@ def test_wrong_signature_returns_401_and_writes_nothing():
 def test_tampered_field_invalidates_the_signature():
     """Re-signing is the only way in: editing a field after signing must fail."""
     fake = _FakeSupabase()
-    form = _signed_form(TradeAmt="299")
+    form = _signed_form(TradeAmt=str(main.ecpay.PRO_MONTHLY_TWD))
     form["TradeAmt"] = "1"          # attacker edits the amount post-signature
     with pytest.raises(HTTPException) as exc:
         _call_callback(form, fake)
@@ -235,37 +269,35 @@ def test_same_merchant_trade_no_five_times_changes_entitlement_once():
     for _ in range(4):
         _assert_ack(_call_callback(form, fake))
 
-    subs = [w for w in fake.entitlement_writes() if w[0] == "subscriptions"]
     profs = [w for w in fake.entitlement_writes() if w[0] == "profiles"]
-    assert len(subs) == 1, f"subscriptions written {len(subs)}x, expected once"
+    assert len(fake.activations) == 1
+    assert len(fake.accepted_events) == 1
     assert profs == [], "entitlement is the subscriptions window, not profiles.is_pro"
     assert len(fake.seen_keys) == 1, "only one distinct ledger key expected"
 
 
-def test_recurring_period_is_not_swallowed_as_a_duplicate():
-    """total_success_times is in the key so month 2 still lands."""
+def test_changed_success_counter_cannot_extend_a_one_off_order():
+    """No auto-renewal: one MerchantTradeNo can activate exactly one period."""
     fake = _FakeSupabase()
     _call_callback(_signed_form(TotalSuccessTimes="1"), fake)
     second = _call_callback(_signed_form(TotalSuccessTimes="2"), fake)
     _assert_ack(second)
-    assert len(fake.seen_keys) == 2
+    assert len(fake.activations) == 1
+    assert len(fake.accepted_events) == 1
 
 
 # ── gate 4: empty row → 500 ──────────────────────────────────────────────
-def test_subscription_update_returning_no_rows_is_500():
+def test_unknown_subscription_is_acknowledged_without_entitlement():
     fake = _FakeSupabase(subscriptions_data=[])
-    with pytest.raises(HTTPException) as exc:
-        _call_callback(_signed_form(), fake)
-    assert exc.value.status_code == 500
-    assert "no rows" in exc.value.detail.lower()
+    _assert_ack(_call_callback(_signed_form(), fake))
+    assert fake.rpc_calls == []
 
 
-def test_subscription_without_a_user_id_is_500():
+def test_subscription_without_a_user_id_is_acknowledged_without_entitlement():
     """A matched row that carries no owner cannot be turned into entitlement."""
     fake = _FakeSupabase(subscriptions_data=[{"user_id": None}])
-    with pytest.raises(HTTPException) as exc:
-        _call_callback(_signed_form(), fake)
-    assert exc.value.status_code == 500
+    _assert_ack(_call_callback(_signed_form(), fake))
+    assert fake.rpc_calls == []
 
 
 def test_successful_callback_never_writes_profiles_is_pro():
@@ -278,14 +310,16 @@ def test_successful_callback_never_writes_profiles_is_pro():
     fake = _FakeSupabase()
     _assert_ack(_call_callback(_signed_form(), fake))
     assert [w for w in fake.writes if w[0] == "profiles"] == []
+    assert len(fake.activations) == 1
 
 
-def test_failed_payment_is_recorded_without_granting_pro():
+def test_failed_payment_does_not_consume_accepted_success_identity():
     fake = _FakeSupabase()
     response = _call_callback(_signed_form(RtnCode="0", RtnMsg="Declined"), fake)
     _assert_ack(response)
     assert fake.entitlement_writes() == [], "a declined payment must grant nothing"
-    assert len(fake.ledger_rows()) == 1, "but it must still be recorded"
+    assert fake.accepted_events == []
+    assert fake.seen_keys == set()
 
 
 # ── unique-violation detection ───────────────────────────────────────────

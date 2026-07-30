@@ -3300,48 +3300,27 @@ async def payment_create_order(
 @app.post("/api/payment/callback")
 @limiter.limit("30/minute")
 async def payment_callback(request: Request):
-    """
-    綠界付款完成 webhook。Form-encoded body.
-
-    Every callback must clear four gates before it can move entitlement:
-
-      1. merchant credentials configured  → else 503 (fail closed)
-      2. CheckMacValue verifies           → else 401, nothing written anywhere
-      3. not already in payment_events    → else 1|OK duplicate, no re-grant
-      4. both entitlement writes return a row → else 500
-
-    Response contract — ECPay treats anything other than the literal ASCII
-    string "1|OK" as a failed notification and keeps resending. So every
-    outcome we have durably recorded answers 1|OK (text/plain, no trailing
-    newline), and only outcomes we want retried answer non-2xx:
-
-      503 credentials missing      → retry, nothing was recorded
-      401 bad signature/EncryptType→ retry is harmless, nothing was recorded
-      200 1|OK duplicate           → already recorded, do not re-grant
-      200 1|OK RtnCode != 1        → recorded, no entitlement
-      200 1|OK granted             → recorded and granted
-      500 empty row / exception    → retry; the idempotency key absorbs it
-
-    Deliberately NOT "always 200". The previous handler swallowed every
-    exception and returned 200 unconditionally, which made a forged or failed
-    callback indistinguishable from a real one in the logs. Providers retry on
-    non-2xx, and a retry of a *rejected* callback is exactly what we want —
-    gate 3 makes retries of *accepted* callbacks free.
-    """
-    if not ECPAY_HASH_KEY or not ECPAY_HASH_IV:
-        logger.error("[BILLING] ECPAY_HASH_KEY / ECPAY_HASH_IV not set")
-        raise HTTPException(status_code=503, detail="Payment not configured")
-    if supabase_admin is None:
-        raise HTTPException(status_code=503, detail="Database not configured")
-
+    """Validate every trust boundary, then accept and activate in one DB RPC."""
     try:
         form = await request.form()
     except Exception:
         raise HTTPException(status_code=400, detail="Malformed callback body")
     params = {k: str(v) for k, v in form.items()}
 
-    # Gate 2. Nothing is persisted before this passes — an unauthenticated
-    # caller must not be able to append to the ledger either.
+    if not ECPAY_HASH_KEY or not ECPAY_HASH_IV:
+        logger.error("[BILLING] ECPAY_HASH_KEY / ECPAY_HASH_IV not set")
+        raise HTTPException(status_code=503, detail="Payment not configured")
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    # Configuration is a server-side trust input. A broken environment is
+    # acknowledged (so ECPay does not retry forever) but can never grant.
+    try:
+        config = ecpay.get_config()
+    except ecpay.EcpayConfigError:
+        logger.critical("[BILLING] callback refused: invalid ECPay configuration")
+        return _ecpay_ack()
+
     if not _ecpay_signature_is_valid(params):
         logger.warning(
             "[BILLING] rejected callback: bad CheckMacValue mtn=%r enc=%r",
@@ -3349,104 +3328,114 @@ async def payment_callback(request: Request):
         )
         raise HTTPException(status_code=401, detail="Invalid signature")
 
+    if (params.get("MerchantID") or "").strip() != config.merchant_id:
+        logger.critical("[BILLING] callback refused: merchant mismatch")
+        return _ecpay_ack()
+
     merchant_trade_no = (params.get("MerchantTradeNo") or "").strip()
     if not merchant_trade_no:
-        raise HTTPException(status_code=400, detail="MerchantTradeNo required")
+        logger.critical("[BILLING] callback refused: missing trade number")
+        return _ecpay_ack()
     rtn_code = (params.get("RtnCode") or "").strip()
+
+    # Failed observations are logged but do not consume the accepted-success
+    # idempotency identity. A later successful callback for the same order must
+    # remain eligible for acceptance.
+    if rtn_code != "1":
+        logger.info("[BILLING] non-success callback mtn=%s rtn=%s",
+                    merchant_trade_no, rtn_code)
+        return _ecpay_ack()
+
+    # Resolve without mutation. The RPC repeats these checks under a row lock;
+    # this read supplies the values needed for callback trust validation.
+    try:
+        sub_result = (
+            supabase_admin.table("subscriptions")
+            .select("id,user_id,amount,status,expires_at")
+            .eq("merchant_trade_no", merchant_trade_no)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("[BILLING] subscription lookup failed")
+        raise HTTPException(status_code=500, detail="Subscription lookup failed") from exc
+    if not sub_result.data:
+        logger.critical("[BILLING] callback refused: unknown trade number")
+        return _ecpay_ack()
+
+    subscription = sub_result.data[0]
+    uid = subscription.get("user_id")
+    if not uid:
+        logger.critical("[BILLING] callback refused: order has no owner")
+        return _ecpay_ack()
+
+    raw_amount = (params.get("TradeAmt") or "").strip()
+    try:
+        callback_amount = int(raw_amount)
+        stored_amount = int(subscription.get("amount"))
+    except (TypeError, ValueError):
+        logger.critical("[BILLING] callback refused: invalid amount")
+        return _ecpay_ack()
+    if callback_amount != stored_amount:
+        logger.critical("[BILLING] callback refused: amount mismatch")
+        return _ecpay_ack()
+
+    claimed_uid = (params.get("CustomField1") or "").strip()
+    if claimed_uid != str(uid):
+        logger.critical("[BILLING] callback refused: owner mismatch")
+        return _ecpay_ack()
+
+    if ecpay.is_simulated_paid(params) and config.env != "stage":
+        logger.critical(
+            "[BILLING] SIMULATED payment refused outside stage mtn=%s",
+            merchant_trade_no,
+        )
+        return _ecpay_ack()
 
     raw_tst = (params.get("TotalSuccessTimes") or "").strip()
     try:
         total_success_times = int(raw_tst) if raw_tst else None
     except ValueError:
-        total_success_times = None
-
-    # Gate 3. The ledger row IS the idempotency check.
-    first_observation = _record_payment_event({
-        "source":              ECPAY_EVENT_SOURCE,
-        "merchant_trade_no":   merchant_trade_no,
-        "total_success_times": total_success_times,
-        "rtn_code":            rtn_code,
-        "rtn_msg":             (params.get("RtnMsg") or "")[:500],
-        "checkmac_valid":      True,
-        "raw_payload":         params,
-    })
-    if not first_observation:
-        logger.info("[BILLING] duplicate callback mtn=%s", merchant_trade_no)
-        return _ecpay_ack()
-
-    if rtn_code != "1":
-        logger.info("[BILLING] non-success callback mtn=%s rtn=%s",
-                    merchant_trade_no, rtn_code)
-        _mark_payment_event_processed(
-            ECPAY_EVENT_SOURCE, merchant_trade_no, total_success_times)
-        return _ecpay_ack()
-
-    # Gate 5. A simulated payment is a fully signed RtnCode=1 callback for which
-    # no money moved — ECPay's merchant console can fire one in production too.
-    # Granting on it would hand out free Pro to anyone with console access.
-    #
-    # The decision rests on ECPAY_ENV, which is ours, and never on the callback
-    # body, which is theirs: an attacker who could forge SimulatePaid=0 would
-    # already have the HashKey, and an operator who mis-set ECPAY_ENV should
-    # fail closed. The event is still recorded — a simulated payment in
-    # production is something we want to be able to see afterwards.
-    if ecpay.is_simulated_paid(params) and not ecpay.simulated_payment_allowed():
-        logger.critical(
-            "[BILLING] SIMULATED payment refused outside stage mtn=%s — "
-            "recorded, no entitlement granted", merchant_trade_no,
-        )
-        _mark_payment_event_processed(
-            ECPAY_EVENT_SOURCE, merchant_trade_no, total_success_times)
+        logger.critical("[BILLING] callback refused: invalid success counter")
         return _ecpay_ack()
 
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
     expires_iso = (now + timedelta(days=ecpay.PRO_PERIOD_DAYS)).isoformat()
 
+    # One PostgreSQL function call is the transaction boundary: it locks and
+    # revalidates the subscription, inserts the accepted-success ledger row, and
+    # activates the period. Either all effects commit or none do.
     try:
-        sub_upd = supabase_admin.table("subscriptions").update({
-            "status":     "active",
-            "started_at": now_iso,
-            "expires_at": expires_iso,
-            "updated_at": now_iso,
-            # ECPay's own transaction number. The only identifier their support
-            # desk recognises, so the mapping to our MerchantTradeNo has to be
-            # queryable and not buried in raw_payload.
-            "ecpay_trade_no": (params.get("TradeNo") or "").strip() or None,
-        }).eq("merchant_trade_no", merchant_trade_no).execute()
+        rpc_result = supabase_admin.rpc("accept_ecpay_payment", {
+            "p_merchant_trade_no": merchant_trade_no,
+            "p_total_success_times": total_success_times,
+            "p_rtn_code": rtn_code,
+            "p_rtn_msg": (params.get("RtnMsg") or "")[:500],
+            "p_raw_payload": {
+                key: value for key, value in params.items()
+                if key != "CheckMacValue"
+            },
+            "p_ecpay_trade_no": (params.get("TradeNo") or "").strip() or None,
+            "p_expected_user_id": str(uid),
+            "p_expected_amount": stored_amount,
+            "p_started_at": now_iso,
+            "p_expires_at": expires_iso,
+        }).execute()
     except Exception as exc:
-        logger.exception("[BILLING] subscriptions update failed")
-        raise HTTPException(status_code=500, detail="Subscription update failed") from exc
+        logger.exception("[BILLING] atomic payment acceptance failed")
+        raise HTTPException(status_code=500, detail="Payment acceptance failed") from exc
 
-    # Gate 4. A 200 from PostgREST with zero rows means the trade number matched
-    # nothing — never let that read as a successful upgrade.
-    if not sub_upd.data:
-        logger.error("[BILLING] no subscription row for mtn=%s", merchant_trade_no)
-        raise HTTPException(status_code=500, detail="Subscription update returned no rows")
+    outcome = rpc_result.data
+    if isinstance(outcome, list) and outcome:
+        outcome = outcome[0].get("result") if isinstance(outcome[0], dict) else outcome[0]
+    if outcome == "duplicate":
+        logger.info("[BILLING] duplicate callback mtn=%s", merchant_trade_no)
+        return _ecpay_ack()
+    if outcome != "activated":
+        logger.critical("[BILLING] atomic acceptance rejected mtn=%s", merchant_trade_no)
+        return _ecpay_ack()
 
-    uid = sub_upd.data[0].get("user_id")
-    if not uid:
-        logger.error("[BILLING] subscription %s has no user_id", merchant_trade_no)
-        raise HTTPException(status_code=500, detail="Subscription has no user")
-
-    # Gate 6. CustomField1 carries the user_id we stamped at create-order time
-    # and is covered by CheckMacValue, so it cannot be edited in flight. The
-    # authority is still the DB row keyed on merchant_trade_no; this is a
-    # cross-check. A mismatch means either our own bug or someone playing
-    # games, and both of those should stop rather than grant to a guess.
-    claimed_uid = (params.get("CustomField1") or "").strip()
-    if claimed_uid and claimed_uid != str(uid):
-        logger.critical(
-            "[BILLING] CustomField1 does not match the order owner mtn=%s — "
-            "refusing to grant", merchant_trade_no,
-        )
-        raise HTTPException(status_code=500, detail="Order ownership mismatch")
-
-    # profiles.is_pro is NOT written here. Entitlement is the time window on
-    # subscriptions, read by is_user_pro(); writing the bare boolean too would
-    # give a paid user a Pro flag that outlives the period they bought.
-    _mark_payment_event_processed(
-        ECPAY_EVENT_SOURCE, merchant_trade_no, total_success_times)
     logger.info("[BILLING] activated mtn=%s user_id=%s expires=%s",
                 merchant_trade_no, uid, expires_iso)
     return _ecpay_ack()
