@@ -15,6 +15,13 @@
 冪等鍵擋重送、`RtnCode != 1` 不發權、`/api/payment/return` 導向、
 SimulatePaid 在 production 不發權、CustomField1 交叉檢查。
 
+**正式定價（Galant，2026-07-30）**：Blabby Pro 30 天費用為 **NT$199**。
+`backend/ecpay.py` 的 `PRO_MONTHLY_TWD = 199` 是唯一 canonical price；
+create-order 必須以此產生 `TradeAmt` 並寫入 subscription amount，client
+不得傳入或覆寫金額。Callback 仍須比對該筆 subscription 已儲存的 amount。
+除非另有產品決策，不加入折扣、早鳥價或其他價格分支。現存價格意向調查頁的
+選項不是正式售價，也不是 ECPay checkout 的金額來源。
+
 **3D Secure —— 修正一個先前的錯誤假設。**
 
 先前判斷「stage 無法覆蓋 3D」。查證官方 /2856/ 後：**測試環境可以測 3D，
@@ -153,7 +160,7 @@ curl -s -X POST https://<TUNNEL_URL>/api/payment/create-order -H "Authorization:
 
 檢查點：
 - `MerchantTradeNo` 恰好 20 字元、純大寫英數、前 8 碼是今天日期
-- `TotalAmount` 是 `"199"`（不是 299）
+- `TotalAmount` 是正式定價 `"199"`
 - `action_url` 含 `payment-stage`
 - 三個 URL 都是絕對 HTTPS
 - `CustomField1` 等於你的 user_id
