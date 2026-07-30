@@ -136,6 +136,48 @@ def test_hub_pro_resolution_does_not_false_demote():
     assert "quota.value.is_pro === true" not in src or "resolveIsPro" in src
 
 
+# ── success.html (TASK 6B-S) ─────────────────────────────────────────────────
+
+
+def test_success_page_does_not_claim_pro_in_static_html():
+    src = _read("success.html")
+    assert "你現在是 Pro" not in src
+    assert "Thy payment has been received." not in src
+    assert "付款結果確認中，請稍候。" in src
+    assert "The ledger is being examined." in src
+
+
+def test_success_page_verifies_via_subscription_api_with_bearer():
+    src = _read("success.html")
+    assert "/api/user/subscription" in src
+    assert "Authorization: 'Bearer ' + token" in src or 'Authorization: "Bearer " + token' in src
+    assert "MAX_POLLS = 5" in src
+    assert "POLL_INTERVAL_MS" in src
+    assert "isActiveSubscription" in src
+    assert "safeOrderLabel" in src
+    # Order via textContent only — never innerHTML from query.
+    assert "els.order.textContent = label" in src
+    assert "innerHTML" not in src.split("<script", 1)[-1] or (
+        "innerHTML" not in _read("success.html").split("safeOrderLabel", 1)[-1][:800]
+    )
+
+
+def test_success_page_has_no_server_secrets_or_profile_writes():
+    src = _read("success.html")
+    for needle in (
+        "ECPAY_HASH",
+        "HashKey",
+        "HashIV",
+        "service_role",
+        "SERVICE_KEY",
+        "is_pro_grant",
+        "upgrade_intent",
+    ):
+        assert needle not in src
+    assert ".from(" not in src
+    assert "profiles" not in src
+
+
 # ── Behavioral (Node DOM stubs) ──────────────────────────────────────────────
 
 

@@ -395,12 +395,315 @@ function testHubDoesNotBlockOnSubscription() {
   ok("Hub fans out with allSettled — subscription failure cannot block page");
 }
 
+// ── success.html activation truthfulness (TASK 6B-S) ────────────────────────
+
+function loadSuccessPage(opts = {}) {
+  const html = read("success.html");
+  // Static HTML must not claim Pro before JS confirms.
+  assert.equal(html.includes("你現在是 Pro"), false);
+  assert.match(html, /付款結果確認中/);
+
+  const title = el("div");
+  title.textContent = "The ledger is being examined.";
+  const subtitle = el("div");
+  subtitle.textContent = "付款結果確認中，請稍候。";
+  const spinner = el("div");
+  spinner.hidden = false;
+  const expiry = el("div");
+  expiry.hidden = true;
+  const order = el("div");
+  order.hidden = true;
+  const ctaHub = el("a", { href: "/hub.html", hidden: true });
+  ctaHub.hidden = true;
+  const btnRetry = el("button", { hidden: true });
+  btnRetry.hidden = true;
+  const ctaLogin = el("a", { href: "/index.html", hidden: true });
+  ctaLogin.hidden = true;
+
+  const idMap = {
+    title,
+    subtitle,
+    spinner,
+    expiry,
+    "order-id": order,
+    "cta-hub": ctaHub,
+    "btn-retry": btnRetry,
+    "cta-login": ctaLogin,
+  };
+
+  const timers = [];
+  let now = Date.now();
+  const fetchImpl =
+    opts.fetch ||
+    (async () => ({
+      status: 200,
+      ok: true,
+      async json() {
+        return { subscription: null };
+      },
+    }));
+
+  const sessionToken = opts.token === undefined ? "test-jwt" : opts.token;
+  const ctx = {
+    console,
+    setTimeout(fn, ms) {
+      const id = { fn, ms, cleared: false };
+      timers.push(id);
+      return id;
+    },
+    clearTimeout(id) {
+      if (id) id.cleared = true;
+    },
+    Date: class extends Date {
+      constructor(...a) {
+        if (a.length === 0) return new Date(now);
+        // eslint-disable-next-line prefer-rest-params
+        super(...a);
+      }
+      static now() {
+        return now;
+      }
+    },
+    fetch: fetchImpl,
+    URLSearchParams,
+    encodeURIComponent,
+    document: makeDocument(idMap),
+    window: {
+      BLABBY_CONFIG: { supabaseUrl: "https://example.supabase.co", supabaseAnonKey: "anon" },
+      __BLABBY_SUCCESS_NO_BOOT__: true,
+      location: { search: opts.search || "" },
+      addEventListener() {},
+      supabase: {
+        createClient() {
+          return {
+            auth: {
+              async getSession() {
+                if (!sessionToken) return { data: { session: null } };
+                return { data: { session: { access_token: sessionToken } } };
+              },
+            },
+          };
+        },
+      },
+    },
+  };
+  // Make Date.now work for isActiveSubscription comparisons using real Date for ISO parse
+  ctx.Date = Date;
+  ctx.window.document = ctx.document;
+  ctx.window.fetch = fetchImpl;
+  ctx.window.setTimeout = ctx.setTimeout;
+  ctx.window.clearTimeout = ctx.clearTimeout;
+  ctx.window.URLSearchParams = URLSearchParams;
+
+  const script = extractScript(html);
+  // Only the inline page script (last one without src) — extractScript already skips src.
+  // The page has one inline block after the CDN script tag (CDN has src, skipped).
+  vm.runInNewContext(script, ctx, { timeout: 5000 });
+
+  assert.ok(ctx.window.__BLABBY_SUCCESS__, "__BLABBY_SUCCESS__ exported");
+
+  async function flushTimers() {
+    // Run due timers once (poll schedules one at a time).
+    const due = timers.filter((t) => !t.cleared);
+    timers.length = 0;
+    for (const t of due) {
+      await t.fn();
+    }
+  }
+
+  return {
+    api: ctx.window.__BLABBY_SUCCESS__,
+    els: { title, subtitle, spinner, expiry, order, ctaHub, btnRetry, ctaLogin },
+    timers,
+    flushTimers,
+    setFetch(fn) {
+      ctx.fetch = fn;
+      ctx.window.fetch = fn;
+    },
+  };
+}
+
+async function testSuccessPageTruthfulness() {
+  console.log("\n[success.html activation truthfulness]");
+
+  // 1. Initial DOM / checking is not "你現在是 Pro"
+  {
+    const html = read("success.html");
+    assert.equal(html.includes("你現在是 Pro"), false);
+    assert.equal(html.includes("Thy payment has been received."), false);
+    assert.match(html, /付款結果確認中，請稍候/);
+    const { api, els } = loadSuccessPage({ token: null });
+    api.renderState("checking");
+    assert.match(els.subtitle.textContent, /付款結果確認中/);
+    assert.equal(els.subtitle.textContent.includes("Pro 已開通"), false);
+    ok("initial / checking is not Activated Pro claim");
+  }
+
+  // 2. Activated only when active + unexpired
+  {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    const { api, els } = loadSuccessPage();
+    assert.equal(
+      api.isActiveSubscription({ status: "active", expires_at: future }),
+      true
+    );
+    api.renderState("activated", { expiresAt: future });
+    assert.match(els.subtitle.textContent, /Pro 已開通/);
+    assert.equal(els.ctaHub.hidden, false);
+    assert.equal(els.expiry.hidden, false);
+    assert.match(els.expiry.textContent, /Pro 有效至/);
+    ok("is_pro/active subscription → Activated + safe expiry");
+  }
+
+  // 3. pending does not show Activated
+  {
+    const { api, els } = loadSuccessPage();
+    api.renderState("pending");
+    assert.equal(els.subtitle.textContent.includes("Pro 已開通"), false);
+    assert.match(els.subtitle.textContent, /仍在確認中/);
+    assert.equal(els.btnRetry.hidden, false);
+    ok("pending does not show Activated");
+  }
+
+  // 4. inactive does not show Activated
+  {
+    const { api, els } = loadSuccessPage();
+    assert.equal(
+      api.isActiveSubscription({ status: "cancelled", expires_at: "2099-01-01" }),
+      false
+    );
+    api.renderState("inactive");
+    assert.equal(els.subtitle.textContent.includes("Pro 已開通"), false);
+    assert.match(els.subtitle.textContent, /尚未開通/);
+    ok("inactive does not show Activated");
+  }
+
+  // 5. network error does not show Activated
+  {
+    const { api, els } = loadSuccessPage();
+    api.renderState("error");
+    assert.equal(els.subtitle.textContent.includes("Pro 已開通"), false);
+    assert.match(els.subtitle.textContent, /無法確認/);
+    ok("network/error does not show Activated");
+  }
+
+  // 6. 401 → login / authExpired
+  {
+    let calls = 0;
+    const { api, els, flushTimers } = loadSuccessPage({
+      token: "expired-jwt",
+      fetch: async () => {
+        calls += 1;
+        return { status: 401, ok: false, async json() { return {}; } };
+      },
+    });
+    api.startPolling("expired-jwt");
+    await flushTimers();
+    // first cycle is sync until first await — need microtask flush
+    await Promise.resolve();
+    await flushTimers();
+    // runPollCycle is async; wait for it
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(calls, 1);
+    assert.equal(els.ctaLogin.hidden, false);
+    assert.match(els.subtitle.textContent, /登入已過期|請先登入/);
+    assert.equal(els.subtitle.textContent.includes("Pro 已開通"), false);
+    ok("401 prompts re-login; not Activated");
+  }
+
+  // 7–8. retry does not create duplicate polling; max attempts bounded
+  {
+    let calls = 0;
+    const { api, flushTimers } = loadSuccessPage({
+      fetch: async (url, opts) => {
+        calls += 1;
+        assert.match(String(url), /\/api\/user\/subscription$/);
+        assert.equal(opts.headers.Authorization, "Bearer test-jwt");
+        return {
+          status: 200,
+          ok: true,
+          async json() {
+            return { subscription: null };
+          },
+        };
+      },
+    });
+    assert.equal(api.MAX_POLLS, 5);
+    const started = api.startPolling("test-jwt");
+    assert.equal(started, true);
+    assert.equal(api.startPolling("test-jwt"), false); // single-flight
+    // Drain up to MAX_POLLS cycles
+    for (let i = 0; i < 12; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+      await flushTimers();
+      if (!api.poller.active) break;
+    }
+    assert.ok(calls <= api.MAX_POLLS, `calls=${calls} <= MAX_POLLS`);
+    assert.equal(api.poller.active, false);
+    assert.equal(api.poller.attempts, api.MAX_POLLS);
+    ok("retry/single-flight + polling capped at MAX_POLLS; Bearer JWT sent");
+  }
+
+  // 9. query string cannot inject HTML
+  {
+    const { api, els } = loadSuccessPage({
+      search: "?order=<img src=x onerror=alert(1)>",
+    });
+    const label = api.applyOrderFromQuery("?order=<img src=x onerror=alert(1)>");
+    assert.equal(label, null);
+    assert.equal(els.order.hidden, true);
+    assert.equal(els.order.textContent.includes("<img"), false);
+    // Valid order uses textContent
+    api.applyOrderFromQuery("?order=20260730TB5J238FCAUO");
+    assert.equal(els.order.textContent, "Order 20260730TB5J238FCAUO");
+    assert.equal(els.order.hidden, false);
+    ok("query string cannot inject HTML; safe order via textContent");
+  }
+
+  // 10. expiry safe render (no HTML)
+  {
+    const { api, els } = loadSuccessPage();
+    api.renderState("activated", {
+      expiresAt: "2026-08-29T08:26:24.000Z<script>alert(1)</script>",
+    });
+    // Invalid date → hidden; no script echo
+    assert.equal(els.expiry.textContent.includes("<script>"), false);
+    api.renderState("activated", { expiresAt: "2026-08-29T08:26:24.000Z" });
+    assert.match(els.expiry.textContent, /^Pro 有效至 \d{4}\/\d{2}\/\d{2}$/);
+    ok("expiry rendered safely via textContent");
+  }
+
+  // 11–12. no session → login, no authorized API call
+  {
+    let calls = 0;
+    const { api, els } = loadSuccessPage({
+      token: null,
+      fetch: async () => {
+        calls += 1;
+        throw new Error("should not fetch");
+      },
+    });
+    api.renderState("login");
+    assert.equal(els.ctaLogin.hidden, false);
+    assert.match(els.subtitle.textContent, /請先登入/);
+    assert.equal(calls, 0);
+    // startPolling without going through boot still needs token from caller;
+    // getToken returns null — onRetryClick path
+    await api.onRetryClick();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(calls, 0);
+    assert.equal(els.ctaLogin.hidden, false);
+    ok("no session → login prompt; no authorized API call");
+  }
+}
+
 async function main() {
   console.log("frontend_billing_behavior.mjs");
   await testUpgradeCheckout();
   testModalWiring();
   testHubProResolution();
   testHubDoesNotBlockOnSubscription();
+  await testSuccessPageTruthfulness();
   console.log(`\nAll ${passed} behavior assertions passed.`);
 }
 

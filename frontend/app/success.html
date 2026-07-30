@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>付款成功 · Blabby</title>
+<title>付款結果 · Blabby</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z' fill='none' stroke='%23C9A84C' stroke-width='2' stroke-linejoin='round'/><line x1='4' y1='26' x2='28' y2='26' stroke='%23C9A84C' stroke-width='2'/><circle cx='16' cy='7' r='2' fill='%23C9A84C'/><circle cx='4' cy='13' r='2' fill='%23C9A84C'/><circle cx='28' cy='13' r='2' fill='%23C9A84C'/></svg>">
+<script src="/config.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -29,7 +30,6 @@
     -webkit-font-smoothing: antialiased;
     min-height: 100vh; position: relative;
   }
-  /* Same paper grain as index.html / account.html. */
   body::before {
     content: '';
     position: fixed; inset: 0; pointer-events: none;
@@ -53,7 +53,7 @@
 
   .title {
     font-family: 'Playfair Display', serif;
-    font-size: 30px; font-weight: 700;
+    font-size: 28px; font-weight: 700;
     color: var(--navy); letter-spacing: 0.01em;
     line-height: 1.3; margin-bottom: 16px;
   }
@@ -69,23 +69,67 @@
     font-size: 17px; line-height: 1.7; color: var(--ink);
     letter-spacing: 0.04em; margin-bottom: 14px;
   }
+  .expiry {
+    font-family: var(--sans);
+    font-size: 14px; color: var(--green);
+    letter-spacing: 0.04em; margin-bottom: 12px;
+  }
+  .expiry[hidden] { display: none; }
   .order {
     font-family: 'Inter Tight', monospace, sans-serif;
     font-size: 12px; color: var(--muted); letter-spacing: 0.06em;
-    margin-bottom: 36px;
+    margin-bottom: 28px;
+  }
+  .order[hidden] { display: none; }
+
+  .spinner {
+    width: 28px; height: 28px; margin: 0 auto 22px;
+    border: 2px solid var(--border);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .spinner[hidden] { display: none; animation: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .actions {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    margin-top: 8px;
   }
 
-  .cta {
+  .cta, .btn-retry {
     display: inline-block;
+    min-width: 200px;
     padding: 14px 32px;
-    background: var(--green); color: var(--gold);
     font-family: var(--sans); font-size: 15px; font-weight: 600;
     letter-spacing: 0.04em;
     text-decoration: none;
-    transition: background 120ms ease, transform 100ms ease;
+    border: none;
+    cursor: pointer;
+    transition: background 120ms ease, transform 100ms ease, opacity 120ms ease;
+  }
+  .cta {
+    background: var(--green); color: var(--gold);
   }
   .cta:hover { background: #244112; }
   .cta:active { transform: scale(0.97); }
+  .cta[hidden], .btn-retry[hidden], .cta-login[hidden] { display: none; }
+
+  .btn-retry {
+    background: transparent;
+    color: var(--navy);
+    border: 1px solid var(--border);
+  }
+  .btn-retry:hover { border-color: var(--gold); }
+  .btn-retry:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .cta-login {
+    display: inline-block;
+    color: var(--navy);
+    font-family: var(--sans); font-size: 14px; font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
 
   .footnote {
     margin-top: 40px; padding-top: 22px;
@@ -98,7 +142,7 @@
 <body>
 
 <div class="page">
-  <svg class="crest" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+  <svg class="crest" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
     <path d="M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z"/>
     <line x1="4" y1="26" x2="28" y2="26" stroke-width="2"/>
     <circle cx="16" cy="7" r="2" fill="currentColor"/>
@@ -106,28 +150,355 @@
     <circle cx="28" cy="13" r="2" fill="currentColor"/>
   </svg>
 
-  <div class="title">Thy payment has been received.</div>
+  <!-- Initial DOM is Checking — never claim Pro before subscription API confirms. -->
+  <div class="title" id="title">The ledger is being examined.</div>
   <div class="rule"><span></span>◆<span></span></div>
-  <div class="subtitle">你現在是 Pro 用戶，考官室的大門已為你開啟。</div>
-  <div class="order" id="order-id"></div>
+  <div class="spinner" id="spinner" aria-hidden="true"></div>
+  <div class="subtitle" id="subtitle">付款結果確認中，請稍候。</div>
+  <div class="expiry" id="expiry" hidden></div>
+  <div class="order" id="order-id" hidden></div>
 
-  <a class="cta" href="/index.html">開始練習 →</a>
+  <div class="actions">
+    <a class="cta" id="cta-hub" href="/hub.html" hidden>前往 Hub →</a>
+    <button class="btn-retry" id="btn-retry" type="button" hidden>重新檢查</button>
+    <a class="cta-login" id="cta-login" href="/index.html" hidden>登入以確認會員資格 →</a>
+  </div>
 
   <div class="footnote">
     若有任何付款相關問題，請寄信至 <span style="color:var(--navy)">support@blabby.app</span>
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  // Surface the order id when the redirect carries one — gives the user a
-  // reference they can quote in support emails. Hidden if absent.
-  (() => {
-    const params = new URLSearchParams(window.location.search);
-    const order = params.get('order');
-    const el = document.getElementById('order-id');
-    if (order) el.textContent = `Order ${order}`;
-    else el.style.display = 'none';
-  })();
+(function () {
+  'use strict';
+
+  const API_BASE = 'https://blabby-backend.onrender.com';
+  const MAX_POLLS = 5;
+  const POLL_INTERVAL_MS = 1800;
+
+  const COPY = {
+    checking: {
+      title: 'The ledger is being examined.',
+      subtitle: '付款結果確認中，請稍候。',
+    },
+    activated: {
+      title: 'Thy Pro chamber is open.',
+      subtitle: 'Pro 已開通，考官室的大門已為你開啟。',
+    },
+    pending: {
+      title: 'The return is noted; the seal is not yet set.',
+      subtitle: '付款頁已完成返回，但會員資格仍在確認中。',
+    },
+    inactive: {
+      title: 'No active Pro seal was found.',
+      subtitle: '目前尚未開通 Pro。若你剛完成付款，請稍候再檢查，或聯絡 support@blabby.app。',
+    },
+    login: {
+      title: 'Sign in to confirm thy seal.',
+      subtitle: '請先登入後，才能確認會員資格是否已開通。',
+    },
+    authExpired: {
+      title: 'Thy session has expired.',
+      subtitle: '登入已過期，請重新登入後再確認會員資格。',
+    },
+    error: {
+      title: 'The ledger could not be reached.',
+      subtitle: '無法確認會員資格，請檢查網路後再試。',
+    },
+  };
+
+  // ── DOM ────────────────────────────────────────────────────────────────
+  const els = {
+    title: document.getElementById('title'),
+    subtitle: document.getElementById('subtitle'),
+    spinner: document.getElementById('spinner'),
+    expiry: document.getElementById('expiry'),
+    order: document.getElementById('order-id'),
+    ctaHub: document.getElementById('cta-hub'),
+    btnRetry: document.getElementById('btn-retry'),
+    ctaLogin: document.getElementById('cta-login'),
+  };
+
+  // ── Pure helpers (exported for the behavior harness) ───────────────────
+  function safeOrderLabel(raw) {
+    if (raw == null || raw === '') return null;
+    const s = String(raw);
+    // MerchantTradeNo is alphanumeric; reject anything that could be markup.
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(s)) return null;
+    return 'Order ' + s;
+  }
+
+  function isActiveSubscription(subscription) {
+    if (!subscription || typeof subscription !== 'object') return false;
+    if (subscription.status !== 'active') return false;
+    if (!subscription.expires_at) return false;
+    const exp = new Date(subscription.expires_at);
+    return !Number.isNaN(exp.getTime()) && exp.getTime() > Date.now();
+  }
+
+  function formatExpiry(expiresAt) {
+    if (!expiresAt) return null;
+    const d = new Date(expiresAt);
+    if (Number.isNaN(d.getTime())) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return 'Pro 有效至 ' + y + '/' + m + '/' + day;
+  }
+
+  function applyOrderFromQuery(search) {
+    const params = new URLSearchParams(search || '');
+    const label = safeOrderLabel(params.get('order'));
+    if (!els.order) return label;
+    if (label) {
+      els.order.textContent = label;
+      els.order.hidden = false;
+    } else {
+      els.order.textContent = '';
+      els.order.hidden = true;
+    }
+    return label;
+  }
+
+  // ── UI state machine ───────────────────────────────────────────────────
+  // States: checking | activated | pending | inactive | login | authExpired | error
+  function renderState(state, opts) {
+    opts = opts || {};
+    const copy = COPY[state] || COPY.checking;
+    if (els.title) els.title.textContent = copy.title;
+    if (els.subtitle) els.subtitle.textContent = copy.subtitle;
+
+    const checking = state === 'checking';
+    if (els.spinner) els.spinner.hidden = !checking;
+
+    if (els.expiry) {
+      const label = (state === 'activated') ? formatExpiry(opts.expiresAt) : null;
+      if (label) {
+        els.expiry.textContent = label;
+        els.expiry.hidden = false;
+      } else {
+        els.expiry.textContent = '';
+        els.expiry.hidden = true;
+      }
+    }
+
+    if (els.ctaHub) {
+      // Hub CTA after we leave checking — except when login is required.
+      const showHub = state === 'activated' || state === 'pending'
+        || state === 'inactive' || state === 'error';
+      els.ctaHub.hidden = !showHub;
+      els.ctaHub.textContent = state === 'activated' ? '前往 Hub →' : '返回 Hub →';
+    }
+
+    if (els.btnRetry) {
+      const showRetry = state === 'pending' || state === 'inactive' || state === 'error';
+      els.btnRetry.hidden = !showRetry;
+      els.btnRetry.disabled = !!opts.retryDisabled;
+    }
+
+    if (els.ctaLogin) {
+      els.ctaLogin.hidden = !(state === 'login' || state === 'authExpired');
+    }
+
+    return state;
+  }
+
+  // ── Auth ───────────────────────────────────────────────────────────────
+  const CFG = window.BLABBY_CONFIG || {};
+  let sb = null;
+  try {
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+      sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+    }
+  } catch (_) {
+    sb = null;
+  }
+
+  async function getToken() {
+    if (!sb) return null;
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      return (session && session.access_token) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function fetchSubscription(token) {
+    const res = await fetch(API_BASE + '/api/user/subscription', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    return res;
+  }
+
+  // ── Polling (single flight, bounded) ───────────────────────────────────
+  const poller = {
+    active: false,
+    stopped: false,
+    attempts: 0,
+    timer: null,
+    generation: 0,
+  };
+
+  function stopPolling() {
+    poller.stopped = true;
+    poller.active = false;
+    if (poller.timer) {
+      clearTimeout(poller.timer);
+      poller.timer = null;
+    }
+    poller.generation += 1;
+  }
+
+  function scheduleNext(gen, delay, fn) {
+    if (poller.stopped || gen !== poller.generation) return;
+    poller.timer = setTimeout(() => {
+      if (poller.stopped || gen !== poller.generation) return;
+      fn();
+    }, delay);
+  }
+
+  async function runPollCycle(token, gen) {
+    if (poller.stopped || gen !== poller.generation) return;
+
+    poller.attempts += 1;
+    renderState('checking');
+
+    let res;
+    try {
+      res = await fetchSubscription(token);
+    } catch (_) {
+      // Network error: if we still have attempts, keep checking; else show retryable error.
+      if (poller.attempts < MAX_POLLS) {
+        scheduleNext(gen, POLL_INTERVAL_MS, () => runPollCycle(token, gen));
+        return;
+      }
+      poller.active = false;
+      renderState('error');
+      return;
+    }
+
+    if (poller.stopped || gen !== poller.generation) return;
+
+    if (res.status === 401) {
+      poller.active = false;
+      renderState('authExpired');
+      return;
+    }
+
+    if (res.status === 503 || !res.ok) {
+      if (poller.attempts < MAX_POLLS) {
+        scheduleNext(gen, POLL_INTERVAL_MS, () => runPollCycle(token, gen));
+        return;
+      }
+      poller.active = false;
+      renderState('error');
+      return;
+    }
+
+    let body;
+    try {
+      body = await res.json();
+    } catch (_) {
+      if (poller.attempts < MAX_POLLS) {
+        scheduleNext(gen, POLL_INTERVAL_MS, () => runPollCycle(token, gen));
+        return;
+      }
+      poller.active = false;
+      renderState('error');
+      return;
+    }
+
+    const sub = body && body.subscription;
+    if (isActiveSubscription(sub)) {
+      poller.active = false;
+      renderState('activated', { expiresAt: sub.expires_at });
+      return;
+    }
+
+    // Explicit non-active row (defensive — endpoint normally filters to active).
+    if (sub && sub.status && sub.status !== 'active') {
+      poller.active = false;
+      renderState('inactive');
+      return;
+    }
+
+    // subscription null — callback may still be in flight.
+    if (poller.attempts < MAX_POLLS) {
+      scheduleNext(gen, POLL_INTERVAL_MS, () => runPollCycle(token, gen));
+      return;
+    }
+
+    poller.active = false;
+    // After bounded polls with no active sub: pending confirmation, not "payment failed".
+    renderState('pending');
+  }
+
+  function startPolling(token) {
+    if (poller.active) return false;
+    stopPolling(); // clear any prior timer, bump generation
+    poller.stopped = false;
+    poller.active = true;
+    poller.attempts = 0;
+    const gen = poller.generation;
+    runPollCycle(token, gen);
+    return true;
+  }
+
+  function onRetryClick() {
+    if (poller.active) return;
+    getToken().then((token) => {
+      if (!token) {
+        renderState('login');
+        return;
+      }
+      startPolling(token);
+    });
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────────────
+  function boot() {
+    applyOrderFromQuery(window.location.search);
+    renderState('checking');
+
+    window.addEventListener('pagehide', stopPolling);
+    window.addEventListener('beforeunload', stopPolling);
+    if (els.btnRetry) els.btnRetry.addEventListener('click', onRetryClick);
+
+    getToken().then((token) => {
+      if (!token) {
+        stopPolling();
+        renderState('login');
+        return;
+      }
+      startPolling(token);
+    });
+  }
+
+  // Public surface for the focused behavior harness (no secrets).
+  window.__BLABBY_SUCCESS__ = {
+    MAX_POLLS,
+    POLL_INTERVAL_MS,
+    COPY,
+    safeOrderLabel,
+    isActiveSubscription,
+    formatExpiry,
+    applyOrderFromQuery,
+    renderState,
+    startPolling,
+    stopPolling,
+    onRetryClick,
+    get poller() { return poller; },
+    fetchSubscription,
+    getToken,
+  };
+
+  // Harness sets __BLABBY_SUCCESS_NO_BOOT__ to drive transitions manually.
+  if (!window.__BLABBY_SUCCESS_NO_BOOT__) boot();
+})();
 </script>
 </body>
 </html>
