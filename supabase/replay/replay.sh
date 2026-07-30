@@ -636,4 +636,139 @@ where t.schemaname='public'
 order by tablename;"
 
 echo
+echo "── assert content lockdown by ROLE, not by catalog ────"
+# Catalogs are an index, not evidence. Every verdict below is re-derived by
+# actually attempting the read as anon / authenticated / service_role.
+#
+# The reading_questions cases are the load-bearing ones: this file must prove
+# the lockdown did NOT disturb the column-level GRANT from 20260714. On
+# 2026-07-30 an audit misread that grant as a leak and nearly deleted it.
+psql "$PGURI" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE
+    tbl      text;
+    n        bigint;
+    failures text[] := '{}';
+BEGIN
+    -- ── anon must reach nothing on the three content tables ──────────────
+    FOREACH tbl IN ARRAY ARRAY['questions','reading_passages','writing_questions'] LOOP
+        BEGIN
+            SET LOCAL ROLE anon;
+            EXECUTE format('SELECT count(*) FROM public.%I', tbl) INTO n;
+            failures := failures || format('anon READ %s -> ALLOWED (%s rows)', tbl, n);
+        EXCEPTION WHEN insufficient_privilege THEN
+            RAISE NOTICE 'anon          %-20s -> DENIED 42501       [expected]', tbl;
+        END;
+        RESET ROLE;
+    END LOOP;
+
+    -- ── authenticated must reach nothing either ──────────────────────────
+    FOREACH tbl IN ARRAY ARRAY['questions','reading_passages','writing_questions'] LOOP
+        BEGIN
+            SET LOCAL ROLE authenticated;
+            EXECUTE format('SELECT count(*) FROM public.%I', tbl) INTO n;
+            failures := failures || format('authenticated READ %s -> ALLOWED (%s rows)', tbl, n);
+        EXCEPTION WHEN insufficient_privilege THEN
+            RAISE NOTICE 'authenticated %-20s -> DENIED 42501       [expected]', tbl;
+        END;
+        RESET ROLE;
+    END LOOP;
+
+    -- ── zero policies: RLS on with USING(true) attached is not a lockdown ─
+    SELECT count(*) INTO n FROM pg_policies
+     WHERE schemaname='public'
+       AND tablename IN ('questions','reading_passages','writing_questions');
+    IF n <> 0 THEN
+        failures := failures || format('%s policy/policies survived on the content tables', n);
+    ELSE
+        RAISE NOTICE 'policies on the three content tables            -> 0            [expected]';
+    END IF;
+
+    -- ── RLS actually enabled (the other half of the two layers) ──────────
+    SELECT count(*) INTO n FROM pg_class c
+      JOIN pg_namespace ns ON ns.oid=c.relnamespace AND ns.nspname='public'
+     WHERE c.relname IN ('questions','reading_passages','writing_questions')
+       AND c.relrowsecurity;
+    IF n <> 3 THEN
+        failures := failures || format('RLS enabled on only %s/3 content tables', n);
+    ELSE
+        RAISE NOTICE 'RLS enabled on the three content tables         -> 3/3          [expected]';
+    END IF;
+
+    -- ── service_role keeps working, or FastAPI is dead ───────────────────
+    FOREACH tbl IN ARRAY ARRAY['questions','reading_passages','writing_questions',
+                               'reading_questions'] LOOP
+        BEGIN
+            SET LOCAL ROLE service_role;
+            EXECUTE format('SELECT count(*) FROM public.%I', tbl) INTO n;
+            RAISE NOTICE 'service_role  %-20s -> ALLOWED            [expected]', tbl;
+        EXCEPTION WHEN insufficient_privilege THEN
+            failures := failures || format('service_role READ %s -> DENIED (FastAPI would break)', tbl);
+        END;
+        RESET ROLE;
+    END LOOP;
+
+    -- ── reading_questions: UNTOUCHED. Answers denied ─────────────────────
+    BEGIN
+        SET LOCAL ROLE authenticated;
+        EXECUTE 'SELECT count(*) FROM public.reading_questions WHERE correct_answer IS NOT NULL' INTO n;
+        failures := failures || 'authenticated READ reading_questions.correct_answer -> ALLOWED (ANSWER LEAK)';
+    EXCEPTION WHEN insufficient_privilege THEN
+        RAISE NOTICE 'authenticated correct_answer                    -> DENIED 42501 [expected]';
+    END;
+    RESET ROLE;
+
+    -- ── reading_questions: UNTOUCHED. Answering path still works ─────────
+    BEGIN
+        SET LOCAL ROLE authenticated;
+        EXECUTE 'SELECT count(*) FROM (SELECT id, passage_id, question_type, question_text,'
+                ' options, order_idx, created_at FROM public.reading_questions) q' INTO n;
+        RAISE NOTICE 'authenticated reading_questions safe columns    -> ALLOWED      [expected]';
+    EXCEPTION WHEN insufficient_privilege THEN
+        failures := failures || 'authenticated READ reading_questions safe columns -> DENIED '
+                             || '(the lockdown broke the answering path)';
+    END;
+    RESET ROLE;
+
+    IF array_length(failures, 1) > 0 THEN
+        RAISE EXCEPTION 'content lockdown verification failed: %',
+            array_to_string(failures, ' | ');
+    END IF;
+    RAISE NOTICE 'content lockdown verified by role';
+END $$;
+SQL
+
+echo
+echo "── prove content lockdown is safely rerunnable ────────"
+psql_run "$MIGRATIONS/20260731_content_access_lockdown.sql"
+echo "ok    20260731_content_access_lockdown.sql (complete rerun)"
+
+echo
+echo "── prove content lockdown rollback re-opens, then relock"
+psql_run "$MIGRATIONS/20260731_content_access_lockdown_rollback.sql"
+psql "$PGURI" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE n bigint;
+BEGIN
+    -- The rollback must genuinely re-open, or its warning banner is a lie.
+    SET LOCAL ROLE anon;
+    SELECT count(*) INTO n FROM public.questions;
+    RESET ROLE;
+    RAISE NOTICE 'after rollback: anon reads questions            -> ALLOWED (%s rows)', n;
+
+    -- ...and must NOT have touched reading_questions.
+    BEGIN
+        SET LOCAL ROLE authenticated;
+        PERFORM correct_answer FROM public.reading_questions LIMIT 1;
+        RAISE EXCEPTION 'rollback exposed reading_questions.correct_answer';
+    EXCEPTION WHEN insufficient_privilege THEN
+        RAISE NOTICE 'after rollback: correct_answer                  -> still DENIED [expected]';
+    END;
+    RESET ROLE;
+END $$;
+SQL
+psql_run "$MIGRATIONS/20260731_content_access_lockdown.sql"
+echo "ok    rollback verified, re-locked"
+
+echo
 echo "REPLAY OK"

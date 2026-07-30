@@ -24,6 +24,19 @@ BEGIN
     END LOOP;
 END $$;
 
+-- service_role bypasses RLS on real Supabase, and Supabase's default privileges
+-- give it table access. Both are needed here, because without them a replay
+-- cannot distinguish a correct deny-all lockdown from one that also locked out
+-- the backend: service_role would be refused either way, for the wrong reason.
+-- FastAPI holds exactly this role (main.py:263), so "service_role can still
+-- read" is the assertion that proves a lockdown did not break the product.
+--
+-- Deliberately NOT extended to anon/authenticated: those two must keep only the
+-- privileges the migrations themselves grant, or the replay would stop being
+-- able to show what a migration actually opened or closed.
+ALTER ROLE service_role BYPASSRLS;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+
 CREATE SCHEMA IF NOT EXISTS auth;
 
 -- Only the columns our migrations and RPCs actually touch: id (FK target),

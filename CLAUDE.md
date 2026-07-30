@@ -56,6 +56,61 @@ Blabby = AI IELTS 口說訓練平台。
 
 ---
 
+## 內容表的存取規則（2026-07-31）
+
+### 三張內容表：RLS on + 零 policy，永久
+
+`questions` / `reading_passages` / `writing_questions`
+
+零 policy 是**刻意選擇，不是遺漏**。所有讀取經 FastAPI + service_role。
+
+若查詢回空陣列，原因是**繞過了 FastAPI** —— 修的是呼叫端，不是 policy。
+新增 policy 需要明確的產品決定。
+
+加一條 `USING (true)` 就能一步還原整份 `20260731_content_access_lockdown.sql`。
+這是它最可能的失效方式。
+
+### `reading_questions` 用不同機制，不要為了對稱去拆它
+
+它有 `correct_answer` / `explanation` / `evidence_quote`，所以用兩層：
+
+- **row 層**：policy `reading_questions_prompt_select`，`USING (true)` —— 所有 row 可見。
+  題庫不分使用者，這是對的
+- **column 層**：`GRANT SELECT` 只給 7 個安全欄位，三個答案欄位從未授予任何人
+  （`20260714_p1_rls_and_reading_answers.sql:68-71`）
+
+兩層合起來表達「任何登入者可讀任何題目，但沒人可讀答案」—— 這是 RLS
+單獨做不到的，因為 RLS 過濾 row，而這是 column 條件。它與 FastAPI 的白名單
+（`main.py:7047-7056`）互為備援，不是重複。
+
+**2026-07-30 的誤判記錄：**
+
+一次稽核判定 `reading_questions` 正在對所有註冊者洩漏答案、TASK 1 的修補無效，
+並據此擬出「撤掉 policy 與 grant，讓四張表規則統一」的修補方案。
+
+結論是錯的。成因是問了
+`has_table_privilege('authenticated','reading_questions','SELECT')` ——
+對有欄位級授權的表，這個函式回 `false`，與「完全沒有授權」的答案一模一樣。
+稽核看到 `USING (true)` 旁邊有答案欄位，就推論出一個 grant 層早已擋住的洩漏。
+
+定案靠的是實際嘗試讀取：
+
+```
+SET LOCAL ROLE authenticated;
+SELECT count(*) FROM reading_questions WHERE correct_answer IS NOT NULL;
+ERROR: 42501: permission denied for table reading_questions
+```
+
+而七個安全欄位正常回 252 列。
+
+若那個修補上線，會刪掉一層正在運作的防護，把兩層獨立防線變成一層。
+統一性是真的，安全性變差也是真的。
+
+`scripts/rls_exposure_audit.sql` 已改為逐欄判定並以實際角色重新驗證每個結論，
+讓這個特定的誤讀不會再靜默發生。**Catalog 是索引，不是證據。**
+
+---
+
 ## 金流的兩個產品決定（2026-07-30）
 
 以下兩項是**刻意的產品選擇**，不是尚未實作的功能。
