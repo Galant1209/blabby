@@ -203,6 +203,19 @@ async def startup_event():
         EXPECTED_SUPABASE_PROJECT_REF,
         SUPABASE_URL or "",
     )
+    # Payments are configured here, not at import: a bad ECPAY_ENV must cost us
+    # the payment endpoints, not the whole service. It must also be LOUD — a
+    # quiet degradation is worse than an outage, because everyone keeps
+    # believing the checkout works. CRITICAL here, billing_config_ok in /health.
+    ecpay.load_config()
+    try:
+        logger.info("[BILLING] ECPay configured env=%s",
+                    ecpay.get_config().env)
+    except ecpay.EcpayConfigError as exc:
+        logger.critical(
+            "[BILLING] ECPay is NOT configured — /api/payment/* will return 503: %s",
+            exc,
+        )
     _scheduler.start()
     # 6-hourly top-up
     _scheduler.add_job(
@@ -2867,7 +2880,23 @@ async def process(
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    """Liveness, plus one billing bit.
+
+    billing_config_ok surfaces a misconfigured ECPay setup that would otherwise
+    be invisible: the service is healthy, every other feature works, and only
+    /api/payment/* is dead. Without this field that state looks identical to a
+    working deploy until someone tries to buy something.
+    """
+    try:
+        ecpay.get_config()
+        billing_config_ok = True
+    except ecpay.EcpayConfigError:
+        billing_config_ok = False
+    return {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "billing_config_ok": billing_config_ok,
+    }
 
 
 @app.post("/api/webhooks/lemonsqueezy")
@@ -3232,8 +3261,13 @@ async def payment_create_order(
     user_id = verify_token(authorization)
     if supabase_admin is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    if not ECPAY_HASH_KEY or not ECPAY_HASH_IV or not ecpay.ECPAY_MERCHANT_ID:
-        logger.error("[BILLING] ECPay merchant credentials not configured")
+    if not ECPAY_HASH_KEY or not ECPAY_HASH_IV:
+        logger.error("[BILLING] ECPAY_HASH_KEY / ECPAY_HASH_IV not set")
+        raise HTTPException(status_code=503, detail="Payment not configured")
+    try:
+        config = ecpay.get_config()
+    except ecpay.EcpayConfigError as exc:
+        logger.error("[BILLING] refusing to create an order: %s", exc)
         raise HTTPException(status_code=503, detail="Payment not configured")
 
     return_url, client_back_url, order_result_url = _ecpay_urls()
@@ -3264,7 +3298,7 @@ async def payment_create_order(
 
     # TotalAmount comes from the module constant, never from the request body.
     params = ecpay.build_aio_checkout_params(
-        merchant_id=ecpay.ECPAY_MERCHANT_ID,
+        merchant_id=config.merchant_id,
         merchant_trade_no=merchant_trade_no,
         total_amount=ecpay.PRO_MONTHLY_TWD,
         return_url=return_url,
@@ -3275,9 +3309,9 @@ async def payment_create_order(
     )
 
     logger.info("[BILLING] order created mtn=%s user_id=%s amount=%s env=%s",
-                merchant_trade_no, user_id, ecpay.PRO_MONTHLY_TWD, ecpay.ECPAY_ENV)
+                merchant_trade_no, user_id, ecpay.PRO_MONTHLY_TWD, config.env)
     return {
-        "action_url":        ecpay.aio_checkout_url(),
+        "action_url":        config.action_url,
         "params":            params,
         "merchant_trade_no": merchant_trade_no,
         "amount":            ecpay.PRO_MONTHLY_TWD,

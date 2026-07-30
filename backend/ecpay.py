@@ -24,6 +24,7 @@ import os
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 from urllib.parse import quote_plus
 
 # ─── product price ───────────────────────────────────────────────────────────
@@ -33,8 +34,17 @@ from urllib.parse import quote_plus
 PRO_MONTHLY_TWD = 199
 PRO_PERIOD_DAYS = 30
 
-# ─── environment ─────────────────────────────────────────────────────────────
-ECPAY_MERCHANT_ID = os.getenv("ECPAY_MERCHANT_ID", "")
+# ─── configuration ───────────────────────────────────────────────────────────
+# Loaded from the environment by load_config() at FastAPI startup, never at
+# import. An earlier revision validated ECPAY_ENV at module scope; a typo there
+# ('prod') made `import main` raise, which takes the whole backend down —
+# Speaking, Reading, Writing and all — over a payment setting. Blast radius now
+# stops at the payment endpoints: they answer 503, everything else serves.
+#
+# There is deliberately NO fallback. Defaulting an unset ECPAY_ENV to 'stage'
+# would mean a production deploy that forgot the variable silently sends buyers
+# to the test cashier and takes no money, with nothing in the logs saying so.
+# Unset is a configuration error, same as a typo.
 
 _ACTION_URLS = {
     "stage":      "https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5",
@@ -42,31 +52,56 @@ _ACTION_URLS = {
 }
 
 
-def _resolve_env(raw: str) -> str:
-    """Validate ECPAY_ENV. Unset → 'stage'; anything unrecognised → refuse.
+class EcpayConfigError(RuntimeError):
+    """設定錯誤。此例外永不在 import 時被 raise。"""
 
-    Defaulting to stage rather than raising keeps a clean checkout (and the
-    test suite) importable, and the failure mode is the safe one: a
-    misconfigured deploy points at the test cashier and takes no money. A value
-    that is set but not recognised is a typo in a deploy config, which must not
-    be silently coerced into either environment.
+
+class EcpayConfig(NamedTuple):
+    merchant_id: str
+    env: str
+    action_url: str
+
+
+_CONFIG: EcpayConfig | None = None
+_CONFIG_ERROR: str | None = None   # 有值即代表金流不可用
+
+
+def load_config() -> None:
+    """Read and validate the ECPay environment. Called from FastAPI startup.
+
+    Never raises: an invalid setting is recorded in _CONFIG_ERROR and surfaces
+    as a 503 on the payment endpoints when get_config() is called. Never falls
+    back to a default environment.
+
+    Idempotent — both fields are reset first, so calling this again after
+    fixing the environment fully re-evaluates it.
     """
-    value = (raw or "").strip().lower()
-    if not value:
-        return "stage"
-    if value not in _ACTION_URLS:
-        raise ValueError(
-            f"ECPAY_ENV must be 'stage' or 'production', got {value!r}"
-        )
-    return value
+    global _CONFIG, _CONFIG_ERROR
+    _CONFIG, _CONFIG_ERROR = None, None
+
+    env = (os.getenv("ECPAY_ENV", "") or "").strip().lower()
+    merchant_id = (os.getenv("ECPAY_MERCHANT_ID", "") or "").strip()
+
+    # The offending value is deliberately not echoed. It is not supposed to be
+    # secret, but "never log credential material" is cheaper to keep absolute
+    # than to keep conditional, and the valid set has two members.
+    if not env:
+        _CONFIG_ERROR = "ECPAY_ENV is not set"
+    elif env not in _ACTION_URLS:
+        _CONFIG_ERROR = "ECPAY_ENV must be 'stage' or 'production'"
+    elif not merchant_id:
+        _CONFIG_ERROR = "ECPAY_MERCHANT_ID is not set"
+    else:
+        _CONFIG = EcpayConfig(merchant_id, env, _ACTION_URLS[env])
 
 
-ECPAY_ENV = _resolve_env(os.getenv("ECPAY_ENV", ""))
-
-
-def aio_checkout_url(env: str | None = None) -> str:
-    """Cashier endpoint for the configured environment. Never hardcoded."""
-    return _ACTION_URLS[_resolve_env(env) if env is not None else ECPAY_ENV]
+def get_config() -> EcpayConfig:
+    """The validated config, or EcpayConfigError describing why there isn't one."""
+    if _CONFIG_ERROR:
+        raise EcpayConfigError(_CONFIG_ERROR)
+    if _CONFIG is None:
+        raise EcpayConfigError("ECPay configuration has not been loaded")
+    return _CONFIG
 
 
 # ─── CheckMacValue ───────────────────────────────────────────────────────────
@@ -81,7 +116,7 @@ _NET_URLENCODE_REPLACEMENTS = (
 )
 
 
-def _ecpay_urlencode(value) -> str:
+def ecpay_urlencode(value) -> str:
     """.NET-compatible URL encoding, lowercased — ECPay's exact dialect.
 
     Space becomes '+', percent escapes are lowercase, and the seven characters
@@ -116,7 +151,7 @@ def build_check_mac_value(params: dict, hash_key: str, hash_iv: str) -> str:
     raw = "&".join(f"{k}={v}" for k, v in pairs)
     raw = f"HashKey={hash_key}&{raw}&HashIV={hash_iv}"
 
-    return hashlib.sha256(_ecpay_urlencode(raw).encode("utf-8")).hexdigest().upper()
+    return hashlib.sha256(ecpay_urlencode(raw).encode("utf-8")).hexdigest().upper()
 
 
 def verify_check_mac_value(params: dict, hash_key: str, hash_iv: str) -> bool:
@@ -147,30 +182,30 @@ _TAIPEI = timezone(timedelta(hours=8))
 
 _TRADE_NO_ALPHABET = string.ascii_uppercase + string.digits
 MERCHANT_TRADE_NO_MAX = 20
+_TRADE_NO_RANDOM_WIDTH = 12
 
 
-def generate_merchant_trade_no(prefix: str = "BLB", now: datetime | None = None) -> str:
-    """A unique, ECPay-legal MerchantTradeNo: alphanumeric only, ≤20 chars.
+def generate_merchant_trade_no(now: datetime | None = None) -> str:
+    """A unique, ECPay-legal MerchantTradeNo: alphanumeric only, 20 chars.
 
-    Shape: BLB + yymmddHHMM + 7 random chars = 20 characters exactly.
+    Shape: yyyyMMdd (8) + 12 random uppercase alphanumerics = 20 exactly.
 
     The old f"BLABBY-{uuid4().hex[:12].upper()}" was 19 characters — legal on
     length, illegal on charset: ECPay allows 英數字大小寫混合 only, and the
-    hyphen is the single violation.
+    hyphen was the single violation.
 
-    On the random suffix width: the spec's suggested 4 characters cannot hold.
-    A batch of 10,000 ids generated inside one process shares a timestamp
-    bucket, so collisions follow the birthday bound over the suffix space
-    alone: 36^4 gives ~30 expected collisions per 10,000. Trading second
-    precision (recoverable from created_at) for 7 characters puts the space at
-    36^7 ≈ 7.8e10 and the expected count at ~6e-4.
+    No 'BLB' prefix. Anything matching `like 'BLB%'` therefore matches nothing;
+    clean-up queries must filter on user_id (see
+    docs/ECPAY_STAGE_VERIFICATION.md).
+
+    36^12 ≈ 4.7e18 keeps the birthday bound irrelevant: 10,000 draws inside one
+    date bucket collide with probability ~1e-11.
     """
-    stamp = (now or datetime.now(_TAIPEI)).strftime("%y%m%d%H%M")
-    width = MERCHANT_TRADE_NO_MAX - len(prefix) - len(stamp)
-    if width < 1:
-        raise ValueError(f"prefix {prefix!r} leaves no room for a random suffix")
-    suffix = "".join(secrets.choice(_TRADE_NO_ALPHABET) for _ in range(width))
-    return f"{prefix}{stamp}{suffix}"
+    stamp = (now or datetime.now(_TAIPEI)).strftime("%Y%m%d")
+    suffix = "".join(
+        secrets.choice(_TRADE_NO_ALPHABET) for _ in range(_TRADE_NO_RANDOM_WIDTH)
+    )
+    return f"{stamp}{suffix}"
 
 
 def merchant_trade_date(now: datetime | None = None) -> str:
@@ -179,10 +214,31 @@ def merchant_trade_date(now: datetime | None = None) -> str:
 
 
 # ─── AioCheckOut ─────────────────────────────────────────────────────────────
-# Plain ASCII, no punctuation beyond spaces and hyphens: ECPay rejects special
-# characters in TradeDesc, and & / < in any field must be escaped upstream.
-TRADE_DESC = "Subscription to the Blabby Pro Membership for a Term of Thirty Days"
-ITEM_NAME = "Blabby Pro Membership - Thirty Days"
+# ECPay rejects "special characters" in TradeDesc/ItemName without enumerating
+# them, and '&' or '<' anywhere in the payload breaks the cashier's own parsing.
+# Rather than guess at the forbidden set, allow a known-good one.
+_TRADE_TEXT_ALLOWED = frozenset(string.ascii_letters + string.digits + " -")
+
+
+def sanitize_trade_text(text: str, limit: int) -> str:
+    """Reduce free text to the characters ECPay is certain to accept.
+
+    Whitelist, not blacklist: ASCII letters, digits, spaces and hyphens survive;
+    everything else is dropped. Runs of spaces collapse so a stripped character
+    does not leave a gap, and the result is truncated to the field's limit.
+
+    This also removes the '!' '*' '(' ')' '~' cases entirely from the outbound
+    payload, which is why the known-answer vectors do not need to cover the
+    .NET-vs-Python divergence on those characters for text we generate.
+    """
+    kept = "".join(ch if ch in _TRADE_TEXT_ALLOWED else " " for ch in text)
+    return " ".join(kept.split())[:limit].strip()
+
+
+# Plain ASCII, ancient-English register, already inside the whitelist.
+TRADE_DESC = sanitize_trade_text(
+    "Subscription to the Blabby Pro Membership for a Term of Thirty Days", 200)
+ITEM_NAME = sanitize_trade_text("Blabby Pro Membership - Thirty Days", 400)
 
 # Field limits from the AioCheckOut V5 spec (developers.ecpay.com.tw/?p=2862).
 _MAX_LENGTHS = {
@@ -210,7 +266,13 @@ def build_aio_checkout_params(
     Phase 1 is a single NT$199 / 30-day purchase: ChoosePayment=Credit and no
     Period* parameters. Recurring billing is Phase 2 and is deliberately absent.
 
-    The caller POSTs these to aio_checkout_url() as a form. CheckMacValue is
+    Credit, not ALL. ALL exposes ATM and 超商代碼, which are non-realtime: the
+    buyer gets a payment code, leaves, and pays hours or days later. That splits
+    the callback into an initial "code issued" notification and a later "paid"
+    one, with a different RtnCode sequence and a pending window this handler has
+    no state machine for. Phase 1 grants on a single realtime authorisation.
+
+    The caller POSTs these to EcpayConfig.action_url as a form. CheckMacValue is
     computed last, over every other field.
     """
     if not merchant_trade_no.isalnum():

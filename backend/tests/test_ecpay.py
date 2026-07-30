@@ -13,10 +13,10 @@ public documentation page, not merchant credentials.
 from __future__ import annotations
 
 import asyncio
-import importlib
 import os
 import re
 import string
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -68,23 +68,23 @@ def test_known_answer_vector_is_reached_through_main_too():
 @pytest.mark.parametrize("literal", ["-", "_", ".", "!", "*", "(", ")"])
 def test_urlencode_leaves_the_seven_dotnet_literals_alone(literal):
     """quote_plus escapes these; HttpUtility.UrlEncode does not."""
-    assert ecpay._ecpay_urlencode(literal) == literal
+    assert ecpay.ecpay_urlencode(literal) == literal
 
 
 def test_urlencode_maps_space_to_plus():
-    assert ecpay._ecpay_urlencode("a b") == "a+b"
+    assert ecpay.ecpay_urlencode("a b") == "a+b"
 
 
 def test_urlencode_lowercases_percent_escapes():
     # '@' -> %40, '/' -> %2F which must come back lowercase as %2f
-    assert ecpay._ecpay_urlencode("/") == "%2f"
-    assert ecpay._ecpay_urlencode("@") == "%40"
+    assert ecpay.ecpay_urlencode("/") == "%2f"
+    assert ecpay.ecpay_urlencode("@") == "%40"
 
 
 def test_urlencode_still_escapes_the_dangerous_separators():
-    assert ecpay._ecpay_urlencode("&") == "%26"
-    assert ecpay._ecpay_urlencode("<") == "%3c"
-    assert ecpay._ecpay_urlencode("=") == "%3d"
+    assert ecpay.ecpay_urlencode("&") == "%26"
+    assert ecpay.ecpay_urlencode("<") == "%3c"
+    assert ecpay.ecpay_urlencode("=") == "%3d"
 
 
 def test_tilde_is_left_literal_exactly_as_ecpays_own_sdk_leaves_it():
@@ -98,7 +98,7 @@ def test_tilde_is_left_literal_exactly_as_ecpays_own_sdk_leaves_it():
     pins the behaviour so a future "fix" toward strict .NET parity is a
     deliberate, visible decision rather than an accident.
     """
-    assert ecpay._ecpay_urlencode("~") == "~"
+    assert ecpay.ecpay_urlencode("~") == "~"
 
 
 def test_three_of_the_seven_replacements_are_already_no_ops_in_python():
@@ -108,11 +108,11 @@ def test_three_of_the_seven_replacements_are_already_no_ops_in_python():
     inert three would make the implementation harder to diff against the spec.
     """
     for char in "-_.":
-        assert ecpay._ecpay_urlencode(char) == char
+        assert ecpay.ecpay_urlencode(char) == char
 
 
 def test_urlencode_handles_utf8():
-    assert ecpay._ecpay_urlencode("促銷方案") == (
+    assert ecpay.ecpay_urlencode("促銷方案") == (
         "%e4%bf%83%e9%8a%b7%e6%96%b9%e6%a1%88")
 
 
@@ -159,9 +159,21 @@ def test_merchant_trade_no_has_no_collisions_over_10000_draws():
     assert len(values) == 10_000
 
 
-def test_merchant_trade_no_carries_a_readable_timestamp():
+def test_merchant_trade_no_is_a_date_plus_twelve_random_chars():
     fixed = datetime(2026, 7, 30, 14, 5, tzinfo=timezone.utc)
-    assert ecpay.generate_merchant_trade_no(now=fixed).startswith("BLB2607301405")
+    value = ecpay.generate_merchant_trade_no(now=fixed)
+    assert len(value) == 20
+    assert value.startswith("20260730")
+    assert re.fullmatch(r"[A-Z0-9]{12}", value[8:])
+
+
+def test_merchant_trade_no_has_no_blb_prefix():
+    """Pinned because the clean-up runbook depends on it.
+
+    `delete ... where merchant_trade_no like 'BLB%'` matches zero rows against
+    this shape; docs/ECPAY_STAGE_VERIFICATION.md filters on user_id instead.
+    """
+    assert not ecpay.generate_merchant_trade_no().startswith("BLB")
 
 
 def test_the_old_uuid_shape_would_have_been_rejected():
@@ -170,49 +182,97 @@ def test_the_old_uuid_shape_would_have_been_rejected():
     assert len(legacy) <= 20 and not legacy.isalnum()
 
 
-def test_prefix_too_long_to_leave_a_random_suffix_is_refused():
-    with pytest.raises(ValueError):
-        ecpay.generate_merchant_trade_no(prefix="A" * 12)
-
-
 def test_merchant_trade_date_format():
     fixed = datetime(2026, 7, 30, 14, 5, 9, tzinfo=timezone.utc)
     assert ecpay.merchant_trade_date(fixed) == "2026/07/30 14:05:09"
 
 
-# ── ECPAY_ENV ────────────────────────────────────────────────────────────
-def _reload_ecpay_with(env_value):
-    with patch.dict(os.environ, {"ECPAY_ENV": env_value}):
-        return importlib.reload(ecpay)
-
-
-def test_ecpay_env_accepts_only_stage_or_production():
+# ── configuration: ECPAY_ENV / ECPAY_MERCHANT_ID ─────────────────────────
+@contextmanager
+def _config_from_env(**env):
+    """Run load_config() against a temporary environment, then restore."""
+    saved_config, saved_error = ecpay._CONFIG, ecpay._CONFIG_ERROR
     try:
-        assert _reload_ecpay_with("stage").ECPAY_ENV == "stage"
-        assert _reload_ecpay_with("production").ECPAY_ENV == "production"
-        with pytest.raises(ValueError):
-            _reload_ecpay_with("prod")
-        with pytest.raises(ValueError):
-            _reload_ecpay_with("staging")
+        with patch.dict(os.environ, env):
+            ecpay.load_config()
+            yield ecpay
     finally:
-        importlib.reload(ecpay)          # restore the process-wide module
+        ecpay._CONFIG, ecpay._CONFIG_ERROR = saved_config, saved_error
 
 
-def test_unset_ecpay_env_defaults_to_the_staging_cashier():
-    """A forgotten env var must not be able to take real money."""
+@pytest.mark.parametrize("env_value,expected", [
+    ("stage",      "https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5"),
+    ("production", "https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5"),
+])
+def test_valid_ecpay_env_selects_the_matching_cashier(env_value, expected):
+    with _config_from_env(ECPAY_ENV=env_value, ECPAY_MERCHANT_ID="3002607") as mod:
+        config = mod.get_config()
+        assert config.env == env_value
+        assert config.action_url == expected
+        assert config.merchant_id == "3002607"
+
+
+@pytest.mark.parametrize("env_value", ["Stage", "PRODUCTION", "  stage  "])
+def test_ecpay_env_is_case_and_whitespace_insensitive(env_value):
+    """Defined behaviour, not an accident: strip().lower() before matching."""
+    with _config_from_env(ECPAY_ENV=env_value, ECPAY_MERCHANT_ID="3002607") as mod:
+        assert mod.get_config().env == env_value.strip().lower()
+
+
+@pytest.mark.parametrize("env_value", ["prod", "staging", "test", "live", "1"])
+def test_invalid_ecpay_env_never_falls_back(env_value):
+    """The one behaviour that must never regress.
+
+    Falling back to stage would put a real card into the test merchant;
+    falling back to production would charge real money during a test. The only
+    permitted outcome is "payments unavailable".
+    """
+    with _config_from_env(ECPAY_ENV=env_value, ECPAY_MERCHANT_ID="3002607") as mod:
+        with pytest.raises(mod.EcpayConfigError):
+            mod.get_config()
+        assert mod._CONFIG is None
+
+
+@pytest.mark.parametrize("env", [
+    {"ECPAY_ENV": "", "ECPAY_MERCHANT_ID": "3002607"},        # empty
+    {"ECPAY_ENV": "   ", "ECPAY_MERCHANT_ID": "3002607"},     # whitespace only
+    {"ECPAY_ENV": "stage", "ECPAY_MERCHANT_ID": ""},          # no merchant id
+])
+def test_incomplete_configuration_is_an_error_not_a_default(env):
+    with _config_from_env(**env) as mod:
+        with pytest.raises(mod.EcpayConfigError):
+            mod.get_config()
+
+
+def test_unset_ecpay_env_is_an_error():
+    """Unset is a configuration error, exactly like a typo. No stage default."""
+    saved_config, saved_error = ecpay._CONFIG, ecpay._CONFIG_ERROR
     try:
-        module = _reload_ecpay_with("")
-        assert module.ECPAY_ENV == "stage"
-        assert "payment-stage.ecpay.com.tw" in module.aio_checkout_url()
+        env = {k: v for k, v in os.environ.items() if k != "ECPAY_ENV"}
+        with patch.dict(os.environ, env, clear=True):
+            ecpay.load_config()
+            with pytest.raises(ecpay.EcpayConfigError):
+                ecpay.get_config()
     finally:
-        importlib.reload(ecpay)
+        ecpay._CONFIG, ecpay._CONFIG_ERROR = saved_config, saved_error
 
 
-def test_action_url_follows_the_environment_and_is_not_hardcoded():
-    assert ecpay.aio_checkout_url("stage") == (
-        "https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5")
-    assert ecpay.aio_checkout_url("production") == (
-        "https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5")
+def test_config_error_message_never_echoes_the_offending_value():
+    secret_looking = "sk-live-abcdef0123456789"
+    with _config_from_env(ECPAY_ENV=secret_looking,
+                          ECPAY_MERCHANT_ID="3002607") as mod:
+        with pytest.raises(mod.EcpayConfigError) as exc:
+            mod.get_config()
+    assert secret_looking not in str(exc.value)
+
+
+def test_load_config_is_idempotent_and_recovers():
+    """A fixed environment must be pickable up by re-running load_config()."""
+    with _config_from_env(ECPAY_ENV="prod", ECPAY_MERCHANT_ID="3002607") as mod:
+        with pytest.raises(mod.EcpayConfigError):
+            mod.get_config()
+    with _config_from_env(ECPAY_ENV="stage", ECPAY_MERCHANT_ID="3002607") as mod:
+        assert mod.get_config().env == "stage"
 
 
 # ── AioCheckOut parameter set ────────────────────────────────────────────
@@ -256,6 +316,36 @@ def test_trade_desc_and_item_name_are_plain_ascii_within_limits():
     assert set(ecpay.ITEM_NAME) <= allowed
     assert len(ecpay.TRADE_DESC) <= 200
     assert len(ecpay.ITEM_NAME) <= 400
+
+
+# ── sanitize_trade_text ──────────────────────────────────────────────────
+@pytest.mark.parametrize("raw,expected", [
+    ("Blabby Pro",            "Blabby Pro"),
+    ("Tea & Cakes",           "Tea Cakes"),          # '&' breaks the cashier
+    ("a<b>c",                 "a b c"),
+    ("Pro (Monthly)",         "Pro Monthly"),        # the .NET-divergent set
+    ("Pro!*~",                "Pro"),
+    ("Pro   Plan",            "Pro Plan"),           # runs collapse
+    ("  Pro Plan  ",          "Pro Plan"),           # and are trimmed
+    ("方案 Pro",              "Pro"),                # non-ASCII dropped
+    ("Pro-Membership",        "Pro-Membership"),     # hyphen survives
+    ("",                      ""),
+])
+def test_sanitize_trade_text_whitelist(raw, expected):
+    assert ecpay.sanitize_trade_text(raw, 200) == expected
+
+
+def test_sanitize_trade_text_truncates_to_the_field_limit():
+    assert len(ecpay.sanitize_trade_text("A" * 500, 200)) == 200
+
+
+def test_sanitize_trade_text_output_survives_a_signature_round_trip():
+    """Whatever comes out must be signable and verifiable unchanged."""
+    text = ecpay.sanitize_trade_text("Tea & Cakes (Pro!) ~ 2026", 200)
+    params = dict(DOC_PARAMS, TradeDesc=text)
+    signed = dict(params, CheckMacValue=ecpay.build_check_mac_value(
+        params, DOC_HASH_KEY, DOC_HASH_IV))
+    assert ecpay.verify_check_mac_value(signed, DOC_HASH_KEY, DOC_HASH_IV)
 
 
 @pytest.mark.parametrize("bad", [
@@ -420,6 +510,95 @@ def test_matrix_4_declined_payment_is_200_1ok_without_entitlement():
     assert len(fake.rows("payment_events", "insert")) == 1
 
 
+# ── RtnCode != 1 is a routine path, not an edge case ─────────────────────
+# 3D Secure is live on the production merchant. Failed authorisation, an
+# expired 3D session and a buyer who closes the bank's page all arrive here.
+# This block is sized to that reality rather than to "one branch, covered".
+
+@pytest.mark.parametrize("rtn_code,rtn_msg", [
+    ("0",        "General failure"),
+    ("2",        "Transaction failed"),
+    ("10100058", "Authorisation declined by issuer"),
+    ("10100251", "Card refused"),
+    ("10100252", "Insufficient funds"),
+    ("-1",       "Unexpected negative code"),
+    ("",         ""),                       # ECPay omitted the field entirely
+])
+def test_no_non_success_code_can_grant_entitlement(rtn_code, rtn_msg):
+    fake = _FakeSupabase()
+    response = _callback(_signed_form(RtnCode=rtn_code, RtnMsg=rtn_msg), fake)
+    assert response.body == b"1|OK", "a recorded failure must not be resent"
+    assert fake.rows("subscriptions", "update") == []
+    assert [w for w in fake.writes if w[0] == "profiles"] == []
+
+
+def test_the_failure_reason_is_preserved_for_measurement():
+    """The 3D drop-off rate is only knowable if the ledger keeps the code.
+
+    payment_events is the only server-side record of a conversion attempt, so
+    a failure row that loses rtn_code/rtn_msg makes "how many buyers does 3D
+    cost us" permanently unanswerable.
+    """
+    fake = _FakeSupabase()
+    _callback(_signed_form(RtnCode="10100058",
+                           RtnMsg="Authorisation declined"), fake)
+    row = fake.rows("payment_events", "insert")[0][2]
+    assert row["rtn_code"] == "10100058"
+    assert row["rtn_msg"] == "Authorisation declined"
+    assert row["checkmac_valid"] is True
+    assert row["raw_payload"]["MerchantTradeNo"] == "BLB2607301405ABCDEFG"
+
+
+def test_a_failed_attempt_leaves_the_order_pending_not_active():
+    """No status write at all — the row keeps whatever create-order set."""
+    fake = _FakeSupabase()
+    _callback(_signed_form(RtnCode="10100058"), fake)
+    assert fake.rows("subscriptions", "update") == []
+
+
+def test_buyer_retries_after_a_3d_failure_and_the_second_order_grants():
+    """The real journey: 3D fails, the buyer presses Upgrade again, pays.
+
+    The retry is a different MerchantTradeNo, so it is a different idempotency
+    key and must not be swallowed as a duplicate of the failure.
+    """
+    fake = _FakeSupabase()
+    failed = _callback(
+        _signed_form(MerchantTradeNo="20260730AAAAAAAAAAAA", RtnCode="10100058"),
+        fake)
+    assert failed.body == b"1|OK"
+    assert fake.rows("subscriptions", "update") == []
+
+    ok = _callback(
+        _signed_form(MerchantTradeNo="20260730BBBBBBBBBBBB", RtnCode="1"), fake)
+    assert ok.body == b"1|OK"
+    updates = fake.rows("subscriptions", "update")
+    assert len(updates) == 1
+    assert updates[0][2]["status"] == "active"
+    assert len(fake.rows("payment_events", "insert")) == 2
+
+
+def test_a_late_failure_callback_cannot_undo_an_earlier_success():
+    """Out-of-order delivery must never revoke a paid period."""
+    fake = _FakeSupabase()
+    _callback(_signed_form(MerchantTradeNo="20260730CCCCCCCCCCCC",
+                           RtnCode="1"), fake)
+    _callback(_signed_form(MerchantTradeNo="20260730DDDDDDDDDDDD",
+                           RtnCode="10100058"), fake)
+    updates = fake.rows("subscriptions", "update")
+    assert len(updates) == 1
+    assert updates[0][2]["status"] == "active"
+
+
+def test_a_failure_is_still_idempotent_on_resend():
+    fake = _FakeSupabase()
+    form = _signed_form(RtnCode="10100058")
+    for _ in range(5):
+        assert _callback(form, fake).body == b"1|OK"
+    assert len(fake.seen_keys) == 1
+    assert fake.rows("subscriptions", "update") == []
+
+
 def test_matrix_5_successful_payment_is_200_1ok_and_grants():
     fake = _FakeSupabase()
     response = _callback(_signed_form(), fake)
@@ -490,7 +669,14 @@ def test_five_resends_grant_once_and_leave_one_ledger_row():
 
 
 # ── create-order ─────────────────────────────────────────────────────────
-def _create_order(fake, body=None, merchant_id="3002607"):
+STAGE_CONFIG = ecpay.EcpayConfig(
+    merchant_id="3002607",
+    env="stage",
+    action_url="https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5",
+)
+
+
+def _create_order(fake, body=None, config=STAGE_CONFIG, config_error=None):
     request = MagicMock()
     request.json = AsyncMock(return_value=body or {})
     request.body = AsyncMock(return_value=b"")
@@ -500,7 +686,8 @@ def _create_order(fake, body=None, merchant_id="3002607"):
          patch.object(main, "ECPAY_HASH_IV", HASH_IV), \
          patch.object(main, "PUBLIC_BACKEND_URL", "https://api.example.com"), \
          patch.object(main, "PUBLIC_FRONTEND_URL", "https://app.example.com"), \
-         patch.object(ecpay, "ECPAY_MERCHANT_ID", merchant_id), \
+         patch.object(ecpay, "_CONFIG", config), \
+         patch.object(ecpay, "_CONFIG_ERROR", config_error), \
          patch.object(main, "supabase_admin", fake):
         result = asyncio.run(
             main.payment_create_order(request=request, authorization="Bearer t"))
@@ -546,10 +733,19 @@ def test_create_order_urls_are_absolute_https_from_env():
     assert params["ClientBackURL"] == "https://app.example.com/success.html"
 
 
-def test_create_order_without_merchant_id_is_503():
+def test_create_order_with_a_broken_config_is_503_and_writes_nothing():
     fake = _FakeSupabase()
     with pytest.raises(HTTPException) as exc:
-        _create_order(fake, merchant_id="")
+        _create_order(fake, config=None,
+                      config_error="ECPAY_ENV must be 'stage' or 'production'")
+    assert exc.value.status_code == 503
+    assert fake.writes == []
+
+
+def test_create_order_before_load_config_is_503():
+    fake = _FakeSupabase()
+    with pytest.raises(HTTPException) as exc:
+        _create_order(fake, config=None, config_error=None)
     assert exc.value.status_code == 503
     assert fake.writes == []
 
@@ -563,7 +759,7 @@ def test_create_order_without_public_urls_is_503():
          patch.object(main, "ECPAY_HASH_IV", HASH_IV), \
          patch.object(main, "PUBLIC_BACKEND_URL", ""), \
          patch.object(main, "PUBLIC_FRONTEND_URL", ""), \
-         patch.object(ecpay, "ECPAY_MERCHANT_ID", "3002607"), \
+         patch.object(ecpay, "_CONFIG", STAGE_CONFIG), \
          patch.object(main, "supabase_admin", fake):
         with pytest.raises(HTTPException) as exc:
             asyncio.run(main.payment_create_order(
@@ -578,6 +774,22 @@ def test_create_order_empty_insert_row_is_500():
     with pytest.raises(HTTPException) as exc:
         _create_order(fake)
     assert exc.value.status_code == 500
+
+
+def test_pending_rows_leave_created_at_to_the_database():
+    """Known accumulation, deliberately not cleaned up in Phase 1.
+
+    A buyer who abandons the bank's 3D page may produce no callback at all, so
+    the pending row stays forever. That is accepted for now — but it is only
+    *findable* if created_at is populated, and subscriptions.created_at has
+    `DEFAULT now()` (20260508_subscriptions.sql). The insert must therefore not
+    send its own value and must not overwrite the default with NULL.
+    """
+    fake = _FakeSupabase()
+    _create_order(fake)
+    inserted = fake.rows("subscriptions", "insert")[0][2]
+    assert "created_at" not in inserted
+    assert inserted["status"] == "pending"
 
 
 def test_repeat_clicks_mint_distinct_trade_numbers():

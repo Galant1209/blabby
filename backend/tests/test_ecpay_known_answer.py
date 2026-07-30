@@ -23,7 +23,7 @@ HttpUtility.UrlEncode 會轉成 %7E —— 綠界官方 Python SDK 有同樣的�
 空白連字號，~ 不可能出現在我們送出的參數裡。
 """
 
-from ecpay import build_check_mac_value, _ecpay_urlencode
+from ecpay import build_check_mac_value, ecpay_urlencode
 
 TEST_HASH_KEY = "pwFHCqoQZGmho4w6"
 TEST_HASH_IV = "EkRm7iFT261dpevs"
@@ -60,25 +60,25 @@ def test_check_mac_value_field_is_excluded():
 
 def test_separators_are_encoded():
     """分隔符必須被 encode —— 這是最容易寫錯的一格。"""
-    assert _ecpay_urlencode("a=1&b=2") == "a%3d1%26b%3d2"
+    assert ecpay_urlencode("a=1&b=2") == "a%3d1%26b%3d2"
 
 
 def test_dotnet_replacements():
-    assert _ecpay_urlencode("!") == "!"
-    assert _ecpay_urlencode("*") == "*"
-    assert _ecpay_urlencode("(") == "("
-    assert _ecpay_urlencode(")") == ")"
-    assert _ecpay_urlencode("-_.") == "-_."
+    assert ecpay_urlencode("!") == "!"
+    assert ecpay_urlencode("*") == "*"
+    assert ecpay_urlencode("(") == "("
+    assert ecpay_urlencode(")") == ")"
+    assert ecpay_urlencode("-_.") == "-_."
 
 
 def test_space_becomes_plus_and_cjk_is_utf8():
-    assert _ecpay_urlencode("a b") == "a+b"
-    assert _ecpay_urlencode("商品") == "%e5%95%86%e5%93%81"
+    assert ecpay_urlencode("a b") == "a+b"
+    assert ecpay_urlencode("商品") == "%e5%95%86%e5%93%81"
 
 
 def test_non_string_values_are_coerced_not_crashed():
     """TotalAmount 常被當 int 傳進來；簽的必須是顯而易見的那個值。"""
-    assert _ecpay_urlencode(100) == "100"
+    assert ecpay_urlencode(100) == "100"
 
 
 def test_existing_main_implementation_matches_vector():
