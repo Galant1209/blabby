@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urlencode
 
 import pytest
 from fastapi import HTTPException
@@ -174,9 +175,19 @@ def _assert_ack(response):
     assert response.media_type == "text/plain"
 
 
+# payment_callback now parses the raw body itself (ecpay.parse_ecpay_form)
+# rather than request.form() — Starlette's urlencoded parser decodes bytes as
+# latin-1 before unquoting, which mangles ECPay's literal (non-percent-encoded)
+# UTF-8 RtnMsg into mojibake and breaks CheckMacValue for any non-ASCII field.
+# Test fixtures build the same raw wire bytes real ECPay sends, keyed through
+# request.body() to match.
+def _form_body(params: dict) -> bytes:
+    return urlencode(params).encode("utf-8")
+
+
 def _call_callback(form_params, fake):
     request = MagicMock()
-    request.form = AsyncMock(return_value=form_params)
+    request.body = AsyncMock(return_value=_form_body(form_params))
     with patch.object(main.limiter, "enabled", False), \
          patch.object(main, "ECPAY_HASH_KEY", HASH_KEY), \
          patch.object(main, "ECPAY_HASH_IV", HASH_IV), \
@@ -196,7 +207,7 @@ def _call_callback(form_params, fake):
 # ── gate 1: fail closed without credentials ──────────────────────────────
 def test_missing_merchant_credentials_fail_closed_503():
     request = MagicMock()
-    request.form = AsyncMock(return_value=_signed_form())
+    request.body = AsyncMock(return_value=_form_body(_signed_form()))
     fake = _FakeSupabase()
     with patch.object(main.limiter, "enabled", False), \
          patch.object(main, "ECPAY_HASH_KEY", ""), \

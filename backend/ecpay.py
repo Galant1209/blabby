@@ -25,7 +25,36 @@ import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
-from urllib.parse import quote_plus
+from urllib.parse import parse_qsl, quote_plus
+
+# ─── callback body parsing ───────────────────────────────────────────────────
+# FastAPI's Request.form() is unsafe for this callback: Starlette's urlencoded
+# parser decodes each raw byte as latin-1 before unquoting (see
+# starlette/formparsers.py, QuerystringParser — `field_value.decode("latin-1")`
+# then `unquote_plus`). That round-trip is correct for percent-encoded bytes
+# (the standard "decode as latin-1, unquote, the escaped bytes were UTF-8 all
+# along" trick), but ECPay sends RtnMsg's Chinese text as literal UTF-8 bytes,
+# NOT percent-escaped — decoding those as latin-1 maps every UTF-8 byte to its
+# own separate code point, producing mojibake character-for-character
+# reproducible from a real failed callback: "交易成功" arrives as
+# "äº¤æ\x98\x93æ\x88\x90å\x8a\x9f". That corrupted string signs to a different
+# CheckMacValue than what ECPay computed on the original text, so every
+# callback whose RtnMsg (or any other field) contains non-ASCII content fails
+# signature verification — indistinguishable from a forged request until this
+# was traced back to the parser.
+def parse_ecpay_form(raw_body: bytes) -> dict:
+    """Parse an x-www-form-urlencoded body the way ECPay's callback needs.
+
+    Decodes the RAW bytes as UTF-8 first, then splits key=value pairs. A
+    percent-escaped sequence (e.g. a literal '&' as %26, or space as '+') is
+    still unescaped correctly by parse_qsl's own unquoting — only the initial
+    byte-to-character decode changes, from latin-1 to UTF-8. This handles a
+    body mixing percent-encoded ASCII and literal multi-byte UTF-8 text
+    correctly, which is exactly what a real ECPay callback contains.
+    """
+    text = raw_body.decode("utf-8")
+    return dict(parse_qsl(text, keep_blank_values=True))
+
 
 # ─── product price ───────────────────────────────────────────────────────────
 # Single source of truth. The checkout amount is computed from this constant on

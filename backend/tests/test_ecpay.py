@@ -21,6 +21,7 @@ import string
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urlencode
 
 import pytest
 from fastapi import HTTPException
@@ -164,6 +165,79 @@ def test_the_conversion_table_is_transcribed_in_full():
 def test_urlencode_handles_utf8():
     assert ecpay.ecpay_urlencode("促銷方案") == (
         "%e4%bf%83%e9%8a%b7%e6%96%b9%e6%a1%88")
+
+
+# ── parse_ecpay_form: the real 2026-07-30 production bug ─────────────────
+# A live stage callback's RtnMsg ("交易成功") consistently failed signature
+# verification. Root cause traced via a TEMPORARY diagnostic log to
+# Starlette's own urlencoded parser: it decodes raw body bytes as latin-1
+# before unquoting (formparsers.py, QuerystringParser), which is correct for
+# percent-escaped bytes but mangles ECPay's literal (non-percent-encoded)
+# UTF-8 into mojibake — reproduced here byte-for-byte from the actual failure.
+def test_parse_ecpay_form_reproduces_and_fixes_the_2026_07_30_mojibake():
+    cjk = "交易成功"
+    # The exact wire bytes ECPay sends: literal UTF-8, not percent-escaped.
+    raw_body = ("MerchantTradeNo=20260730PCBSPIZPIOGM&RtnCode=1&RtnMsg="
+               ).encode("utf-8") + cjk.encode("utf-8") + b"&TradeAmt=199"
+
+    parsed = ecpay.parse_ecpay_form(raw_body)
+
+    assert parsed["RtnMsg"] == cjk, (
+        f"got {parsed['RtnMsg']!r} — this is the exact mojibake "
+        f"('äº¤æ\\x98\\x93æ\\x88\\x90å\\x8a\\x9f') a plain "
+        f"request.form() call reproduces on this same body"
+    )
+    assert parsed["MerchantTradeNo"] == "20260730PCBSPIZPIOGM"
+    assert parsed["TradeAmt"] == "199"
+
+
+def test_parse_ecpay_form_still_unescapes_percent_encoded_reserved_characters():
+    """Mixed body: percent-encoded ASCII alongside literal UTF-8 — both correct."""
+    raw_body = "ItemName=A+B%26C&RtnMsg=".encode("utf-8") + "交易成功".encode("utf-8")
+    parsed = ecpay.parse_ecpay_form(raw_body)
+    assert parsed["ItemName"] == "A B&C"       # '+' -> space, %26 -> '&'
+    assert parsed["RtnMsg"] == "交易成功"
+
+
+def test_mojibake_and_correct_rtnmsg_produce_different_check_mac_values():
+    """Proves the encoding bug is what actually broke verification, not a
+    coincidental log artefact — same fields, only RtnMsg's bytes differ."""
+    base = {"MerchantTradeNo": "20260730PCBSPIZPIOGM", "RtnCode": "1", "TradeAmt": "199"}
+    garbled = ecpay.build_check_mac_value(
+        dict(base, RtnMsg="äº¤æ\x98\x93æ\x88\x90å\x8a\x9f"), HASH_KEY, HASH_IV)
+    correct = ecpay.build_check_mac_value(
+        dict(base, RtnMsg="交易成功"), HASH_KEY, HASH_IV)
+    assert garbled != correct
+    assert len(garbled) == 64 and len(correct) == 64
+
+
+def test_request_form_would_have_reproduced_the_mojibake():
+    """Documents WHY parse_ecpay_form exists rather than request.form(): this
+    pins Starlette's own behaviour so an upgrade that changes it is noticed."""
+    import asyncio
+    from starlette.requests import Request
+
+    cjk = "交易成功"
+    body = ("RtnMsg=").encode("utf-8") + cjk.encode("utf-8")
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request = Request(
+        {"type": "http", "headers": [(b"content-type", b"application/x-www-form-urlencoded")]},
+        receive,
+    )
+
+    async def _read_form():
+        async with request.form() as form:
+            return dict(form)
+
+    form = asyncio.run(_read_form())
+    assert form["RtnMsg"] != cjk, (
+        "Starlette's request.form() no longer mangles literal UTF-8 — "
+        "parse_ecpay_form's workaround may now be unnecessary, but do not "
+        "remove it without re-verifying against a real ECPay callback first"
+    )
 
 
 # ── verification semantics ───────────────────────────────────────────────
@@ -579,9 +653,18 @@ def _signed_form(**overrides):
     return params
 
 
+# payment_callback parses the raw body itself (ecpay.parse_ecpay_form) rather
+# than request.form() — Starlette's urlencoded parser decodes bytes as latin-1
+# before unquoting, which mangles ECPay's literal (non-percent-encoded) UTF-8
+# RtnMsg into mojibake and breaks CheckMacValue for any non-ASCII field. Test
+# fixtures build the same raw wire bytes real ECPay sends.
+def _form_body(params: dict) -> bytes:
+    return urlencode(params).encode("utf-8")
+
+
 def _callback(form_params, fake, hash_key=HASH_KEY, hash_iv=HASH_IV):
     request = MagicMock()
-    request.form = AsyncMock(return_value=form_params)
+    request.body = AsyncMock(return_value=_form_body(form_params))
     with patch.object(main.limiter, "enabled", False), \
          patch.object(main, "ECPAY_HASH_KEY", hash_key), \
          patch.object(main, "ECPAY_HASH_IV", hash_iv), \
@@ -643,7 +726,7 @@ def test_callback_rejects_ownership_mismatch_before_activation(caplog):
 def test_callback_with_invalid_ecpay_env_acknowledges_without_mutation():
     fake = _FakeSupabase()
     request = MagicMock()
-    request.form = AsyncMock(return_value=_signed_form())
+    request.body = AsyncMock(return_value=_form_body(_signed_form()))
     with patch.object(main.limiter, "enabled", False), \
          patch.object(main, "ECPAY_HASH_KEY", HASH_KEY), \
          patch.object(main, "ECPAY_HASH_IV", HASH_IV), \
@@ -865,7 +948,7 @@ def test_ack_is_byte_exact_on_the_wire():
 
 def _callback_with_env(form, fake, config):
     request = MagicMock()
-    request.form = AsyncMock(return_value=form)
+    request.body = AsyncMock(return_value=_form_body(form))
     with patch.object(main.limiter, "enabled", False), \
          patch.object(main, "ECPAY_HASH_KEY", HASH_KEY), \
          patch.object(main, "ECPAY_HASH_IV", HASH_IV), \

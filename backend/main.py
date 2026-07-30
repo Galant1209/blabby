@@ -3301,11 +3301,16 @@ async def payment_create_order(
 @limiter.limit("30/minute")
 async def payment_callback(request: Request):
     """Validate every trust boundary, then accept and activate in one DB RPC."""
+    # NOT request.form(): Starlette's urlencoded parser decodes raw bytes as
+    # latin-1 before unquoting, which mangles ECPay's non-percent-encoded UTF-8
+    # RtnMsg into mojibake and makes every non-ASCII field fail CheckMacValue.
+    # See ecpay.parse_ecpay_form's docstring — traced from a real failed
+    # callback via the temporary diagnostic log below.
     try:
-        form = await request.form()
+        raw_body = await request.body()
+        params = ecpay.parse_ecpay_form(raw_body)
     except Exception:
         raise HTTPException(status_code=400, detail="Malformed callback body")
-    params = {k: str(v) for k, v in form.items()}
 
     if not ECPAY_HASH_KEY or not ECPAY_HASH_IV:
         logger.error("[BILLING] ECPAY_HASH_KEY / ECPAY_HASH_IV not set")
