@@ -3326,6 +3326,20 @@ async def payment_callback(request: Request):
             "[BILLING] rejected callback: bad CheckMacValue mtn=%r enc=%r",
             params.get("MerchantTradeNo"), params.get("EncryptType"),
         )
+        # TEMPORARY DIAGNOSTIC — 2026-07-30, remove once the live mismatch is
+        # found. Only reachable on an already-rejected callback; does not
+        # change the 401 or any control flow. Never logs ECPAY_HASH_KEY/IV —
+        # see ecpay.debug_signature_mismatch's docstring for why that's safe.
+        try:
+            debug = ecpay.debug_signature_mismatch(params, ECPAY_HASH_KEY, ECPAY_HASH_IV)
+            logger.warning(
+                "[BILLING][TEMP-DEBUG] sorted_keys=%r raw_middle=%r "
+                "encoded_middle=%r expected=%r supplied=%r",
+                debug["sorted_keys"], debug["raw_middle"],
+                debug["encoded_middle"], debug["expected"], debug["supplied"],
+            )
+        except Exception:
+            logger.exception("[BILLING][TEMP-DEBUG] failed to compute diagnostic breakdown")
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     if (params.get("MerchantID") or "").strip() != config.merchant_id:

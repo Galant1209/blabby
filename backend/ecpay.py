@@ -215,6 +215,41 @@ def build_check_mac_value(params: dict, hash_key: str, hash_iv: str) -> str:
     return hashlib.sha256(ecpay_urlencode(raw).encode("utf-8")).hexdigest().upper()
 
 
+# ── TEMPORARY DIAGNOSTIC — remove once the live signature mismatch is found ──
+# Added 2026-07-30 to capture a failed callback's payload for comparison, since
+# a rejected signature otherwise writes nothing anywhere (by design — see
+# verify_check_mac_value). Not called by build_check_mac_value or
+# verify_check_mac_value themselves; wired in only from the failure branch in
+# main.py, so it cannot change signing/verification behaviour.
+#
+# hash_key/hash_iv are accepted only to recompute `expected` internally — they
+# are never placed in the returned dict, and the HashKey=/HashIV= wrapper is
+# deliberately omitted from raw_middle/encoded_middle below so the credential
+# value itself never appears in a log line, even in stage.
+def debug_signature_mismatch(params: dict, hash_key: str, hash_iv: str) -> dict:
+    """Diagnostic breakdown of a failed CheckMacValue comparison.
+
+    raw_middle / encoded_middle are the sorted `k=v&k=v...` join WITHOUT the
+    HashKey=/HashIV= wrapper — that wrapper is two fixed ASCII labels plus the
+    secret, and encodes identically every time; the wrapper contributes no
+    diagnostic signal, only risk if ever logged. Everything that could
+    actually differ from what ECPay computed (field set, ordering, per-value
+    encoding) is visible in these two strings.
+    """
+    pairs = sorted(
+        ((k, v) for k, v in params.items() if k != "CheckMacValue"),
+        key=lambda kv: kv[0].lower(),
+    )
+    raw_middle = "&".join(f"{k}={v}" for k, v in pairs)
+    return {
+        "sorted_keys":    [k for k, _ in pairs],
+        "raw_middle":     raw_middle,
+        "encoded_middle": ecpay_urlencode(raw_middle),
+        "expected":       build_check_mac_value(params, hash_key, hash_iv),
+        "supplied":       (params.get("CheckMacValue") or "").strip().upper(),
+    }
+
+
 def verify_check_mac_value(params: dict, hash_key: str, hash_iv: str) -> bool:
     """Constant-time comparison of the supplied CheckMacValue against ours.
 
