@@ -199,6 +199,109 @@ COMMENT ON COLUMN public.subscriptions.ecpay_trade_no IS
     'conversation with ECPay support; NULL for LemonSqueezy and unpaid orders.';
 
 
+-- ────────────────────────────────────────────────────────────────────────────
+-- §5  accept_ecpay_payment() — one transaction for ledger + entitlement
+--
+-- The callback performs read-only trust validation first. This function repeats
+-- the order identity and amount checks while holding a row lock, then inserts
+-- the accepted-success ledger row and activates the subscription in the same
+-- PostgreSQL transaction. A process crash cannot leave only one of those writes.
+--
+-- Rejected callbacks never call this function, so they cannot consume the
+-- accepted-success idempotency key and poison a later valid retry.
+-- ────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.accept_ecpay_payment(
+    p_merchant_trade_no   text,
+    p_total_success_times integer,
+    p_rtn_code            text,
+    p_rtn_msg             text,
+    p_raw_payload         jsonb,
+    p_ecpay_trade_no      text,
+    p_expected_user_id    uuid,
+    p_expected_amount     integer,
+    p_started_at          timestamptz,
+    p_expires_at          timestamptz
+)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    target public.subscriptions%ROWTYPE;
+    event_id uuid;
+BEGIN
+    SELECT *
+      INTO target
+      FROM public.subscriptions
+     WHERE merchant_trade_no = p_merchant_trade_no
+     FOR UPDATE;
+
+    IF NOT FOUND
+       OR target.user_id IS DISTINCT FROM p_expected_user_id
+       OR target.amount IS DISTINCT FROM p_expected_amount THEN
+        RETURN 'rejected';
+    END IF;
+
+    -- A duplicate success must not restart or extend the purchased period.
+    IF target.status = 'active' THEN
+        RETURN 'duplicate';
+    END IF;
+    IF target.status IS DISTINCT FROM 'pending' THEN
+        RETURN 'rejected';
+    END IF;
+
+    INSERT INTO public.payment_events (
+        source,
+        merchant_trade_no,
+        total_success_times,
+        rtn_code,
+        rtn_msg,
+        checkmac_valid,
+        user_id,
+        subscription_id,
+        raw_payload,
+        processed_at
+    ) VALUES (
+        'ecpay_callback',
+        p_merchant_trade_no,
+        p_total_success_times,
+        p_rtn_code,
+        p_rtn_msg,
+        TRUE,
+        target.user_id,
+        target.id,
+        p_raw_payload,
+        now()
+    )
+    ON CONFLICT (merchant_trade_no, total_success_times, source) DO NOTHING
+    RETURNING id INTO event_id;
+
+    IF event_id IS NULL THEN
+        RETURN 'duplicate';
+    END IF;
+
+    UPDATE public.subscriptions
+       SET status = 'active',
+           started_at = p_started_at,
+           expires_at = p_expires_at,
+           updated_at = p_started_at,
+           ecpay_trade_no = p_ecpay_trade_no
+     WHERE id = target.id;
+
+    RETURN 'activated';
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.accept_ecpay_payment(
+    text, integer, text, text, jsonb, text, uuid, integer, timestamptz, timestamptz
+) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.accept_ecpay_payment(
+    text, integer, text, text, jsonb, text, uuid, integer, timestamptz, timestamptz
+) TO service_role;
+
+
 -- ── verification (run after applying; all five must hold) ───────────────────
 -- 1. SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
 --     WHERE conrelid = 'public.payment_events'::regclass
