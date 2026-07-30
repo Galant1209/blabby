@@ -101,6 +101,21 @@
 -- for a state 20260731 deliberately and correctly replaced, permanently
 -- aborting this migration over a divergence that is not a defect.
 --
+-- ── OVERLAY FIX FOR 20260726 §5 (SUPERSEDES, DOES NOT EDIT HISTORY) ─────────
+-- 20260726 §5 only revokes EXECUTE FROM anon, not FROM PUBLIC. Postgres grants
+-- PUBLIC EXECUTE by default on new functions, so anon inherited it through
+-- PUBLIC regardless of the explicit anon revoke — the same class of gap
+-- previously fixed for other functions on this project. Production was
+-- patched clean out-of-band via manual SQL at some point (verified in 6A-R.7:
+-- anon_exec_is_user_pro=false), but the repo file's text was never corrected,
+-- so a clean replay from an empty database reproduces the vulnerability.
+-- 20260726_billing_identity_containment.sql is NOT edited — a migration that
+-- has already run elsewhere is treated as immutable history. This file
+-- instead runs its own idempotent `REVOKE ... FROM PUBLIC` before its
+-- preflight's §5 check, converging the state itself rather than requiring an
+-- edit to a different, historical file. See the executable gate below for
+-- exactly where this runs and why the ordering is load-bearing.
+--
 -- ── PROPERTIES ────────────────────────────────────────────────────────────
 -- Forward-only, idempotent (CREATE OR REPLACE; safe rerun once already
 -- applied), non-destructive (drops no table, column or row; does not touch
@@ -119,6 +134,23 @@
 
 BEGIN;
 
+-- Superseding fix for 20260726 §5: that migration only revoked EXECUTE
+-- FROM anon, not FROM PUBLIC. Postgres grants PUBLIC EXECUTE by default
+-- on new functions, so anon inherited it via PUBLIC regardless of the
+-- explicit anon revoke. Production was patched out-of-band via manual
+-- SQL at some point (verified clean in R.7: anon_exec_is_user_pro=false),
+-- but the repo file text was never corrected, so a clean replay from an
+-- empty DB reproduces the vulnerability. Not editing 20260726 (immutable
+-- history); this idempotent overlay restores the correct end state.
+--
+-- Runs BEFORE the preflight, not after: this migration converges the
+-- state itself first, then the preflight's §5 check below validates the
+-- result of that convergence. Running it after the preflight (e.g. next
+-- to the CREATE OR REPLACE) would deadlock — the §5 check would find
+-- anon still PUBLIC-inherits EXECUTE, abort every time, and the fix
+-- that would have corrected it would never be reached.
+REVOKE EXECUTE ON FUNCTION public.is_user_pro(uuid) FROM PUBLIC;
+
 -- ── EXECUTABLE PRE-MUTATION GATE ────────────────────────────────────────────
 DO $preflight$
 DECLARE
@@ -129,70 +161,78 @@ DECLARE
     orphaned_is_pro   integer;
     missing           text[] := '{}';
 BEGIN
+    -- Every literal appended below is cast ::text explicitly. Without it,
+    -- `text[] || 'unknown-type literal'` is ambiguous between appending an
+    -- element and concatenating a second array, and Postgres can resolve it
+    -- the second way — attempting to array_in()-parse the literal as text[]
+    -- and raising "malformed array literal" for any string not shaped like
+    -- {a,b,c}. Caught live in CI replay on the anon-EXECUTE message below,
+    -- which happens to contain parentheses; every other literal here carried
+    -- the same latent ambiguity even though only one string tripped it.
     ------------------------------------------------------------ §1 payment_events
     IF NOT EXISTS (
         SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relname = 'payment_events' AND c.relkind = 'r'
     ) THEN
-        missing := missing || 'table public.payment_events';
+        missing := missing || 'table public.payment_events'::text;
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
          WHERE conrelid = 'public.payment_events'::regclass
            AND conname  = 'payment_events_source_check'
     ) THEN
-        missing := missing || 'constraint payment_events_source_check';
+        missing := missing || 'constraint payment_events_source_check'::text;
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_indexes
          WHERE schemaname = 'public' AND indexname = 'payment_events_idem_uniq'
     ) THEN
-        missing := missing || 'index payment_events_idem_uniq';
+        missing := missing || 'index payment_events_idem_uniq'::text;
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_indexes
          WHERE schemaname = 'public' AND indexname = 'payment_events_merchant_trade_no_idx'
     ) THEN
-        missing := missing || 'index payment_events_merchant_trade_no_idx';
+        missing := missing || 'index payment_events_merchant_trade_no_idx'::text;
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_indexes
          WHERE schemaname = 'public' AND indexname = 'payment_events_unprocessed_idx'
     ) THEN
-        missing := missing || 'index payment_events_unprocessed_idx';
+        missing := missing || 'index payment_events_unprocessed_idx'::text;
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public' AND p.proname = 'payment_events_immutable'
     ) THEN
-        missing := missing || 'function payment_events_immutable()';
+        missing := missing || 'function payment_events_immutable()'::text;
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
          WHERE c.relname = 'payment_events' AND t.tgname = 'payment_events_immutable_trg'
            AND NOT t.tgisinternal
     ) THEN
-        missing := missing || 'trigger payment_events_immutable_trg';
+        missing := missing || 'trigger payment_events_immutable_trg'::text;
     END IF;
     IF NOT COALESCE((
         SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = 'public' AND c.relname = 'payment_events'
     ), false) THEN
-        missing := missing || 'RLS enabled on payment_events';
+        missing := missing || 'RLS enabled on payment_events'::text;
     END IF;
 
     ------------------------------------------------------------------- §3 views
     IF EXISTS (
         SELECT 1 FROM pg_views WHERE schemaname = 'public' AND viewname = 'user_lookup'
     ) THEN
-        missing := missing || 'user_lookup should be dropped (§3) but still exists';
+        missing := missing || 'user_lookup should be dropped (§3) but still exists'::text;
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = 'public' AND c.relname = 'user_pro_status' AND c.relkind = 'v'
            AND 'security_invoker=on' = ANY(c.reloptions)
     ) THEN
-        missing := missing || 'view user_pro_status (security_invoker=on)';
+        missing := missing || 'view user_pro_status (security_invoker=on)'::text;
     END IF;
 
     ----------------------------------------------- §4, RLS only — see header
@@ -206,12 +246,12 @@ BEGIN
          WHERE n.nspname = 'public'
            AND c.relname IN ('questions', 'reading_passages', 'writing_questions')
     ), false) THEN
-        missing := missing || 'RLS enabled on questions/reading_passages/writing_questions';
+        missing := missing || 'RLS enabled on questions/reading_passages/writing_questions'::text;
     END IF;
 
     ------------------------------------------------------- §5 anon revoked
     IF has_function_privilege('anon', 'public.is_user_pro(uuid)', 'EXECUTE') THEN
-        missing := missing || 'anon must not hold EXECUTE on is_user_pro(uuid)';
+        missing := missing || 'anon must not hold EXECUTE on is_user_pro(uuid)'::text;
     END IF;
 
     IF array_length(missing, 1) > 0 THEN
