@@ -247,11 +247,16 @@ SQL
     trap - RETURN
 }
 
+#   log_file: unbound variable" once bash reached the OUTER function's own
+# return — trap ... RETURN is not auto-scoped away when its function exits,
+# it stays registered and refires on the next function return anywhere in the
+# same call stack, by which point that other function's own `local log_file`
+# no longer exists. Matches run_ecpay_migration_contract_proofs's proven
+# pattern instead: one shared, non-local directory set up and torn down once
+# by the caller (RECON_PROOF_DIR), no per-call trap here at all.
 expect_reconciliation_migration_failure() {
     local label="$1"
-    local log_file
-    log_file="$(mktemp)"
-    trap 'rm -f "$log_file"' RETURN
+    local log_file="$RECON_PROOF_DIR/${label}.log"
     if psql "$PGURI" -v ON_ERROR_STOP=1 -q -f "$RECON_MIGRATION" \
         >"$log_file" 2>&1; then
         echo "FAIL  $label: reconciliation migration unexpectedly succeeded" >&2
@@ -263,9 +268,7 @@ expect_reconciliation_migration_failure() {
 
 expect_reconciliation_rollback_failure() {
     local label="$1"
-    local log_file
-    log_file="$(mktemp)"
-    trap 'rm -f "$log_file"' RETURN
+    local log_file="$RECON_PROOF_DIR/${label}.log"
     if psql "$PGURI" -v ON_ERROR_STOP=1 -q -f "$RECON_ROLLBACK" \
         >"$log_file" 2>&1; then
         echo "FAIL  $label: reconciliation rollback unexpectedly succeeded" >&2
@@ -292,6 +295,9 @@ expect_reconciliation_rollback_failure() {
 # 20260726). This is mathematically identical to calling the old body as a
 # function: it is a pure, side-effect-free SQL expression.
 run_is_user_pro_reconciliation_contract_proofs() {
+    RECON_PROOF_DIR="$(mktemp -d)"
+    trap 'rm -rf "$RECON_PROOF_DIR"' RETURN
+
     echo
     echo "── prove is_user_pro equivalence matrix and rollback gates ─"
 
@@ -492,6 +498,9 @@ SQL
         return 1
     fi
     echo "ok    rollback reverted the body when no active subscription exists"
+
+    rm -rf "$RECON_PROOF_DIR"
+    trap - RETURN
 }
 
 echo "── shim ──────────────────────────────────────────────"
