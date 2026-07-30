@@ -81,15 +81,18 @@ _NET_URLENCODE_REPLACEMENTS = (
 )
 
 
-def _ecpay_urlencode(value: str) -> str:
+def _ecpay_urlencode(value) -> str:
     """.NET-compatible URL encoding, lowercased — ECPay's exact dialect.
 
     Space becomes '+', percent escapes are lowercase, and the seven characters
     above stay literal. Extracted verbatim from the body of
     _ecpay_check_mac_value so it can be tested character by character; the
     composed behaviour is unchanged.
+
+    str() coercion is deliberate: a caller passing TotalAmount as an int would
+    otherwise raise inside quote_plus rather than sign the obvious value.
     """
-    encoded = quote_plus(value).lower()
+    encoded = quote_plus(str(value), safe="").lower()
     for escape, literal in _NET_URLENCODE_REPLACEMENTS:
         encoded = encoded.replace(escape, literal)
     return encoded
