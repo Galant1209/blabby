@@ -13,6 +13,7 @@ public documentation page, not merchant credentials.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import re
 import string
@@ -87,28 +88,76 @@ def test_urlencode_still_escapes_the_dangerous_separators():
     assert ecpay.ecpay_urlencode("=") == "%3d"
 
 
-def test_tilde_is_left_literal_exactly_as_ecpays_own_sdk_leaves_it():
-    """Documenting a real divergence from HttpUtility.UrlEncode.
+def test_tilde_escapes_to_percent_7e():
+    """The one character in its group that .NET *does* escape.
 
-    .NET escapes '~' as %7E; Python's quote_plus has it in _ALWAYS_SAFE and
-    leaves it alone, and no replacement pair puts it back. ECPay's official
-    Python SDK computes the digest as quote_plus(s, safe='-_.!*()'), whose safe
-    set is *added* to _ALWAYS_SAFE — so the official SDK leaves '~' literal too.
-    Matching ECPay's own implementation is the bar that matters, and this test
-    pins the behaviour so a future "fix" toward strict .NET parity is a
-    deliberate, visible decision rather than an accident.
+    An earlier revision of this file asserted the opposite, reasoning from
+    ECPay's official Python SDK — which computes quote_plus(s, safe='-_.!*()')
+    and so leaves '~' literal. That reasoning was wrong: the authority is the
+    .NET server that verifies the signature, not the SDK, and the official
+    conversion table's third column (.NET URLEncode 結果) gives %7E. The SDK and
+    the server disagree here; we follow the server.
+
+    Source: https://developers.ecpay.com.tw/?p=2904, fetched 2026-07-30.
     """
-    assert ecpay.ecpay_urlencode("~") == "~"
+    assert ecpay.ecpay_urlencode("~") == "%7e"
 
 
-def test_three_of_the_seven_replacements_are_already_no_ops_in_python():
+def test_the_tilde_rule_actually_changes_the_digest():
+    """Proof the new rule carries signal rather than being decorative.
+
+    If '~' were still passed through literally, these two digests would be
+    identical and the fix would be untestable.
+    """
+    with_tilde = ecpay.build_check_mac_value(
+        {"A": "a~b"}, DOC_HASH_KEY, DOC_HASH_IV)
+    literal_tilde = hashlib.sha256(
+        f"HashKey={DOC_HASH_KEY}&A=a~b&HashIV={DOC_HASH_IV}".lower()
+        .encode("utf-8")).hexdigest().upper()
+    assert with_tilde != literal_tilde
+    assert "%7e" in ecpay.ecpay_urlencode("a~b")
+
+
+def test_three_of_the_replacements_are_already_no_ops_in_python():
     """'-', '_' and '.' never get escaped by quote_plus in the first place.
 
-    The pairs are kept because the ECPay docs list all seven and dropping the
+    The pairs are kept because the ECPay table lists them and dropping the
     inert three would make the implementation harder to diff against the spec.
     """
     for char in "-_.":
         assert ecpay.ecpay_urlencode(char) == char
+
+
+# ── the complete /2904/ conversion table, row by row ─────────────────────
+# Third column only ('.NET URLEncode 結果') — that is the dialect ECPay's
+# server hashes with. Column two (plain URLEncode) is listed by the docs for
+# contrast and is NOT what we implement; the visible difference between the two
+# columns is exactly the space, and the -_.!*() group.
+# Source: https://developers.ecpay.com.tw/?p=2904, fetched 2026-07-30.
+DOTNET_TABLE = [
+    (".", "."),   ("-", "-"),   ("_", "_"),   ("!", "!"),
+    ("*", "*"),   ("(", "("),   (")", ")"),
+    ("~", "%7e"),                                  # the sole exception
+    (" ", "+"),                                    # %20 in plain URLEncode
+    ("@", "%40"), ("#", "%23"), ("$", "%24"), ("%", "%25"),
+    ("^", "%5e"), ("&", "%26"), ("=", "%3d"), ("+", "%2b"),
+    (";", "%3b"), ("?", "%3f"), ("/", "%2f"), ("\\", "%5c"),
+    (">", "%3e"), ("<", "%3c"), ("`", "%60"), ("[", "%5b"),
+    ("]", "%5d"), ("{", "%7b"), ("}", "%7d"), (":", "%3a"),
+    ("'", "%27"), ('"', "%22"), (",", "%2c"), ("|", "%7c"),
+]
+
+
+@pytest.mark.parametrize("char,expected", DOTNET_TABLE,
+                         ids=[f"{c!r}" for c, _ in DOTNET_TABLE])
+def test_official_conversion_table_row(char, expected):
+    assert ecpay.ecpay_urlencode(char) == expected
+
+
+def test_the_conversion_table_is_transcribed_in_full():
+    """33 rows on the page; a silently shortened list would test nothing."""
+    assert len(DOTNET_TABLE) == 33
+    assert len({c for c, _ in DOTNET_TABLE}) == 33
 
 
 def test_urlencode_handles_utf8():
@@ -188,12 +237,18 @@ def test_merchant_trade_date_format():
 
 
 # ── configuration: ECPAY_ENV / ECPAY_MERCHANT_ID ─────────────────────────
+_URL_ENV = {
+    "PUBLIC_BACKEND_URL":  "https://api.example.com",
+    "PUBLIC_FRONTEND_URL": "https://app.example.com",
+}
+
+
 @contextmanager
 def _config_from_env(**env):
     """Run load_config() against a temporary environment, then restore."""
     saved_config, saved_error = ecpay._CONFIG, ecpay._CONFIG_ERROR
     try:
-        with patch.dict(os.environ, env):
+        with patch.dict(os.environ, dict(_URL_ENV, **env)):
             ecpay.load_config()
             yield ecpay
     finally:
@@ -285,6 +340,7 @@ CHECKOUT_KWARGS = dict(
     order_result_url="https://api.example.com/api/payment/return",
     hash_key=DOC_HASH_KEY,
     hash_iv=DOC_HASH_IV,
+    user_id="11111111-2222-3333-4444-555555555555",
     trade_date="2026/07/30 14:05:09",
 )
 
@@ -327,7 +383,7 @@ def test_trade_desc_and_item_name_are_plain_ascii_within_limits():
     ("Pro!*~",                "Pro"),
     ("Pro   Plan",            "Pro Plan"),           # runs collapse
     ("  Pro Plan  ",          "Pro Plan"),           # and are trimmed
-    ("方案 Pro",              "Pro"),                # non-ASCII dropped
+    ("方案 Pro",              "方案 Pro"),           # CJK is allowed
     ("Pro-Membership",        "Pro-Membership"),     # hyphen survives
     ("",                      ""),
 ])
@@ -337,6 +393,40 @@ def test_sanitize_trade_text_whitelist(raw, expected):
 
 def test_sanitize_trade_text_truncates_to_the_field_limit():
     assert len(ecpay.sanitize_trade_text("A" * 500, 200)) == 200
+
+
+def test_chinese_truncation_never_splits_a_character():
+    """ECPay truncates an over-length ItemName server-side, and a cut that
+    lands mid-character produces mojibake — which changes the bytes hashed,
+    breaks CheckMacValue, and loses the order. Truncating by character on our
+    side is what keeps that from ever being reachable.
+
+    A byte-based cut of 中文 at an odd offset would leave a lone continuation
+    byte; this asserts the result is always decodable and re-encodable.
+    """
+    text = "中文" * 300                              # 600 characters
+    for limit in range(1, 40):
+        out = ecpay.sanitize_trade_text(text, limit)
+        assert len(out) <= limit
+        # Round-trips cleanly: no half-characters, no replacement chars.
+        assert out.encode("utf-8").decode("utf-8") == out
+        assert "�" not in out
+
+
+def test_chinese_truncation_counts_characters_not_bytes():
+    """400 CJK characters is 1200 UTF-8 bytes. The limit is characters."""
+    out = ecpay.sanitize_trade_text("中" * 500, ecpay.ITEM_NAME_MAX)
+    assert len(out) == 400
+    assert len(out.encode("utf-8")) == 1200
+
+
+def test_truncated_chinese_still_signs_and_verifies():
+    """The end-to-end version of the same guarantee."""
+    item = ecpay.sanitize_trade_text("方案" * 400, ecpay.ITEM_NAME_MAX)
+    params = dict(DOC_PARAMS, ItemName=item)
+    signed = dict(params, CheckMacValue=ecpay.build_check_mac_value(
+        params, DOC_HASH_KEY, DOC_HASH_IV))
+    assert ecpay.verify_check_mac_value(signed, DOC_HASH_KEY, DOC_HASH_IV)
 
 
 def test_sanitize_trade_text_output_survives_a_signature_round_trip():
@@ -358,13 +448,6 @@ def test_sanitize_trade_text_output_survives_a_signature_round_trip():
 def test_illegal_checkout_inputs_are_refused(bad):
     with pytest.raises(ValueError):
         ecpay.build_aio_checkout_params(**{**CHECKOUT_KWARGS, **bad})
-
-
-def test_return_url_and_order_result_url_must_differ():
-    same = "https://api.example.com/api/payment/callback"
-    with pytest.raises(ValueError):
-        ecpay.build_aio_checkout_params(
-            **{**CHECKOUT_KWARGS, "return_url": same, "order_result_url": same})
 
 
 # ── fake supabase for the endpoint tests ─────────────────────────────────
@@ -653,6 +736,118 @@ def test_ack_is_byte_exact_on_the_wire():
     assert response.headers["content-type"].split(";")[0].strip() == "text/plain"
 
 
+# ── matrix cell 7: simulated payment in production ───────────────────────
+# ECPay's merchant console has a 模擬付款 button in production. It delivers a
+# fully signed callback with RtnCode=1 and SimulatePaid=1 while no money moves:
+# free Pro for anyone with console access. The decision is made from ECPAY_ENV,
+# never from the callback body.
+
+def _callback_with_env(form, fake, config):
+    request = MagicMock()
+    request.form = AsyncMock(return_value=form)
+    with patch.object(main.limiter, "enabled", False), \
+         patch.object(main, "ECPAY_HASH_KEY", HASH_KEY), \
+         patch.object(main, "ECPAY_HASH_IV", HASH_IV), \
+         patch.object(ecpay, "_CONFIG", config), \
+         patch.object(ecpay, "_CONFIG_ERROR", None), \
+         patch.object(main, "supabase_admin", fake):
+        return asyncio.run(main.payment_callback(request=request))
+
+
+def test_matrix_7_simulated_payment_in_production_grants_nothing():
+    fake = _FakeSupabase()
+    response = _callback_with_env(
+        _signed_form(RtnCode="1", SimulatePaid="1"), fake, PROD_CONFIG)
+    assert response.status_code == 200
+    assert response.body == b"1|OK", "ECPay must not be made to retry"
+    assert fake.rows("subscriptions", "update") == [], "no entitlement"
+    assert len(fake.rows("payment_events", "insert")) == 1, "but it is recorded"
+
+
+def test_simulated_payment_on_stage_grants_normally():
+    """Otherwise the stage runbook could never verify anything."""
+    fake = _FakeSupabase()
+    response = _callback_with_env(
+        _signed_form(RtnCode="1", SimulatePaid="1"), fake, STAGE_CONFIG)
+    assert response.body == b"1|OK"
+    assert len(fake.rows("subscriptions", "update")) == 1
+
+
+def test_a_real_payment_in_production_still_grants():
+    """SimulatePaid=0 is what genuine production callbacks carry."""
+    fake = _FakeSupabase()
+    _callback_with_env(_signed_form(RtnCode="1", SimulatePaid="0"),
+                       fake, PROD_CONFIG)
+    assert len(fake.rows("subscriptions", "update")) == 1
+
+
+@pytest.mark.parametrize("value", ["1", "2", "y", "Y", "true", " 1 "])
+def test_any_non_zero_simulate_paid_is_refused_in_production(value):
+    """Unparseable means refuse, not grant."""
+    fake = _FakeSupabase()
+    _callback_with_env(_signed_form(RtnCode="1", SimulatePaid=value),
+                       fake, PROD_CONFIG)
+    assert fake.rows("subscriptions", "update") == [], value
+
+
+def test_simulate_paid_is_refused_when_the_config_is_unknown():
+    """Fail-safe: if we cannot prove we are on stage, we are not on stage."""
+    fake = _FakeSupabase()
+    _callback_with_env(_signed_form(RtnCode="1", SimulatePaid="1"), fake, None)
+    assert fake.rows("subscriptions", "update") == []
+
+
+def test_the_simulate_decision_ignores_the_callback_body_entirely():
+    """A forged SimulatePaid=0 must not be able to buy a grant on stage rules.
+
+    The env is ours; the body is theirs. Proof: on PROD_CONFIG the same signed
+    body with SimulatePaid=1 is refused no matter what else it claims.
+    """
+    fake = _FakeSupabase()
+    _callback_with_env(
+        _signed_form(RtnCode="1", SimulatePaid="1", StoreID="stage"),
+        fake, PROD_CONFIG)
+    assert fake.rows("subscriptions", "update") == []
+
+
+# ── CustomField1 cross-check ─────────────────────────────────────────────
+def test_custom_field1_matching_the_order_owner_grants():
+    fake = _FakeSupabase()
+    response = _callback(_signed_form(RtnCode="1", CustomField1=USER_ID), fake)
+    assert response.body == b"1|OK"
+    assert len(fake.rows("subscriptions", "update")) == 1
+
+
+def test_custom_field1_mismatch_refuses_to_grant():
+    """Signed, so a mismatch is either our bug or someone playing games."""
+    fake = _FakeSupabase()
+    with pytest.raises(HTTPException) as exc:
+        _callback(_signed_form(RtnCode="1", CustomField1="someone-else"), fake)
+    assert exc.value.status_code == 500
+    assert "mismatch" in exc.value.detail.lower()
+
+
+def test_custom_field1_absent_falls_back_to_the_database():
+    """The DB row keyed on merchant_trade_no is the authority, not this field."""
+    fake = _FakeSupabase()
+    _callback(_signed_form(RtnCode="1"), fake)
+    assert len(fake.rows("subscriptions", "update")) == 1
+
+
+# ── TradeNo ──────────────────────────────────────────────────────────────
+def test_ecpay_trade_no_is_persisted_for_support_conversations():
+    fake = _FakeSupabase()
+    _callback(_signed_form(RtnCode="1", TradeNo="2607301122334455"), fake)
+    written = fake.rows("subscriptions", "update")[0][2]
+    assert written["ecpay_trade_no"] == "2607301122334455"
+
+
+def test_a_missing_trade_no_is_stored_as_null_not_empty_string():
+    fake = _FakeSupabase()
+    _callback(_signed_form(RtnCode="1"), fake)
+    assert fake.rows("subscriptions", "update")[0][2]["ecpay_trade_no"] is None
+
+
 def test_ledger_source_is_ecpay_callback():
     fake = _FakeSupabase()
     _callback(_signed_form(), fake)
@@ -673,6 +868,14 @@ STAGE_CONFIG = ecpay.EcpayConfig(
     merchant_id="3002607",
     env="stage",
     action_url="https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5",
+    return_url="https://api.example.com/api/payment/callback",
+    client_back_url="https://app.example.com/success.html",
+    order_result_url="https://api.example.com/api/payment/return",
+)
+
+PROD_CONFIG = STAGE_CONFIG._replace(
+    env="production",
+    action_url="https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5",
 )
 
 
@@ -750,22 +953,46 @@ def test_create_order_before_load_config_is_503():
     assert fake.writes == []
 
 
-def test_create_order_without_public_urls_is_503():
+@pytest.mark.parametrize("env,reason", [
+    ({"PUBLIC_BACKEND_URL": ""},                    "backend url missing"),
+    ({"PUBLIC_FRONTEND_URL": ""},                   "frontend url missing"),
+    ({"PUBLIC_BACKEND_URL": "http://api.example.com"}, "not https"),
+    ({"PUBLIC_FRONTEND_URL": "app.example.com"},    "no scheme"),
+])
+def test_create_order_without_usable_public_urls_is_503(env, reason):
+    """The URLs are validated once at startup, not rebuilt per request."""
     fake = _FakeSupabase()
-    request = MagicMock()
-    with patch.object(main.limiter, "enabled", False), \
-         patch.object(main, "verify_token", return_value=USER_ID), \
-         patch.object(main, "ECPAY_HASH_KEY", HASH_KEY), \
-         patch.object(main, "ECPAY_HASH_IV", HASH_IV), \
-         patch.object(main, "PUBLIC_BACKEND_URL", ""), \
-         patch.object(main, "PUBLIC_FRONTEND_URL", ""), \
-         patch.object(ecpay, "_CONFIG", STAGE_CONFIG), \
-         patch.object(main, "supabase_admin", fake):
+    with _config_from_env(ECPAY_ENV="stage", ECPAY_MERCHANT_ID="3002607", **env):
         with pytest.raises(HTTPException) as exc:
-            asyncio.run(main.payment_create_order(
-                request=request, authorization="Bearer t"))
-    assert exc.value.status_code == 503
-    assert fake.writes == []
+            _create_order(fake, config=ecpay._CONFIG,
+                          config_error=ecpay._CONFIG_ERROR)
+    assert exc.value.status_code == 503, reason
+    assert fake.writes == [], reason
+
+
+def test_return_url_and_order_result_url_are_never_identical():
+    """ECPay forbids it outright: the signed server-to-server notification and
+    the unsigned browser landing must not arrive at the same handler.
+
+    Honest scope: load_config() builds these from one origin with two different
+    paths, so the guard inside it is UNREACHABLE by construction today. It is a
+    tripwire for a future edit that changes either path, not a live branch.
+    What this test can prove is the invariant itself.
+    """
+    with _config_from_env(ECPAY_ENV="stage", ECPAY_MERCHANT_ID="3002607") as mod:
+        config = mod.get_config()
+        assert config.return_url != config.order_result_url
+        assert config.return_url.endswith("/api/payment/callback")
+        assert config.order_result_url.endswith("/api/payment/return")
+
+
+def test_checkout_construction_refuses_identical_urls():
+    """The same rule at the layer where it *is* reachable: a caller passing
+    both URLs the same never gets a signed parameter set."""
+    same = "https://api.example.com/api/payment/callback"
+    with pytest.raises(ValueError):
+        ecpay.build_aio_checkout_params(
+            **{**CHECKOUT_KWARGS, "return_url": same, "order_result_url": same})
 
 
 def test_create_order_empty_insert_row_is_500():

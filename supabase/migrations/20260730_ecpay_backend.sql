@@ -6,6 +6,30 @@
 --   §1  payment_events.source     — allow 'ecpay_callback' (HARD BLOCKER)
 --   §2  subscriptions.merchant_trade_no — the idempotency anchor, UNIQUE
 --   §3  get_admin_pro_breakdown() — count paying users from subscriptions
+--   §4  subscriptions.ecpay_trade_no — ECPay's own transaction number
+--
+-- ── TWO PRODUCT DECISIONS THIS SCHEMA ENCODES (2026-07-30) ──────────────────
+-- Both are deliberate choices, not features awaiting implementation. Changing
+-- either must be an explicit product decision, never a "while we're here".
+--
+-- 1. NO AUTO-RENEWAL. Blabby Pro is a 30-day period the buyer chooses to
+--    purchase, every time. No 定期定額, no recurring mandate, and no reserved
+--    columns for one. A product whose red lines forbid retaining users through
+--    gamification does not get to retain them through "forgot to cancel"
+--    either; IELTS is a 1-3 month use case where subscription LTV is thin; and
+--    it removes cancellation flows, dunning, involuntary churn and chargeback
+--    disputes outright.
+--
+--    Consequence for this file: payment_events.total_success_times stays in the
+--    idempotency key and stays nullable. Under one-off billing it is always
+--    NULL, which is exactly why the unique index needs NULLS NOT DISTINCT — a
+--    resent callback must collide rather than insert a second row.
+--
+-- 2. NO E-INVOICE INTEGRATION IN PHASE 1. The company is obliged to issue 統一
+--    發票, but with 0 paying users the first few are issued by hand. No
+--    InvoiceMark and no other invoice parameter is sent, because adding one
+--    changes the signed AioCheckOut parameter set that the known-answer vectors
+--    currently validate. Integrating later REQUIRES re-running that validation.
 --
 -- Properties: forward-only, idempotent (safe to re-run), non-destructive
 -- (drops no table, drops no column, deletes no row). Rollback lives in
@@ -65,7 +89,11 @@ ALTER TABLE public.payment_events
     ADD CONSTRAINT payment_events_source_check
     CHECK (source IN ('ecpay_callback',      -- signed server-to-server callback
                       'return_url',          -- legacy name, retained for old rows
-                      'period_return_url',   -- Phase 2 recurring (not yet used)
+                      'period_return_url',   -- vestigial: from the abandoned
+                                             -- recurring draft. Kept only
+                                             -- because narrowing a live CHECK
+                                             -- is destructive; auto-renewal is
+                                             -- decided against, see header.
                       'reconciliation',      -- manual/scheduled repair
                       'lemonsqueezy'));
 
@@ -151,7 +179,27 @@ REVOKE EXECUTE ON FUNCTION public.get_admin_pro_breakdown() FROM public, anon, a
 GRANT  EXECUTE ON FUNCTION public.get_admin_pro_breakdown() TO service_role;
 
 
--- ── verification (run after applying; all four must hold) ───────────────────
+-- ────────────────────────────────────────────────────────────────────────────
+-- §4  subscriptions.ecpay_trade_no
+--
+-- ECPay's own transaction number (TradeNo, String(20)), returned on every
+-- callback. It is the only identifier their support desk recognises, so the
+-- mapping from our MerchantTradeNo to theirs has to be queryable rather than
+-- buried inside payment_events.raw_payload.
+--
+-- Not unique and not indexed: it is a lookup aid used by hand a few times a
+-- year, and at this volume a sequential scan is free.
+-- ────────────────────────────────────────────────────────────────────────────
+
+ALTER TABLE public.subscriptions
+    ADD COLUMN IF NOT EXISTS ecpay_trade_no text;
+
+COMMENT ON COLUMN public.subscriptions.ecpay_trade_no IS
+    'ECPay TradeNo from the payment callback. The shared vocabulary for any '
+    'conversation with ECPay support; NULL for LemonSqueezy and unpaid orders.';
+
+
+-- ── verification (run after applying; all five must hold) ───────────────────
 -- 1. SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
 --     WHERE conrelid = 'public.payment_events'::regclass
 --       AND conname  = 'payment_events_source_check';
@@ -168,3 +216,7 @@ GRANT  EXECUTE ON FUNCTION public.get_admin_pro_breakdown() TO service_role;
 -- 4. SELECT * FROM get_admin_pro_breakdown();
 --    → granted_users = 7, paying_users = 0, total_pro_effective = 7
 --      (matches the 2026-07-30 gate above; any other figure means stop)
+--
+-- 5. SELECT column_name FROM information_schema.columns
+--     WHERE table_name = 'subscriptions' AND column_name = 'ecpay_trade_no';
+--    → 1 row

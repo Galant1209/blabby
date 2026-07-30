@@ -60,6 +60,9 @@ class EcpayConfig(NamedTuple):
     merchant_id: str
     env: str
     action_url: str
+    return_url: str            # server-to-server, signed — the only grant path
+    client_back_url: str       # the "back to shop" button
+    order_result_url: str      # where the buyer's browser lands
 
 
 _CONFIG: EcpayConfig | None = None
@@ -81,6 +84,12 @@ def load_config() -> None:
 
     env = (os.getenv("ECPAY_ENV", "") or "").strip().lower()
     merchant_id = (os.getenv("ECPAY_MERCHANT_ID", "") or "").strip()
+    backend = (os.getenv("PUBLIC_BACKEND_URL", "") or "").strip().rstrip("/")
+    frontend = (os.getenv("PUBLIC_FRONTEND_URL", "") or "").strip().rstrip("/")
+
+    return_url = f"{backend}/api/payment/callback"
+    client_back_url = f"{frontend}/success.html"
+    order_result_url = f"{backend}/api/payment/return"
 
     # The offending value is deliberately not echoed. It is not supposed to be
     # secret, but "never log credential material" is cheaper to keep absolute
@@ -91,8 +100,22 @@ def load_config() -> None:
         _CONFIG_ERROR = "ECPAY_ENV must be 'stage' or 'production'"
     elif not merchant_id:
         _CONFIG_ERROR = "ECPAY_MERCHANT_ID is not set"
+    elif not backend or not frontend:
+        _CONFIG_ERROR = "PUBLIC_BACKEND_URL / PUBLIC_FRONTEND_URL are not set"
+    elif not (backend.startswith("https://") and frontend.startswith("https://")):
+        _CONFIG_ERROR = "PUBLIC_BACKEND_URL / PUBLIC_FRONTEND_URL must be absolute HTTPS"
+    elif return_url == order_result_url:
+        # ECPay's spec states outright that ReturnURL cannot equal
+        # OrderResultURL. Asserted here rather than trusted to memory: if they
+        # ever collided, the unsigned browser GET and the signed
+        # server-to-server POST would arrive at the same handler, and the
+        # difference between them is the entire security model.
+        _CONFIG_ERROR = "ReturnURL and OrderResultURL must not be identical"
     else:
-        _CONFIG = EcpayConfig(merchant_id, env, _ACTION_URLS[env])
+        _CONFIG = EcpayConfig(
+            merchant_id, env, _ACTION_URLS[env],
+            return_url, client_back_url, order_result_url,
+        )
 
 
 def get_config() -> EcpayConfig:
@@ -104,6 +127,33 @@ def get_config() -> EcpayConfig:
     return _CONFIG
 
 
+def simulated_payment_allowed() -> bool:
+    """True only when we positively know we are pointed at the test cashier.
+
+    Fail-safe: an unloaded or broken config answers False, so a simulated
+    payment is refused whenever we cannot prove we are on stage.
+    """
+    try:
+        return get_config().env == "stage"
+    except EcpayConfigError:
+        return False
+
+
+def is_simulated_paid(params: dict) -> bool:
+    """Whether a callback describes a *simulated* payment.
+
+    ECPay's merchant console has a "模擬付款" button in production too. It
+    delivers a fully signed callback with RtnCode=1 and SimulatePaid=1 while no
+    money moves at all — a free Pro subscription for anyone with console access.
+
+    Absent means a real payment: ECPay sends 0 on genuine ones, and older
+    flows may omit the field. Anything present and not "0" counts as simulated,
+    so an unparseable value refuses the grant rather than allowing it.
+    """
+    raw = (params.get("SimulatePaid") or "").strip()
+    return bool(raw) and raw != "0"
+
+
 # ─── CheckMacValue ───────────────────────────────────────────────────────────
 # ECPay generates the digest with .NET's HttpUtility.UrlEncode, which leaves
 # these seven characters unescaped where Python's quote_plus escapes them.
@@ -113,6 +163,17 @@ def get_config() -> EcpayConfig:
 _NET_URLENCODE_REPLACEMENTS = (
     ("%2d", "-"), ("%5f", "_"), ("%2e", "."), ("%21", "!"),
     ("%2a", "*"), ("%28", "("), ("%29", ")"),
+    # ~ goes the OTHER WAY. Per the official conversion table's third column
+    # (.NET URLEncode 結果, https://developers.ecpay.com.tw/?p=2904, fetched
+    # 2026-07-30), '~' is the single character in that group that .NET *does*
+    # escape, to %7E. Python's quote_plus treats it as unreserved and leaves it
+    # literal, so without this pair any value containing '~' produces a digest
+    # ECPay's server disagrees with.
+    #
+    # Note this also diverges from ECPay's own Python SDK, which computes
+    # quote_plus(s, safe='-_.!*()') and therefore leaves '~' literal too. The
+    # authority is the server that verifies the signature, not the SDK.
+    ("~", "%7e"),
 )
 
 
@@ -214,38 +275,65 @@ def merchant_trade_date(now: datetime | None = None) -> str:
 
 
 # ─── AioCheckOut ─────────────────────────────────────────────────────────────
-# ECPay rejects "special characters" in TradeDesc/ItemName without enumerating
-# them, and '&' or '<' anywhere in the payload breaks the cashier's own parsing.
-# Rather than guess at the forbidden set, allow a known-good one.
-_TRADE_TEXT_ALLOWED = frozenset(string.ascii_letters + string.digits + " -")
+# This is a dropped-order prevention mechanism, not cosmetics. ECPay truncates
+# an over-length ItemName server-side, and a truncation that lands mid-character
+# produces mojibake — which changes the bytes the cashier hashes, breaks
+# CheckMacValue, and loses the order. Two rules follow:
+#
+#   * truncate by CHARACTER, never by byte. Python slicing is character-based,
+#     which is the whole reason this is written as text[:limit] and not as an
+#     encode/slice/decode.
+#   * whitelist rather than blacklist. ECPay warns against "特殊字元" without
+#     enumerating them, and '&' or '<' breaks the cashier's own parsing.
+#
+# Chinese is allowed: ECPay accepts UTF-8 CJK in these fields and the vectors
+# prove the digest handles it. Excluding ~ ! * ( ) also keeps every value we
+# send clear of the .NET-vs-Python encoding divergence.
+TRADE_DESC_MAX = 200
+ITEM_NAME_MAX = 400
+
+_TRADE_TEXT_ASCII = frozenset(string.ascii_letters + string.digits + " -")
+_CJK_RANGES = (
+    (0x3000, 0x303F),    # CJK punctuation
+    (0x4E00, 0x9FFF),    # CJK unified ideographs
+    (0xFF00, 0xFFEF),    # full-width forms
+)
+
+
+def _is_allowed_trade_char(ch: str) -> bool:
+    if ch in _TRADE_TEXT_ASCII:
+        return True
+    code = ord(ch)
+    return any(low <= code <= high for low, high in _CJK_RANGES)
 
 
 def sanitize_trade_text(text: str, limit: int) -> str:
-    """Reduce free text to the characters ECPay is certain to accept.
+    """Reduce free text to characters ECPay is certain to accept, then truncate.
 
-    Whitelist, not blacklist: ASCII letters, digits, spaces and hyphens survive;
-    everything else is dropped. Runs of spaces collapse so a stripped character
-    does not leave a gap, and the result is truncated to the field's limit.
-
-    This also removes the '!' '*' '(' ')' '~' cases entirely from the outbound
-    payload, which is why the known-answer vectors do not need to cover the
-    .NET-vs-Python divergence on those characters for text we generate.
+    Whitelist: ASCII letters, digits, spaces, hyphens, and CJK. Everything else
+    becomes a space; runs of spaces collapse so a stripped character leaves no
+    gap. Truncation is by character, so a multi-byte character is never cut in
+    half — a half-character is mojibake, and mojibake is a broken CheckMacValue.
     """
-    kept = "".join(ch if ch in _TRADE_TEXT_ALLOWED else " " for ch in text)
+    kept = "".join(ch if _is_allowed_trade_char(ch) else " " for ch in text)
     return " ".join(kept.split())[:limit].strip()
 
 
-# Plain ASCII, ancient-English register, already inside the whitelist.
+# Deliberately far below the 400-character ceiling: the limit is a backstop,
+# not a target.
 TRADE_DESC = sanitize_trade_text(
-    "Subscription to the Blabby Pro Membership for a Term of Thirty Days", 200)
-ITEM_NAME = sanitize_trade_text("Blabby Pro Membership - Thirty Days", 400)
+    "Subscription to the Blabby Pro Membership for a Term of Thirty Days",
+    TRADE_DESC_MAX)
+ITEM_NAME = sanitize_trade_text(
+    "Blabby Pro Membership - Thirty Days", ITEM_NAME_MAX)
 
 # Field limits from the AioCheckOut V5 spec (developers.ecpay.com.tw/?p=2862).
 _MAX_LENGTHS = {
     "MerchantID": 10, "MerchantTradeNo": 20, "MerchantTradeDate": 20,
-    "PaymentType": 20, "TradeDesc": 200, "ItemName": 400,
+    "PaymentType": 20, "TradeDesc": TRADE_DESC_MAX, "ItemName": ITEM_NAME_MAX,
     "ReturnURL": 200, "ChoosePayment": 20,
     "ClientBackURL": 200, "OrderResultURL": 200,
+    "CustomField1": 50,
 }
 
 
@@ -259,18 +347,24 @@ def build_aio_checkout_params(
     order_result_url: str,
     hash_key: str,
     hash_iv: str,
+    user_id: str,
     trade_date: str | None = None,
 ) -> dict:
-    """The complete, signed parameter set for a Phase 1 one-off Credit charge.
+    """The complete, signed parameter set for a one-off Credit charge.
 
-    Phase 1 is a single NT$199 / 30-day purchase: ChoosePayment=Credit and no
-    Period* parameters. Recurring billing is Phase 2 and is deliberately absent.
+    Blabby Pro is a 30-day period the buyer chooses to purchase, every time.
+    There are no Period* parameters here because there is no auto-renewal —
+    a deliberate product decision (2026-07-30), not an unbuilt feature. A
+    product that refuses to retain through gamification does not get to retain
+    through "forgot to cancel" either.
 
-    Credit, not ALL. ALL exposes ATM and 超商代碼, which are non-realtime: the
-    buyer gets a payment code, leaves, and pays hours or days later. That splits
-    the callback into an initial "code issued" notification and a later "paid"
-    one, with a different RtnCode sequence and a pending window this handler has
-    no state machine for. Phase 1 grants on a single realtime authorisation.
+    Credit, not ALL, and never IgnorePayment. Two reasons, both from ECPay's
+    own guidance:
+      * ATM and 超商代碼 are non-realtime — the buyer gets a code, leaves, and
+        pays hours later. That splits the notification into "code issued" then
+        "paid", with a pending window this handler has no state machine for.
+      * ECPay keeps adding payment methods. ALL would silently route each new
+        one into a callback path nobody has written code for.
 
     The caller POSTs these to EcpayConfig.action_url as a form. CheckMacValue is
     computed last, over every other field.
@@ -287,6 +381,9 @@ def build_aio_checkout_params(
     if return_url == order_result_url:
         raise ValueError("ReturnURL and OrderResultURL must differ")
 
+    if not user_id:
+        raise ValueError("user_id is required for the CustomField1 cross-check")
+
     params = {
         "MerchantID":        merchant_id,
         "MerchantTradeNo":   merchant_trade_no,
@@ -300,6 +397,16 @@ def build_aio_checkout_params(
         "ClientBackURL":     client_back_url,
         "OrderResultURL":    order_result_url,
         "EncryptType":       "1",
+        # Echoed back in the callback and covered by CheckMacValue, so the
+        # callback can cross-check the buyer it thinks it is granting to
+        # against the buyer who actually started the checkout. A UUID is 36
+        # characters and the field holds 50.
+        "CustomField1":      user_id,
+        # Ask for the full paid-detail set. We do not read the extra fields
+        # today, but they all land in payment_events.raw_payload (jsonb, no
+        # schema change), and reconciliation data you did not capture can only
+        # be recovered by charging someone again.
+        "NeedExtraPaidInfo": "Y",
     }
 
     for field, limit in _MAX_LENGTHS.items():

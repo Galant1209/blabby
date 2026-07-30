@@ -2,7 +2,7 @@
 -- ROLLBACK for 20260730_ecpay_backend.sql
 --
 -- Sections mirror the forward file and are INDEPENDENT — run only the ones you
--- need, in reverse order (§3 → §2 → §1) if reverting everything.
+-- need, in reverse order (§4 → §3 → §2 → §1) if reverting everything.
 --
 -- Non-destructive by default: subscriptions.merchant_trade_no is NOT dropped.
 -- Once a single ECPay order has been created, that column is the only link
@@ -14,6 +14,14 @@
 -- BEFORE running §1 or §2, or the next callback will fail on a check violation
 -- (§1) or an unknown column (§2).
 -- ============================================================================
+
+
+-- ── §4 rollback — drop the ECPay transaction number ─────────────────────────
+-- Destructive, and left commented out for the same reason as §2: once a real
+-- payment has landed, this column is the only queryable link to ECPay's own
+-- records. A nullable unused text column costs nothing to leave in place.
+--
+--   ALTER TABLE public.subscriptions DROP COLUMN IF EXISTS ecpay_trade_no;
 
 
 -- ── §3 rollback — paying_users back to the profiles.is_pro expression ───────

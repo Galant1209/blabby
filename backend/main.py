@@ -3220,27 +3220,6 @@ def _mark_payment_event_processed(source: str, merchant_trade_no: str,
         )
 
 
-def _ecpay_urls() -> tuple[str, str, str]:
-    """(ReturnURL, ClientBackURL, OrderResultURL) — absolute HTTPS, from env.
-
-    Fails closed rather than shipping a relative path to the cashier: ECPay
-    would accept the order and then be unable to notify us, which looks like a
-    successful payment that never grants anything.
-    """
-    if not PUBLIC_BACKEND_URL or not PUBLIC_FRONTEND_URL:
-        logger.error("[BILLING] PUBLIC_BACKEND_URL / PUBLIC_FRONTEND_URL not set")
-        raise HTTPException(status_code=503, detail="Payment not configured")
-    if not (PUBLIC_BACKEND_URL.startswith("https://")
-            and PUBLIC_FRONTEND_URL.startswith("https://")):
-        logger.error("[BILLING] public URLs must be absolute HTTPS")
-        raise HTTPException(status_code=503, detail="Payment not configured")
-    return (
-        f"{PUBLIC_BACKEND_URL}/api/payment/callback",   # server-to-server, signed
-        f"{PUBLIC_FRONTEND_URL}/success.html",          # "back to shop" button
-        f"{PUBLIC_BACKEND_URL}/api/payment/return",     # browser lands here first
-    )
-
-
 @app.post("/api/payment/create-order")
 @limiter.limit("5/minute")
 async def payment_create_order(
@@ -3270,7 +3249,6 @@ async def payment_create_order(
         logger.error("[BILLING] refusing to create an order: %s", exc)
         raise HTTPException(status_code=503, detail="Payment not configured")
 
-    return_url, client_back_url, order_result_url = _ecpay_urls()
     merchant_trade_no = ecpay.generate_merchant_trade_no()
 
     try:
@@ -3301,11 +3279,12 @@ async def payment_create_order(
         merchant_id=config.merchant_id,
         merchant_trade_no=merchant_trade_no,
         total_amount=ecpay.PRO_MONTHLY_TWD,
-        return_url=return_url,
-        client_back_url=client_back_url,
-        order_result_url=order_result_url,
+        return_url=config.return_url,
+        client_back_url=config.client_back_url,
+        order_result_url=config.order_result_url,
         hash_key=ECPAY_HASH_KEY,
         hash_iv=ECPAY_HASH_IV,
+        user_id=user_id,
     )
 
     logger.info("[BILLING] order created mtn=%s user_id=%s amount=%s env=%s",
@@ -3402,6 +3381,24 @@ async def payment_callback(request: Request):
             ECPAY_EVENT_SOURCE, merchant_trade_no, total_success_times)
         return _ecpay_ack()
 
+    # Gate 5. A simulated payment is a fully signed RtnCode=1 callback for which
+    # no money moved — ECPay's merchant console can fire one in production too.
+    # Granting on it would hand out free Pro to anyone with console access.
+    #
+    # The decision rests on ECPAY_ENV, which is ours, and never on the callback
+    # body, which is theirs: an attacker who could forge SimulatePaid=0 would
+    # already have the HashKey, and an operator who mis-set ECPAY_ENV should
+    # fail closed. The event is still recorded — a simulated payment in
+    # production is something we want to be able to see afterwards.
+    if ecpay.is_simulated_paid(params) and not ecpay.simulated_payment_allowed():
+        logger.critical(
+            "[BILLING] SIMULATED payment refused outside stage mtn=%s — "
+            "recorded, no entitlement granted", merchant_trade_no,
+        )
+        _mark_payment_event_processed(
+            ECPAY_EVENT_SOURCE, merchant_trade_no, total_success_times)
+        return _ecpay_ack()
+
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
     expires_iso = (now + timedelta(days=ecpay.PRO_PERIOD_DAYS)).isoformat()
@@ -3412,6 +3409,10 @@ async def payment_callback(request: Request):
             "started_at": now_iso,
             "expires_at": expires_iso,
             "updated_at": now_iso,
+            # ECPay's own transaction number. The only identifier their support
+            # desk recognises, so the mapping to our MerchantTradeNo has to be
+            # queryable and not buried in raw_payload.
+            "ecpay_trade_no": (params.get("TradeNo") or "").strip() or None,
         }).eq("merchant_trade_no", merchant_trade_no).execute()
     except Exception as exc:
         logger.exception("[BILLING] subscriptions update failed")
@@ -3427,6 +3428,19 @@ async def payment_callback(request: Request):
     if not uid:
         logger.error("[BILLING] subscription %s has no user_id", merchant_trade_no)
         raise HTTPException(status_code=500, detail="Subscription has no user")
+
+    # Gate 6. CustomField1 carries the user_id we stamped at create-order time
+    # and is covered by CheckMacValue, so it cannot be edited in flight. The
+    # authority is still the DB row keyed on merchant_trade_no; this is a
+    # cross-check. A mismatch means either our own bug or someone playing
+    # games, and both of those should stop rather than grant to a guess.
+    claimed_uid = (params.get("CustomField1") or "").strip()
+    if claimed_uid and claimed_uid != str(uid):
+        logger.critical(
+            "[BILLING] CustomField1 does not match the order owner mtn=%s — "
+            "refusing to grant", merchant_trade_no,
+        )
+        raise HTTPException(status_code=500, detail="Order ownership mismatch")
 
     # profiles.is_pro is NOT written here. Entitlement is the time window on
     # subscriptions, read by is_user_pro(); writing the bare boolean too would

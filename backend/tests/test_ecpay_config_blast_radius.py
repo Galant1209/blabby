@@ -39,6 +39,10 @@ _BASE_ENV = {
     "GROQ_API_KEY":         "test-key",
     "OPENAI_API_KEY":       "test-key",
     "ANTHROPIC_API_KEY":    "test-key",
+    # load_config() validates these too, so a config that is meant to be valid
+    # has to carry them.
+    "PUBLIC_BACKEND_URL":   "https://api.example.com",
+    "PUBLIC_FRONTEND_URL":  "https://app.example.com",
 }
 
 

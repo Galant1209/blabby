@@ -12,19 +12,23 @@
 ## 0. 這輪驗證涵蓋什麼、不涵蓋什麼
 
 **涵蓋**：CheckMacValue 簽章、AioCheckOut 參數集、callback 的 `1|OK` 回應、
-冪等鍵擋重送、`RtnCode != 1` 不發權、`/api/payment/return` 導向。
+冪等鍵擋重送、`RtnCode != 1` 不發權、`/api/payment/return` 導向、
+SimulatePaid 在 production 不發權、CustomField1 交叉檢查。
 
-**不涵蓋 —— 3D Secure。**
+**3D Secure —— 修正一個先前的錯誤假設。**
 
-正式環境已於 2026-07-30 啟用 3D 驗證。綠界測試收銀台的「測試付款請點此」
-**會跳過 3D**，所以本輪走完全綠也**不代表** 3D 路徑正確。
+先前判斷「stage 無法覆蓋 3D」。查證官方 /2856/ 後：**測試環境可以測 3D，
+簡訊驗證碼固定為 `1234`，不需要收簡訊。**
 
-3D 帶來的兩件事本輪都測不到：
+所以 3D 路徑分成兩條，本手冊都涵蓋：
 
-1. 使用者在銀行 3D 頁面**放棄** → 綠界可能完全不發 callback
-2. 3D 驗證**失敗** → `RtnCode != 1`，而且在 production 是常態而非邊緣
+- **第 5 節**用「測試付款請點此」→ **跳過** 3D，最快驗證 callback 主線
+- **第 6.5 節**用測試卡號走完整 3D → 可在 stage 就把成功、失敗、放棄三種
+  情境全部演練過
 
-第 8 節有 production 首次真卡驗證的步驟，那一節不可省略。
+仍然只有 production 能驗的是：真實發卡行的行為（逾時長度、拒絕理由、
+放棄時是否真的完全不發 callback）。第 8 節不可省略，但它現在是「確認」
+而不是「首次探索」。
 
 ---
 
@@ -138,6 +142,8 @@ curl -s -X POST https://<TUNNEL_URL>/api/payment/create-order -H "Authorization:
     "ClientBackURL": "https://<前端>/success.html",
     "OrderResultURL": "https://<TUNNEL_URL>/api/payment/return",
     "EncryptType": "1",
+    "CustomField1": "<你的 user_id>",
+    "NeedExtraPaidInfo": "Y",
     "CheckMacValue": "..."
   },
   "merchant_trade_no": "20260730XXXXXXXXXXXX",
@@ -150,6 +156,9 @@ curl -s -X POST https://<TUNNEL_URL>/api/payment/create-order -H "Authorization:
 - `TotalAmount` 是 `"199"`（不是 299）
 - `action_url` 含 `payment-stage`
 - 三個 URL 都是絕對 HTTPS
+- `CustomField1` 等於你的 user_id
+- **沒有**任何 `Period*` 參數（不做自動續訂）
+- **沒有**任何 `Invoice*` / `InvoiceMark` 參數（Phase 1 不整合電子發票）
 
 此時 DB 應多一列：
 
@@ -196,10 +205,26 @@ from payment_events where merchant_trade_no = '20260730XXXXXXXXXXXX';
 
 **subscriptions**：
 ```sql
-select status, expires_at, started_at from subscriptions
+select status, expires_at, started_at, ecpay_trade_no from subscriptions
 where merchant_trade_no = '20260730XXXXXXXXXXXX';
 ```
-→ `status='active'`，`expires_at` = `started_at` + 30 天（誤差在秒級）。
+→ `status='active'`，`expires_at` = `started_at` + 30 天（誤差在秒級），
+`ecpay_trade_no` 有值且與綠界後台顯示的交易編號相同。
+
+**CustomField1 交叉檢查**：callback 會比對 `CustomField1`（下單時寫入的
+user_id，受 CheckMacValue 保護）與 DB 中該筆訂單的 user_id。不一致會回 500
+並印 CRITICAL，不發權。正常流程不會觸發。
+
+### ⚠️ 關於「測試付款請點此」與 SimulatePaid
+
+綠界的模擬付款會在 callback 帶 `SimulatePaid=1`，代表**零金流**。
+
+- **stage（本節）**：允許發權，否則這份手冊無法驗證任何東西
+- **production**：一律**不發權**，只記 `payment_events` 並印 CRITICAL
+
+判斷依據是我們自己的 `ECPAY_ENV`，不是 callback 裡的任何欄位。所以正式上線
+後在綠界後台按「模擬付款」**不會**讓帳號變成 Pro —— 那是刻意的，不是壞掉。
+要驗證 production 請用第 8 節的真卡流程。
 
 **瀏覽器**：應被 303 導到 `https://<前端>/success.html?order=20260730XXXXXXXXXXXX`。
 success.html 屬於 TASK 6B，此時大概率是 404 —— **這是預期的**，
@@ -230,6 +255,75 @@ where merchant_trade_no = '20260730XXXXXXXXXXXX';
 
 ---
 
+## 6.5 在 stage 演練 3D 三種結局
+
+回到第 4 節重新 `create-order`（每次都要新的 MerchantTradeNo），這次在收銀台
+**不要**按「測試付款請點此」，改用測試卡號手動輸入：
+
+| 項目 | 值 |
+|---|---|
+| 卡號（國內） | `4311-9511-1111-1111` 或 `4311-9522-2222-2222` |
+| 卡號（國外） | `4000-2011-1111-1111` |
+| 到期日 | 任意未來日期 |
+| CVV | 任意三碼 |
+| **3D 簡訊驗證碼** | **`1234`**（測試環境固定值，不會真的發簡訊） |
+
+來源：https://developers.ecpay.com.tw/?p=2856
+
+依序演練三種結局，每種都用一筆新訂單：
+
+**(a) 3D 通過** → 與第 5 節相同：`RtnCode='1'`、發權、`1|OK`。
+
+**(b) 3D 驗證失敗**（輸入 `1234` 以外的碼直到被拒）
+- callback **有**送達，`RtnCode != 1`（常見 `10100058`，與 3D 相關）
+- 回應仍是 `1|OK` —— 已記錄的失敗不需要重送
+- `payment_events` 1 列，`rtn_code` / `rtn_msg` 有實際內容
+- `subscriptions` 該列**仍是 `pending`**，未被寫過
+- 帳號**不是** Pro
+
+**(c) 在 3D 頁面放棄**（直接關掉分頁）
+- **可能完全沒有 callback** —— 這是綠界行為，不是 bug
+- `payment_events` 0 列
+- `subscriptions` 該列**永遠停在 `pending`**
+
+(c) 是一個**已知且被接受的累積**。Phase 1 不做 pending 清理 job。
+pending 列帶 `created_at`（DB default），要盤點時：
+
+```sql
+select merchant_trade_no, user_id, created_at
+from subscriptions
+where status = 'pending' and created_at < now() - interval '1 day'
+order by created_at;
+```
+
+以目前量級（17 個使用者）這個累積無害。轉換量上來後再獨立開清理任務。
+
+### 關於失敗代碼
+
+不要試著列舉。綠界明說「錯誤代碼一直在新增」，完整清單只在廠商後台
+（系統設定 → 交易狀態代碼查詢）。實作因此不列舉任何代碼 —— 只有 `RtnCode == "1"`
+是成功，其餘一律原樣記進 `payment_events` 且不發權。新代碼不需要改程式。
+
+### NeedExtraPaidInfo=Y 帶回什麼
+
+下單時已設 `NeedExtraPaidInfo=Y`，成功的 callback 會多帶對帳欄位，全部進
+`payment_events.raw_payload`（jsonb，零 schema 改動）：`eci`（3D 驗證結果
+指標）、`auth_code`、`gwsr`、`process_date`、`card4no`、`card6no`、`amount`。
+
+`eci` 是日後量測 3D 流失率的依據。這些欄位現在不讀，但沒收就只能靠再刷一筆
+才拿得回來。
+
+```sql
+select raw_payload->>'eci', raw_payload->>'auth_code', raw_payload->>'card4no'
+from payment_events where merchant_trade_no = '20260730XXXXXXXXXXXX';
+```
+
+⚠️ 官方明文：額外回傳的參數**全部都要納入檢查碼計算**。我們的驗簽是全欄位
+納入、無白名單，所以多欄位不會破壞驗證 —— 但這也代表任何「只挑幾個欄位驗簽」
+的最佳化都會直接掉單。
+
+---
+
 ## 7. 清理
 
 ```sql
@@ -247,54 +341,55 @@ delete from subscriptions where user_id = '<GALANT_UUID>';
 
 ## 8. production 首次真卡驗證（不可省略）
 
-第 2–7 節在 stage 全綠**不代表 3D 路徑正確**。切到 production 後必須用真卡再跑一次。
+第 6.5 節已在 stage 演練過 3D 的三種結局，所以這一節是**確認真實發卡行的行為**，
+不是首次探索。真銀行與測試環境會不同的地方：逾時長度、拒絕理由的措辭、
+放棄時是否真的完全不發 callback。
 
-切換方式：只改 4 個環境變數 —— `ECPAY_MERCHANT_ID` / `ECPAY_HASH_KEY` /
-`ECPAY_HASH_IV` 換正式值，`ECPAY_ENV` 改 `production`。程式碼零改動。
+### 切換方式
+
+只改 4 個環境變數：`ECPAY_MERCHANT_ID` / `ECPAY_HASH_KEY` / `ECPAY_HASH_IV`
+換正式值（廠商後台 → 系統設定 → 系統介接設定 → 介接資訊），`ECPAY_ENV` 改
+`production`。**程式碼零改動、migration 零追加、前端零改動。**
+
+附帶條件：綠界正式後台的 ReturnURL 白名單要指向正式 backend 網域。
 
 ### 8a. 成功路徑
 
-真卡付款，完整通過 3D。預期與第 5 節相同。付完可在綠界後台辦理退刷。
+真卡付款、完整通過 3D。預期與第 5 節相同。付完可在綠界後台辦理退刷。
+額外確認 `raw_payload->>'eci'` 有值 —— 那證明走過 3D。
 
-### 8b. 在 3D 頁面**放棄**（刻意測這個）
+### 8b. 在 3D 頁面放棄
 
-進到銀行 3D 驗證頁後，**直接關掉分頁**，不要輸入驗證碼。
+進到銀行 3D 驗證頁後**直接關掉分頁**。預期與第 6.5(c) 節相同：
+可能零 callback、`subscriptions` 永遠 `pending`、帳號不是 Pro。
 
-預期：
-- 終端機/Render log **可能完全沒有任何 callback** —— 這是綠界的行為，不是 bug
-- `payment_events` **0 列**（沒有 callback 就沒有事件）
-- `subscriptions` 該列**永遠停在 `status='pending'`**
-- 該帳號**不會**變成 Pro
+真實銀行與測試環境最可能不同的就是這一格 —— 記錄實際觀察到的行為。
 
-這是一個**已知且被接受的累積**：Phase 1 不做 pending 清理 job。
-pending 列帶 `created_at`（DB default），要盤點時：
+### 8c. 3D 驗證失敗
 
-```sql
-select merchant_trade_no, user_id, created_at
-from subscriptions
-where status = 'pending' and created_at < now() - interval '1 day'
-order by created_at;
-```
-
-以目前的量級（17 個使用者）這個累積無害。若日後轉換量上來，再獨立開一個
-清理任務，不要塞進本輪。
-
-### 8c. 3D 驗證**失敗**
-
-輸入錯誤的 3D 驗證碼直到銀行拒絕。
-
-預期：
-- callback **有**送達，`RtnCode != 1`
-- 回應仍是 `1|OK`（已記錄的失敗不需要重送）
-- `payment_events` 1 列，`rtn_code` 是實際的失敗代碼、`rtn_msg` 有內容
-- `subscriptions` 該列**仍是 `pending`**，`status` 沒有被寫過
-- 該帳號**不是** Pro
-
-把實際收到的 `rtn_code` 記下來 —— 那是量測 3D 流失率的基礎資料。
+輸入錯誤的驗證碼直到銀行拒絕。預期與第 6.5(b) 節相同。
+把實際收到的 `rtn_code` 記下來，那是量測 3D 流失率的基礎資料。
 
 ### 8d. 失敗後重試
 
-8c 之後，重新 `create-order`（會產生**新的** MerchantTradeNo），這次正常付款。
+重新 `create-order`（新的 MerchantTradeNo），這次正常付款。
+預期：正常發權，`payment_events` 共 2 列（不同單號），`subscriptions` 兩列
+（舊的 pending、新的 active）。
 
-預期：正常發權，`payment_events` 共 2 列（失敗一列、成功一列，不同單號），
-`subscriptions` 有兩列（舊的 pending、新的 active）。
+### 8e. 確認 production 的模擬付款不發權
+
+在**正式**後台按「模擬付款」。預期：
+- callback 帶 `SimulatePaid=1`、`RtnCode=1`
+- 回應 `1|OK`
+- `payment_events` 有一列（看得見有人按過）
+- `subscriptions` **未被啟用**，帳號**不是** Pro
+- log 有一行 `CRITICAL [BILLING] SIMULATED payment refused outside stage`
+
+這一格若通過了（帳號變 Pro），代表任何有後台權限的人都能免費開通 Pro，
+**立刻停止上線**。
+
+### 8f. 電子發票
+
+Phase 1 不整合。首批付款後手動開立統一發票。
+參數集裡不應出現任何 `Invoice*` 欄位 —— 若出現，代表有人「順手補齊」了，
+必須重跑兩組 known-answer 向量驗證。
