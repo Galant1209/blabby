@@ -1,6 +1,8 @@
 from fastapi import FastAPI, UploadFile, File, Request, Form, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse, RedirectResponse, JSONResponse
+from fastapi.responses import (
+    Response, StreamingResponse, RedirectResponse, JSONResponse, PlainTextResponse,
+)
 from fastapi.exceptions import RequestValidationError
 from openai import OpenAI
 from groq import Groq
@@ -122,6 +124,10 @@ SUPABASE_SERVICE_KEY         = os.getenv("SUPABASE_SERVICE_KEY")
 LEMONSQUEEZY_WEBHOOK_SECRET  = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET", "")
 ECPAY_HASH_KEY               = os.getenv("ECPAY_HASH_KEY", "")
 ECPAY_HASH_IV                = os.getenv("ECPAY_HASH_IV", "")
+# Absolute origins for the URLs handed to ECPay. Never hardcoded: the cashier
+# rejects relative paths, and the backend and frontend live on different hosts.
+PUBLIC_BACKEND_URL           = os.getenv("PUBLIC_BACKEND_URL", "").rstrip("/")
+PUBLIC_FRONTEND_URL          = os.getenv("PUBLIC_FRONTEND_URL", "").rstrip("/")
 ADMIN_EMAILS         = {
     email.strip().lower()
     for email in os.getenv("ADMIN_EMAILS", "").split(",")
@@ -137,6 +143,10 @@ anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY
 # /reading endpoints below can call them.
 from reading_prompts import build_passage_prompt, build_questions_prompt
 from reading_validator import validate_passage, validate_questions
+
+# ECPay signing / order-naming helpers. Pure functions, no DB and no FastAPI —
+# see backend/ecpay.py. Kept out of this file because it is already 10k lines.
+import ecpay
 
 app = FastAPI()
 
@@ -3079,55 +3089,35 @@ async def covenant_sign(
 
 
 # ─── Payment (ECPay/綠界) ─────────────────────────────────────────────────────
-# Pro entitlement uses the existing profiles.is_pro mechanism; subscriptions is
-# the billing record; payment_events is the append-only ledger that makes every
-# provider callback idempotent and replayable-once.
+# Pro entitlement is the time window on subscriptions, read by is_user_pro();
+# subscriptions is the billing record; payment_events is the append-only ledger
+# that makes every provider callback idempotent and replayable-once.
+
+# The ledger's source discriminator for ECPay's server-to-server notification.
+# Named for what it is: the earlier "return_url" described the browser-facing
+# endpoint, not the callback that actually writes here.
+ECPAY_EVENT_SOURCE = "ecpay_callback"
 
 
-def _ecpay_check_mac_value(params: dict, hash_key: str, hash_iv: str) -> str:
-    """Compute ECPay's CheckMacValue over a callback's form parameters.
+def _ecpay_ack() -> PlainTextResponse:
+    """The only body ECPay accepts as "notification received": exactly 1|OK.
 
-    ECPay AIO spec: drop CheckMacValue, sort the remaining keys
-    case-insensitively, wrap with HashKey/HashIV, URL-encode the whole string
-    .NET-style (lowercase percent escapes, space as '+'), SHA256, uppercase.
-
-    The `.NET` compatibility replacements below are not optional — ECPay
-    generates the digest with HttpUtility.UrlEncode, which leaves these seven
-    characters unescaped where Python's quote_plus escapes them. Without the
-    replacements every signature mismatches.
+    Anything else — JSON, whitespace, a trailing newline — is read as a failure
+    and the callback is resent until it gives up.
     """
-    pairs = sorted(
-        ((k, v) for k, v in params.items() if k != "CheckMacValue"),
-        key=lambda kv: kv[0].lower(),
-    )
-    raw = "&".join(f"{k}={v}" for k, v in pairs)
-    raw = f"HashKey={hash_key}&{raw}&HashIV={hash_iv}"
+    return PlainTextResponse(content="1|OK", media_type="text/plain")
 
-    encoded = quote_plus(raw).lower()
-    for escape, literal in (
-        ("%2d", "-"), ("%5f", "_"), ("%2e", "."), ("%21", "!"),
-        ("%2a", "*"), ("%28", "("), ("%29", ")"),
-    ):
-        encoded = encoded.replace(escape, literal)
 
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest().upper()
+# The signing primitives now live in ecpay.py. These two names stay because the
+# credentials they close over are module globals here, and because the callback
+# security suite patches main.ECPAY_HASH_KEY / main.ECPAY_HASH_IV — reading them
+# at call time is what keeps that patching effective.
+_ecpay_check_mac_value = ecpay.build_check_mac_value
 
 
 def _ecpay_signature_is_valid(params: dict) -> bool:
-    """Constant-time comparison of the supplied CheckMacValue against ours.
-
-    Only EncryptType=1 (SHA256) is implemented. Anything else fails closed —
-    a rejected callback is recoverable, a forged one is not.
-    """
-    supplied = (params.get("CheckMacValue") or "").strip().upper()
-    if not supplied:
-        return False
-    encrypt_type = (params.get("EncryptType") or "1").strip()
-    if encrypt_type != "1":
-        logger.error("[payment/ecpay] unsupported EncryptType=%r", encrypt_type)
-        return False
-    expected = _ecpay_check_mac_value(params, ECPAY_HASH_KEY, ECPAY_HASH_IV)
-    return hmac.compare_digest(expected, supplied)
+    """Verify a callback's CheckMacValue against the configured credentials."""
+    return ecpay.verify_check_mac_value(params, ECPAY_HASH_KEY, ECPAY_HASH_IV)
 
 
 def _is_unique_violation(exc: Exception) -> bool:
@@ -3201,36 +3191,96 @@ def _mark_payment_event_processed(source: str, merchant_trade_no: str,
         )
 
 
+def _ecpay_urls() -> tuple[str, str, str]:
+    """(ReturnURL, ClientBackURL, OrderResultURL) — absolute HTTPS, from env.
+
+    Fails closed rather than shipping a relative path to the cashier: ECPay
+    would accept the order and then be unable to notify us, which looks like a
+    successful payment that never grants anything.
+    """
+    if not PUBLIC_BACKEND_URL or not PUBLIC_FRONTEND_URL:
+        logger.error("[BILLING] PUBLIC_BACKEND_URL / PUBLIC_FRONTEND_URL not set")
+        raise HTTPException(status_code=503, detail="Payment not configured")
+    if not (PUBLIC_BACKEND_URL.startswith("https://")
+            and PUBLIC_FRONTEND_URL.startswith("https://")):
+        logger.error("[BILLING] public URLs must be absolute HTTPS")
+        raise HTTPException(status_code=503, detail="Payment not configured")
+    return (
+        f"{PUBLIC_BACKEND_URL}/api/payment/callback",   # server-to-server, signed
+        f"{PUBLIC_FRONTEND_URL}/success.html",          # "back to shop" button
+        f"{PUBLIC_BACKEND_URL}/api/payment/return",     # browser lands here first
+    )
+
+
 @app.post("/api/payment/create-order")
 @limiter.limit("5/minute")
 async def payment_create_order(
     request: Request,
     authorization: Optional[str] = Header(None),
 ):
-    """建立訂單骨架，等綠界 API key 到再填入真實付款 URL。"""
+    """Mint one ECPay checkout: a pending subscription row plus a signed form.
+
+    Returns {action_url, params}; the frontend auto-POSTs params to action_url.
+    There is no payment_url — ECPay's cashier is reached by form POST, not by
+    redirect, and the previous relative /upgrade.html link went nowhere.
+
+    Repeat clicks deliberately mint a *new* MerchantTradeNo and a new pending
+    row each time. Reusing a pending row would resend an already-registered
+    trade number, which ECPay rejects outright; unpaid pending rows are inert
+    because entitlement is decided solely by the callback.
+    """
     user_id = verify_token(authorization)
     if supabase_admin is None:
         raise HTTPException(status_code=503, detail="Database not configured")
+    if not ECPAY_HASH_KEY or not ECPAY_HASH_IV or not ecpay.ECPAY_MERCHANT_ID:
+        logger.error("[BILLING] ECPay merchant credentials not configured")
+        raise HTTPException(status_code=503, detail="Payment not configured")
 
-    order_id = f"BLABBY-{uuid.uuid4().hex[:12].upper()}"
+    return_url, client_back_url, order_result_url = _ecpay_urls()
+    merchant_trade_no = ecpay.generate_merchant_trade_no()
 
     try:
-        supabase_admin.table("subscriptions").insert({
-            "user_id": user_id,
-            "order_id": order_id,
-            "plan":     "monthly",
-            "status":   "pending",
-            "amount":   299,
+        ins = supabase_admin.table("subscriptions").insert({
+            "user_id":           user_id,
+            # order_id is the legacy column the admin views and the LemonSqueezy
+            # mirror already read; it carries the same value so nothing that
+            # queries it regresses. merchant_trade_no is what the callback
+            # matches on and what carries the UNIQUE idempotency constraint.
+            "order_id":          merchant_trade_no,
+            "merchant_trade_no": merchant_trade_no,
+            "plan":              "monthly",
+            "status":            "pending",
+            "amount":            ecpay.PRO_MONTHLY_TWD,
         }).execute()
     except Exception:
-        logger.exception("create_order insert failed", extra={"user_id": user_id})
+        logger.exception("[BILLING] create_order insert failed",
+                         extra={"user_id": user_id})
         raise HTTPException(status_code=503, detail="Failed to create order")
 
-    # TODO: replace with real ECPay payment page URL once credentials land.
+    if not ins.data:
+        logger.error("[BILLING] create_order insert returned no rows mtn=%s",
+                     merchant_trade_no)
+        raise HTTPException(status_code=500, detail="Order insert returned no rows")
+
+    # TotalAmount comes from the module constant, never from the request body.
+    params = ecpay.build_aio_checkout_params(
+        merchant_id=ecpay.ECPAY_MERCHANT_ID,
+        merchant_trade_no=merchant_trade_no,
+        total_amount=ecpay.PRO_MONTHLY_TWD,
+        return_url=return_url,
+        client_back_url=client_back_url,
+        order_result_url=order_result_url,
+        hash_key=ECPAY_HASH_KEY,
+        hash_iv=ECPAY_HASH_IV,
+    )
+
+    logger.info("[BILLING] order created mtn=%s user_id=%s amount=%s env=%s",
+                merchant_trade_no, user_id, ecpay.PRO_MONTHLY_TWD, ecpay.ECPAY_ENV)
     return {
-        "order_id":    order_id,
-        "payment_url": f"/upgrade.html?pending={order_id}",
-        "amount":      299,
+        "action_url":        ecpay.aio_checkout_url(),
+        "params":            params,
+        "merchant_trade_no": merchant_trade_no,
+        "amount":            ecpay.PRO_MONTHLY_TWD,
     }
 
 
@@ -3244,8 +3294,20 @@ async def payment_callback(request: Request):
 
       1. merchant credentials configured  → else 503 (fail closed)
       2. CheckMacValue verifies           → else 401, nothing written anywhere
-      3. not already in payment_events    → else 200 duplicate, no re-grant
+      3. not already in payment_events    → else 1|OK duplicate, no re-grant
       4. both entitlement writes return a row → else 500
+
+    Response contract — ECPay treats anything other than the literal ASCII
+    string "1|OK" as a failed notification and keeps resending. So every
+    outcome we have durably recorded answers 1|OK (text/plain, no trailing
+    newline), and only outcomes we want retried answer non-2xx:
+
+      503 credentials missing      → retry, nothing was recorded
+      401 bad signature/EncryptType→ retry is harmless, nothing was recorded
+      200 1|OK duplicate           → already recorded, do not re-grant
+      200 1|OK RtnCode != 1        → recorded, no entitlement
+      200 1|OK granted             → recorded and granted
+      500 empty row / exception    → retry; the idempotency key absorbs it
 
     Deliberately NOT "always 200". The previous handler swallowed every
     exception and returned 200 unconditionally, which made a forged or failed
@@ -3254,7 +3316,7 @@ async def payment_callback(request: Request):
     gate 3 makes retries of *accepted* callbacks free.
     """
     if not ECPAY_HASH_KEY or not ECPAY_HASH_IV:
-        logger.error("[payment/ecpay] ECPAY_HASH_KEY / ECPAY_HASH_IV not set")
+        logger.error("[BILLING] ECPAY_HASH_KEY / ECPAY_HASH_IV not set")
         raise HTTPException(status_code=503, detail="Payment not configured")
     if supabase_admin is None:
         raise HTTPException(status_code=503, detail="Database not configured")
@@ -3269,13 +3331,13 @@ async def payment_callback(request: Request):
     # caller must not be able to append to the ledger either.
     if not _ecpay_signature_is_valid(params):
         logger.warning(
-            "[payment/ecpay] rejected callback: bad CheckMacValue mtn=%r",
-            params.get("MerchantTradeNo"),
+            "[BILLING] rejected callback: bad CheckMacValue mtn=%r enc=%r",
+            params.get("MerchantTradeNo"), params.get("EncryptType"),
         )
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    order_id = (params.get("MerchantTradeNo") or "").strip()
-    if not order_id:
+    merchant_trade_no = (params.get("MerchantTradeNo") or "").strip()
+    if not merchant_trade_no:
         raise HTTPException(status_code=400, detail="MerchantTradeNo required")
     rtn_code = (params.get("RtnCode") or "").strip()
 
@@ -3287,8 +3349,8 @@ async def payment_callback(request: Request):
 
     # Gate 3. The ledger row IS the idempotency check.
     first_observation = _record_payment_event({
-        "source":              "return_url",
-        "merchant_trade_no":   order_id,
+        "source":              ECPAY_EVENT_SOURCE,
+        "merchant_trade_no":   merchant_trade_no,
         "total_success_times": total_success_times,
         "rtn_code":            rtn_code,
         "rtn_msg":             (params.get("RtnMsg") or "")[:500],
@@ -3296,17 +3358,19 @@ async def payment_callback(request: Request):
         "raw_payload":         params,
     })
     if not first_observation:
-        return {"status": "duplicate", "order_id": order_id}
+        logger.info("[BILLING] duplicate callback mtn=%s", merchant_trade_no)
+        return _ecpay_ack()
 
     if rtn_code != "1":
-        logger.info("[payment/ecpay] non-success callback mtn=%s rtn=%s",
-                    order_id, rtn_code)
-        _mark_payment_event_processed("return_url", order_id, total_success_times)
-        return {"status": "recorded", "order_id": order_id}
+        logger.info("[BILLING] non-success callback mtn=%s rtn=%s",
+                    merchant_trade_no, rtn_code)
+        _mark_payment_event_processed(
+            ECPAY_EVENT_SOURCE, merchant_trade_no, total_success_times)
+        return _ecpay_ack()
 
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
-    expires_iso = (now + timedelta(days=30)).isoformat()
+    expires_iso = (now + timedelta(days=ecpay.PRO_PERIOD_DAYS)).isoformat()
 
     try:
         sub_upd = supabase_admin.table("subscriptions").update({
@@ -3314,45 +3378,61 @@ async def payment_callback(request: Request):
             "started_at": now_iso,
             "expires_at": expires_iso,
             "updated_at": now_iso,
-        }).eq("order_id", order_id).execute()
+        }).eq("merchant_trade_no", merchant_trade_no).execute()
     except Exception as exc:
-        logger.exception("[payment/ecpay] subscriptions update failed")
+        logger.exception("[BILLING] subscriptions update failed")
         raise HTTPException(status_code=500, detail="Subscription update failed") from exc
 
-    # Gate 4. A 200 from PostgREST with zero rows means the order_id matched
+    # Gate 4. A 200 from PostgREST with zero rows means the trade number matched
     # nothing — never let that read as a successful upgrade.
     if not sub_upd.data:
-        logger.error("[payment/ecpay] no subscription row for order_id=%s", order_id)
+        logger.error("[BILLING] no subscription row for mtn=%s", merchant_trade_no)
         raise HTTPException(status_code=500, detail="Subscription update returned no rows")
 
     uid = sub_upd.data[0].get("user_id")
     if not uid:
-        logger.error("[payment/ecpay] subscription %s has no user_id", order_id)
+        logger.error("[BILLING] subscription %s has no user_id", merchant_trade_no)
         raise HTTPException(status_code=500, detail="Subscription has no user")
 
-    try:
-        prof_upd = supabase_admin.table("profiles").update({
-            "is_pro":     True,
-            "updated_at": now_iso,
-        }).eq("id", uid).execute()
-    except Exception as exc:
-        logger.exception("[payment/ecpay] profiles update failed")
-        raise HTTPException(status_code=500, detail="Profile update failed") from exc
-
-    if not prof_upd.data:
-        logger.error("[payment/ecpay] profile update returned no rows for %s", uid)
-        raise HTTPException(status_code=500, detail="Profile update returned no rows")
-
-    _mark_payment_event_processed("return_url", order_id, total_success_times)
-    logger.info("[payment/ecpay] activated order_id=%s user_id=%s", order_id, uid)
-    return {"status": "ok", "order_id": order_id}
+    # profiles.is_pro is NOT written here. Entitlement is the time window on
+    # subscriptions, read by is_user_pro(); writing the bare boolean too would
+    # give a paid user a Pro flag that outlives the period they bought.
+    _mark_payment_event_processed(
+        ECPAY_EVENT_SOURCE, merchant_trade_no, total_success_times)
+    logger.info("[BILLING] activated mtn=%s user_id=%s expires=%s",
+                merchant_trade_no, uid, expires_iso)
+    return _ecpay_ack()
 
 
-@app.get("/api/payment/return")
+@app.api_route("/api/payment/return", methods=["GET", "POST"])
 async def payment_return(request: Request):
-    """用戶付款後跳回。TODO: 改成完整 frontend URL 後再給綠界 OrderResultURL。"""
-    order_id = request.query_params.get("MerchantTradeNo", "")
-    return RedirectResponse(url=f"/success.html?order={order_id}")
+    """Where the buyer's browser lands after paying (ECPay's OrderResultURL).
+
+    Grants nothing. This request is user-driven and unsigned, so it is treated
+    purely as navigation — entitlement is decided only by the signed
+    server-to-server callback above.
+
+    POST is the real method ECPay uses; GET is kept so the URL stays openable
+    by hand. The trade number is read from the form first and the query string
+    second, because a POST body has no query parameters.
+    """
+    merchant_trade_no = ""
+    if request.method == "POST":
+        try:
+            form = await request.form()
+            merchant_trade_no = str(form.get("MerchantTradeNo") or "")
+        except Exception:
+            logger.warning("[BILLING] unreadable return body")
+    if not merchant_trade_no:
+        merchant_trade_no = request.query_params.get("MerchantTradeNo", "")
+
+    # Absolute URL: this endpoint is on the backend host, success.html is not.
+    base = PUBLIC_FRONTEND_URL or ""
+    target = f"{base}/success.html"
+    if merchant_trade_no:
+        target = f"{target}?order={quote_plus(merchant_trade_no)}"
+    # 303: turn ECPay's POST into a GET so a refresh cannot repost the result.
+    return RedirectResponse(url=target, status_code=303)
 
 
 @app.get("/api/user/subscription")

@@ -142,6 +142,13 @@ def _signed_form(**overrides):
     return params
 
 
+def _assert_ack(response):
+    """Every durably-recorded outcome answers ECPay with exactly 1|OK."""
+    assert response.body == b"1|OK"
+    assert response.status_code == 200
+    assert response.media_type == "text/plain"
+
+
 def _call_callback(form_params, fake):
     request = MagicMock()
     request.form = AsyncMock(return_value=form_params)
@@ -223,16 +230,15 @@ def test_same_merchant_trade_no_five_times_changes_entitlement_once():
     form = _signed_form()
 
     first = _call_callback(form, fake)
-    assert first["status"] == "ok"
+    _assert_ack(first)
 
     for _ in range(4):
-        again = _call_callback(form, fake)
-        assert again["status"] == "duplicate"
+        _assert_ack(_call_callback(form, fake))
 
     subs = [w for w in fake.entitlement_writes() if w[0] == "subscriptions"]
     profs = [w for w in fake.entitlement_writes() if w[0] == "profiles"]
     assert len(subs) == 1, f"subscriptions written {len(subs)}x, expected once"
-    assert len(profs) == 1, f"profiles written {len(profs)}x, expected once"
+    assert profs == [], "entitlement is the subscriptions window, not profiles.is_pro"
     assert len(fake.seen_keys) == 1, "only one distinct ledger key expected"
 
 
@@ -241,7 +247,7 @@ def test_recurring_period_is_not_swallowed_as_a_duplicate():
     fake = _FakeSupabase()
     _call_callback(_signed_form(TotalSuccessTimes="1"), fake)
     second = _call_callback(_signed_form(TotalSuccessTimes="2"), fake)
-    assert second["status"] == "ok"
+    _assert_ack(second)
     assert len(fake.seen_keys) == 2
 
 
@@ -254,18 +260,30 @@ def test_subscription_update_returning_no_rows_is_500():
     assert "no rows" in exc.value.detail.lower()
 
 
-def test_profile_update_returning_no_rows_is_500():
-    fake = _FakeSupabase(profiles_data=[])
+def test_subscription_without_a_user_id_is_500():
+    """A matched row that carries no owner cannot be turned into entitlement."""
+    fake = _FakeSupabase(subscriptions_data=[{"user_id": None}])
     with pytest.raises(HTTPException) as exc:
         _call_callback(_signed_form(), fake)
     assert exc.value.status_code == 500
-    assert "no rows" in exc.value.detail.lower()
+
+
+def test_successful_callback_never_writes_profiles_is_pro():
+    """Replaces the old profiles-empty-row test: that write no longer exists.
+
+    Pro is the subscriptions time window read by is_user_pro(). Setting the
+    bare profiles.is_pro boolean here would hand the buyer a flag that outlives
+    the 30 days they paid for, which is the leak the window closes.
+    """
+    fake = _FakeSupabase()
+    _assert_ack(_call_callback(_signed_form(), fake))
+    assert [w for w in fake.writes if w[0] == "profiles"] == []
 
 
 def test_failed_payment_is_recorded_without_granting_pro():
     fake = _FakeSupabase()
-    body = _call_callback(_signed_form(RtnCode="0", RtnMsg="Declined"), fake)
-    assert body["status"] == "recorded"
+    response = _call_callback(_signed_form(RtnCode="0", RtnMsg="Declined"), fake)
+    _assert_ack(response)
     assert fake.entitlement_writes() == [], "a declined payment must grant nothing"
     assert len(fake.ledger_rows()) == 1, "but it must still be recorded"
 
