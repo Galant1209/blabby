@@ -9,6 +9,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIGRATIONS="$HERE/../migrations"
 ECPAY_MIGRATION="$MIGRATIONS/20260730_ecpay_backend.sql"
+RECON_MIGRATION="$MIGRATIONS/20260730_0_is_user_pro_reconciliation.sql"
+RECON_ROLLBACK="$MIGRATIONS/20260730_0_is_user_pro_reconciliation_rollback.sql"
 
 psql_run() { psql "$PGURI" -v ON_ERROR_STOP=1 -q -f "$1"; }
 
@@ -245,6 +247,253 @@ SQL
     trap - RETURN
 }
 
+expect_reconciliation_migration_failure() {
+    local label="$1"
+    local log_file
+    log_file="$(mktemp)"
+    trap 'rm -f "$log_file"' RETURN
+    if psql "$PGURI" -v ON_ERROR_STOP=1 -q -f "$RECON_MIGRATION" \
+        >"$log_file" 2>&1; then
+        echo "FAIL  $label: reconciliation migration unexpectedly succeeded" >&2
+        cat "$log_file" >&2
+        return 1
+    fi
+    echo "ok    $label (rejected)"
+}
+
+expect_reconciliation_rollback_failure() {
+    local label="$1"
+    local log_file
+    log_file="$(mktemp)"
+    trap 'rm -f "$log_file"' RETURN
+    if psql "$PGURI" -v ON_ERROR_STOP=1 -q -f "$RECON_ROLLBACK" \
+        >"$log_file" 2>&1; then
+        echo "FAIL  $label: reconciliation rollback unexpectedly succeeded" >&2
+        cat "$log_file" >&2
+        return 1
+    fi
+    echo "ok    $label (rejected)"
+}
+
+# Verified by the reconciliation migration's own header:
+#   - two ALLOWED differences: an active/unexpired subscription (old=false,
+#     new=true — the entire point), and a nonexistent profiles row
+#     (old=NULL, new=false — both non-Pro at every call site)
+#   - every other combination of grant state x subscription state x bare
+#     is_pro must return IDENTICAL results under both bodies
+#
+# By the point this hook fires (just before the main loop applies
+# 20260730_0_is_user_pro_reconciliation.sql), 20260726_billing_identity_
+# containment.sql has already installed the SAME canonical body earlier in
+# the loop — that migration file's own §2 literally is this CREATE OR REPLACE.
+# So "new" below is the live public.is_user_pro(), and "old" is the retired
+# body's SQL expression evaluated inline (never installed as a live function
+# during replay, since it would just be immediately overwritten again by
+# 20260726). This is mathematically identical to calling the old body as a
+# function: it is a pure, side-effect-free SQL expression.
+run_is_user_pro_reconciliation_contract_proofs() {
+    echo
+    echo "── prove is_user_pro equivalence matrix and rollback gates ─"
+
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+DO $$
+DECLARE
+    rec        record;
+    old_result boolean;
+    new_result boolean;
+    test_uid   uuid;
+    failures   text[] := '{}';
+BEGIN
+    FOR rec IN
+        SELECT * FROM (VALUES
+        -- case, grant_mode, sub_mode, bare_is_pro, expected_old, expected_new, label
+        (1,  'null',   'none',    false, true,  true,
+             'permanent grant, no subscription'),
+        (2,  'future', 'none',    false, true,  true,
+             'future-dated grant, no subscription'),
+        (3,  'past',   'none',    false, false, false,
+             'expired grant, no subscription'),
+        (4,  'none',   'none',    false, false, false,
+             'no grant, no subscription'),
+        (5,  'null',   'expired', false, true,  true,
+             'permanent grant, expired subscription'),
+        (6,  'past',   'expired', false, false, false,
+             'expired grant, expired subscription'),
+        (7,  'none',   'expired', false, false, false,
+             'no grant, expired subscription'),
+        (8,  'future', 'none',    true,  true,  true,
+             'bare is_pro covered by a future-dated grant'),
+        (9,  'null',   'active',  false, true,  true,
+             'permanent grant, active subscription'),
+        (10, 'none',   'active',  false, false, true,
+             'ALLOWED DIFF (a): active subscription alone, no grant'),
+        (11, 'past',   'active',  false, false, true,
+             'ALLOWED DIFF (a): expired grant, active subscription'),
+        (12, 'future', 'active',  false, true,  true,
+             'future-dated grant, active subscription'),
+        (13, 'null',   'active',  true,  true,  true,
+             'permanent grant + active subscription + bare is_pro'),
+        (14, 'none',   'active',  true,  true,  true,
+             'bare is_pro covered by active subscription alone')
+        ) AS t(case_num, grant_mode, sub_mode, bare_is_pro,
+               expected_old, expected_new, label)
+    LOOP
+        test_uid := ('00000000-0000-0000-0000-0000000001'
+                     || lpad(rec.case_num::text, 2, '0'))::uuid;
+
+        INSERT INTO auth.users (id, email)
+        VALUES (test_uid, 'recon-matrix-' || rec.case_num || '@example.invalid')
+        ON CONFLICT (id) DO NOTHING;
+
+        -- handle_new_user() already auto-created a profiles row (AFTER INSERT
+        -- trigger on auth.users, is_pro/is_pro_grant default false) the instant
+        -- the auth.users row above committed. A plain INSERT here would hit its
+        -- primary key and fail with a duplicate-key error every single case.
+        INSERT INTO public.profiles (id, is_pro, is_pro_grant, pro_grant_expires_at)
+        VALUES (
+            test_uid,
+            rec.bare_is_pro,
+            rec.grant_mode <> 'none',
+            CASE rec.grant_mode
+                WHEN 'null'   THEN NULL
+                WHEN 'future' THEN now() + interval '30 days'
+                WHEN 'past'   THEN now() - interval '1 day'
+                ELSE NULL
+            END
+        )
+        ON CONFLICT (id) DO UPDATE
+        SET is_pro = EXCLUDED.is_pro,
+            is_pro_grant = EXCLUDED.is_pro_grant,
+            pro_grant_expires_at = EXCLUDED.pro_grant_expires_at;
+
+        IF rec.sub_mode = 'active' THEN
+            INSERT INTO public.subscriptions (user_id, order_id, status, amount, expires_at)
+            VALUES (test_uid, 'RECON-MATRIX-' || rec.case_num, 'active', 199,
+                    now() + interval '30 days');
+        ELSIF rec.sub_mode = 'expired' THEN
+            -- Genuinely representative of production: nothing demotes status
+            -- when expires_at passes (verified against real data in 6A-R.7).
+            INSERT INTO public.subscriptions (user_id, order_id, status, amount, expires_at)
+            VALUES (test_uid, 'RECON-MATRIX-' || rec.case_num, 'active', 199,
+                    now() - interval '1 day');
+        END IF;
+
+        SELECT COALESCE(p.is_pro, false)
+               OR (COALESCE(p.is_pro_grant, false)
+                   AND (p.pro_grant_expires_at IS NULL OR p.pro_grant_expires_at > now()))
+          INTO old_result
+          FROM public.profiles p WHERE p.id = test_uid;
+
+        SELECT public.is_user_pro(test_uid) INTO new_result;
+
+        IF old_result IS DISTINCT FROM rec.expected_old
+           OR new_result IS DISTINCT FROM rec.expected_new THEN
+            failures := failures || format(
+                'case %s (%s): expected old=%s new=%s, got old=%s new=%s',
+                rec.case_num, rec.label,
+                rec.expected_old, rec.expected_new, old_result, new_result);
+        END IF;
+
+        -- Self-contained: gone before the next case, and before the rollback
+        -- gate tests below run (which must see zero active subscriptions).
+        DELETE FROM auth.users WHERE id = test_uid;
+    END LOOP;
+
+    -- Case 15: no profiles row at all. old is a genuine SQL NULL (a
+    -- zero-row scalar SELECT), new is a boolean EXISTS() that can never be
+    -- NULL. Both are "not Pro" at every call site — see the migration header.
+    test_uid := '00000000-0000-0000-0000-000000000115'::uuid;
+    SELECT COALESCE(p.is_pro, false)
+           OR (COALESCE(p.is_pro_grant, false)
+               AND (p.pro_grant_expires_at IS NULL OR p.pro_grant_expires_at > now()))
+      INTO old_result
+      FROM public.profiles p WHERE p.id = test_uid;
+    SELECT public.is_user_pro(test_uid) INTO new_result;
+    IF old_result IS NOT NULL OR new_result IS DISTINCT FROM false THEN
+        failures := failures || format(
+            'case 15 (no profiles row): expected old=NULL new=false, got old=%s new=%s',
+            old_result, new_result);
+    END IF;
+
+    IF array_length(failures, 1) > 0 THEN
+        RAISE EXCEPTION 'is_user_pro equivalence matrix FAILED: %',
+            array_to_string(failures, ' | ');
+    END IF;
+    RAISE NOTICE 'is_user_pro equivalence matrix: 15/15 cases verified '
+                 '(13 identical, 2 allowed differences)';
+END $$;
+SQL
+    echo "ok    is_user_pro equivalence matrix (15/15, zero unexplained divergence)"
+
+    # ── orphan gate: bare is_pro=true with no covering grant or subscription
+    # must never be silently downgraded — the migration must refuse to apply.
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO auth.users (id, email)
+VALUES ('00000000-0000-0000-0000-000000000120', 'recon-orphan@example.invalid')
+ON CONFLICT (id) DO NOTHING;
+-- handle_new_user() already created the row (is_pro/is_pro_grant default
+-- false); UPDATE it into an orphan rather than INSERT, which would collide.
+INSERT INTO public.profiles (id, is_pro, is_pro_grant)
+VALUES ('00000000-0000-0000-0000-000000000120', true, false)
+ON CONFLICT (id) DO UPDATE
+SET is_pro = true, is_pro_grant = false, pro_grant_expires_at = NULL;
+SQL
+    expect_reconciliation_migration_failure "preflight_orphan_bare_is_pro"
+    if [[ "$(psql "$PGURI" -v ON_ERROR_STOP=1 -qAt -c \
+        "SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('public.is_user_pro(uuid)')" \
+        | tr -d '[:space:]')" != *"FROMsubscriptionss"* ]]; then
+        echo "orphan-gate rejection left is_user_pro on the wrong body" >&2
+        return 1
+    fi
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q -c \
+        "DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-000000000120'"
+    echo "ok    orphan-gate rejection left the canonical body untouched"
+
+    # ── rollback gate, abort path: an active, unexpired subscription must
+    # block the rollback outright — reverting would silently revoke a paying
+    # customer's Pro mid-period.
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO auth.users (id, email)
+VALUES ('00000000-0000-0000-0000-000000000130', 'recon-rollback-guard@example.invalid')
+ON CONFLICT (id) DO NOTHING;
+-- No explicit profiles insert needed: handle_new_user() already created one
+-- with is_pro/is_pro_grant false, which is exactly what this test needs —
+-- only the subscription matters for the rollback gate being tested here.
+INSERT INTO public.subscriptions (user_id, order_id, status, amount, expires_at)
+VALUES ('00000000-0000-0000-0000-000000000130', 'RECON-ROLLBACK-GUARD', 'active',
+        199, now() + interval '30 days');
+SQL
+    expect_reconciliation_rollback_failure "rollback_blocked_by_active_subscription"
+    if [[ "$(psql "$PGURI" -v ON_ERROR_STOP=1 -qAt -c \
+        "SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('public.is_user_pro(uuid)')" \
+        | tr -d '[:space:]')" != *"FROMsubscriptionss"* ]]; then
+        echo "blocked rollback nonetheless changed is_user_pro's body" >&2
+        return 1
+    fi
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q -c \
+        "DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-000000000130'"
+    echo "ok    rollback correctly refused while a paying subscription is active"
+
+    # ── rollback gate, success path: with zero active subscriptions, rollback
+    # must actually revert the body — then restore it, so the main loop's own
+    # (upcoming) application of the forward file, and 20260730_ecpay_backend.sql's
+    # preflight later in the same loop, see the canonical body as expected.
+    if [[ "$(psql "$PGURI" -v ON_ERROR_STOP=1 -qAt -c \
+        "SELECT count(*) FROM public.subscriptions WHERE status='active' AND expires_at > now()")" \
+        != "0" ]]; then
+        echo "test data leaked an active subscription before the rollback-success check" >&2
+        return 1
+    fi
+    psql_run "$RECON_ROLLBACK"
+    if [[ "$(psql "$PGURI" -v ON_ERROR_STOP=1 -qAt -c \
+        "SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('public.is_user_pro(uuid)')" \
+        | tr -d '[:space:]')" == *"FROMsubscriptionss"* ]]; then
+        echo "rollback ran but did not revert to the bare is_pro body" >&2
+        return 1
+    fi
+    echo "ok    rollback reverted the body when no active subscription exists"
+}
+
 echo "── shim ──────────────────────────────────────────────"
 psql_run "$HERE/00_local_shim.sql"
 echo "ok  00_local_shim.sql"
@@ -259,12 +508,26 @@ for f in $(ls "$MIGRATIONS"/*.sql | sort); do
     case "$base" in
         *_rollback.sql) echo "skip  $base  (rollback script, not a forward migration)"; continue ;;
     esac
+    if [[ "$f" == "$RECON_MIGRATION" ]]; then
+        run_is_user_pro_reconciliation_contract_proofs
+    fi
     if [[ "$f" == "$ECPAY_MIGRATION" ]]; then
         run_ecpay_migration_contract_proofs
     fi
     psql_run "$f"
     echo "ok    $base"
 done
+
+echo
+echo "── prove is_user_pro reconciliation is safely rerunnable ──"
+psql_run "$RECON_MIGRATION"
+echo "ok    20260730_0_is_user_pro_reconciliation.sql (complete rerun)"
+if [[ "$(psql "$PGURI" -v ON_ERROR_STOP=1 -qAt -c \
+    "SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('public.is_user_pro(uuid)')" \
+    | tr -d '[:space:]')" != *"FROMsubscriptionss"* ]]; then
+    echo "rerun of the reconciliation migration left the wrong body in place" >&2
+    exit 1
+fi
 
 echo
 echo "── prove complete ECPay migration is safely rerunnable "
