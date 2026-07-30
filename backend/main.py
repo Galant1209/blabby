@@ -7197,6 +7197,7 @@ def _extract_vocab_targets_haiku(passage_text: str, difficulty_band: float) -> l
     """
     from reading_prompts import build_vocab_targets_prompt_haiku
 
+    model = "claude-haiku-4-5-20251001"
     prompt = build_vocab_targets_prompt_haiku(passage_text, difficulty_band)
     try:
         response = anthropic_client.messages.create(
@@ -7204,12 +7205,22 @@ def _extract_vocab_targets_haiku(passage_text: str, difficulty_band: float) -> l
             # responses in production (JSONDecodeError 'Expecting value at
             # char 0' downstream). Anthropic's session-start hook lists
             # this as the canonical Haiku 4.5 identifier.
-            model="claude-haiku-4-5-20251001",
+            model=model,
             max_tokens=200,
             system=prompt,
             messages=[{"role": "user", "content": "Output the JSON array now."}],
         )
         raw = (response.content[0].text or "").strip()
+
+        # Haiku 4.5 intermittently wraps the array in ```json fences despite
+        # being told not to (confirmed via live repro — same prompt, two
+        # calls, one fenced and one bare). Every other Haiku call site in
+        # this file already strips fences before json.loads; this one
+        # didn't, so a fenced response fell straight into JSONDecodeError
+        # and silently returned []. Mirror the existing pattern.
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
 
         # Defensive: empty response can occur from model misconfiguration,
         # safety filtering, or rate-limit edge cases. Bail before json.loads
@@ -7217,9 +7228,9 @@ def _extract_vocab_targets_haiku(passage_text: str, difficulty_band: float) -> l
         # (vocab is non-fatal; passage still renders, just without tappable words).
         if not raw:
             logger.warning(
-                "haiku vocab_targets returned empty response; "
-                "passage will have no tappable words",
-                extra={"passage_chars": len(passage_text)},
+                "haiku vocab_targets returned empty response | model=%s "
+                "passage_chars=%d | passage will have no tappable words",
+                model, len(passage_text),
             )
             return []
 
@@ -7250,8 +7261,9 @@ def _extract_vocab_targets_haiku(passage_text: str, difficulty_band: float) -> l
                 break
         if len(out) < 6:
             logger.warning(
-                "haiku vocab_targets returned only %d items (need >=6)",
-                len(out),
+                "haiku vocab_targets returned only %d items (need >=6) | "
+                "model=%s passage_chars=%d",
+                len(out), model, len(passage_text),
             )
         return out
     except json.JSONDecodeError:
@@ -7263,15 +7275,17 @@ def _extract_vocab_targets_haiku(passage_text: str, difficulty_band: float) -> l
         head = raw[:200].replace("\n", "\\n")
         tail = raw[-200:].replace("\n", "\\n") if len(raw) > 200 else ""
         logger.warning(
-            "haiku vocab_targets parse failure | raw_len=%d | head=%r | tail=%r",
-            len(raw), head, tail,
+            "haiku vocab_targets parse failure | model=%s passage_chars=%d "
+            "raw_len=%d | head=%r | tail=%r",
+            model, len(passage_text), len(raw), head, tail,
             exc_info=True,
         )
         return []
     except Exception:
         logger.warning(
-            "haiku vocab_targets extraction failed; passage will have no "
-            "tappable words",
+            "haiku vocab_targets extraction failed | model=%s passage_chars=%d "
+            "| passage will have no tappable words",
+            model, len(passage_text),
             exc_info=True,
         )
         return []
