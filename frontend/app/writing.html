@@ -57,8 +57,10 @@
             --serif:      'EB Garamond', 'Cormorant Garamond', Georgia, serif;
             --sans:       'Inter Tight', 'Inter', -apple-system, sans-serif;
             /* Page-local additions (absent from the shared palette). */
-            --accent:      var(--navy);
             --surface-alt: var(--paper);
+            /* Derived — transparency variants of existing hues, no new hue. */
+            --gold-warm-soft: rgba(232, 200, 102, 0.4); /* --gold-warm @ 40%: inset accent lines, panel rings */
+            --ink-shadow:     rgba(44, 36, 22, 0.16);   /* --ink @ 16%: chamber drop shadow (matches hub.html's existing ink-tinted shadow convention) */
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -95,29 +97,61 @@
             .page-shell { padding: 28px 16px 100px; }
         }
 
+        /* ── Utility row (small, functional nav only) ──────────────────────── */
         .topbar {
             display: flex;
-            align-items: baseline;
-            justify-content: space-between;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 14px;
-            margin-bottom: 28px;
-        }
-        .topbar__crest {
-            font-family: var(--serif);
-            font-size: 22px;
-            letter-spacing: 0.04em;
-            color: var(--green-dark);
-            font-weight: 500;
+            justify-content: flex-end;
+            margin-bottom: 8px;
         }
         .topbar__return {
             font-family: var(--serif);
             font-style: italic;
             color: var(--muted);
             text-decoration: none;
-            font-size: 15px;
+            font-size: 14px;
         }
         .topbar__return:hover { color: var(--ink); }
+
+        /* ── Masthead (ceremonial — the page's one visual anchor) ──────────── */
+        .masthead {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .masthead-crest {
+            width: 38px;
+            height: 38px;
+            margin: 0 auto 12px;
+            color: var(--gold);
+        }
+        .masthead-title {
+            font-family: var(--serif);
+            font-size: 26px;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            color: var(--green-dark);
+            margin-bottom: 10px;
+        }
+        .masthead-kicker {
+            font-family: var(--sans);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        /* Short centred divider between masthead and chamber — success.html's
+           .rule pattern (two flanking segments + a diamond), not full-width. */
+        .chamber-divider {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            margin: 0 0 32px;
+            color: var(--gold);
+            font-size: 11px;
+        }
+        .chamber-divider span { width: 56px; height: 1px; background: var(--gold); display: inline-block; opacity: 0.65; }
 
         .austere-prose {
             font-family: var(--serif);
@@ -125,37 +159,155 @@
             color: var(--ink-soft);
         }
 
-        /* ── Writing-specific ──────────────────────────────────────────────── */
-        #tab-switcher { display: flex; gap: 8px; margin-bottom: 24px; }
-        .tab-btn {
-            padding: 10px 24px;
+        /* ── The Chamber — main-content IS the desk itself, not a wrapper
+           around it. JS only ever sets its display to '' or 'none' (never
+           touches classList/other styles), so it's safe to carry all of the
+           container's presentation directly. ──────────────────────────── */
+        #main-content {
+            max-width: 720px;
+            margin: 0 auto;
+            position: relative;
+            padding: 40px 44px 44px;
+            background: var(--paper);
             border: 1px solid var(--border);
+            box-shadow: 0 1px 0 var(--gold-warm-soft) inset, 0 18px 40px -24px var(--ink-shadow);
+        }
+        .chamber-corner {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border: 1px solid var(--gold-warm);
+            opacity: 0.7;
+            pointer-events: none;
+        }
+        .chamber-corner.tl { top: 8px; left: 8px; border-right: none; border-bottom: none; }
+        .chamber-corner.tr { top: 8px; right: 8px; border-left: none; border-bottom: none; }
+        .chamber-corner.bl { bottom: 8px; left: 8px; border-right: none; border-top: none; }
+        .chamber-corner.br { bottom: 8px; right: 8px; border-left: none; border-top: none; }
+
+        @media (max-width: 480px) {
+            #main-content { padding: 28px 20px 32px; }
+            .chamber-corner { display: none; }
+            .masthead-title { font-size: 21px; }
+            .tab-btn { padding: 14px 10px; font-size: 13px; }
+            #question-display, .chamber-panel, #feedback-panel { padding-left: 18px; padding-right: 18px; }
+            #essay-input { padding: 18px 16px; }
+        }
+
+        /* ── Writing-specific ──────────────────────────────────────────────── */
+        /* ── Two doors, one frame ────────────────────────────────────────── */
+        #tab-switcher {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            border: 1px solid var(--border);
+            margin-bottom: 28px;
+            background: var(--surface);
+        }
+        .tab-btn {
+            position: relative;
+            padding: 18px 20px;
+            border: none;
             background: transparent;
             cursor: pointer;
             font-family: var(--serif);
             font-size: 15px;
             color: var(--muted);
             letter-spacing: 0.02em;
-            transition: all 0.15s ease;
-            border-radius: 1px;
+            transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .tab-btn:first-child { border-right: 1px solid var(--border); }
+        .tab-btn::before {
+            /* hinge mark — the two doors meet at a shared pivot */
+            content: '';
+            position: absolute;
+            top: 6px; left: 50%;
+            width: 4px; height: 4px;
+            transform: translateX(-50%);
+            background: var(--gold);
+            border-radius: 50%;
+            opacity: 0.5;
         }
         .tab-btn:hover:not(.active) {
-            background: var(--surface);
+            background: var(--paper);
             color: var(--ink);
-            border-color: var(--ink-soft);
         }
         .tab-btn.active {
-            background: var(--navy);
+            background: var(--green);
             color: #fff;
-            border-color: var(--navy);
             font-weight: 500;
+            box-shadow: inset 0 0 0 1px var(--gold-warm-soft);
         }
-        #pro-badge { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); margin-left: 4px; }
+        /* Locked-state ring: reacts to #pro-badge's own visibility (set by the
+           existing isProUser JS, untouched) — no new JS needed. */
+        #tab-task1:has(#pro-badge[style*="inline"]) { box-shadow: inset 0 0 0 2px var(--wine); }
+
+        /* ── Kicker/eyebrow label role (shared across Task 1/2 tags) ──────── */
+        .kicker {
+            font-family: var(--sans);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        /* NOTE: JS sets this element's inline style.display to literal
+           'inline' or 'none' (checkProStatus), which always wins over any
+           display value declared here — so this cannot rely on inline-flex
+           or gap. Spacing between the seal dot and text uses a margin on
+           the SVG instead, which works fine in plain inline flow. */
+        #pro-badge {
+            display: inline;
+            margin-left: 6px;
+            padding: 2px 8px;
+            border: 1px solid var(--wine);
+            border-radius: 999px;
+            color: var(--wine);
+        }
+        #pro-badge .seal-dot { width: 7px; height: 7px; margin-right: 4px; vertical-align: -1px; color: var(--gold); }
+
         #task1-controls { margin-bottom: 16px; }
         #task1-subtype { font-family: var(--serif); font-size: 15px; padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
-        #task1-lock { padding: 24px; border: 1px solid var(--border); text-align: center; }
-        #task1-lock p { font-family: var(--serif); font-size: 17px; margin-bottom: 12px; }
-        #task1-lock a { color: var(--accent); }
+
+        /* ── Chamber panel — shared "waiting state" component. Used by both
+           Task 1's lock overlay and Task 2's idle (no-question-yet) state,
+           so the two read as the same design language, not two ad-hoc
+           empty-states. Display toggling of the elements that carry this
+           class stays entirely in JS/​:has() — this only styles them. ──── */
+        .chamber-panel {
+            padding: 44px 28px;
+            text-align: center;
+            background: var(--surface);
+            border: 1px solid var(--border);
+        }
+        .chamber-panel-seal { width: 36px; height: 36px; margin: 0 auto 16px; color: var(--gold); opacity: 0.9; }
+        .chamber-panel-title {
+            font-family: var(--serif);
+            font-style: italic;
+            font-weight: 700;
+            font-size: 19px;
+            color: var(--ink);
+            margin-bottom: 10px;
+        }
+        .chamber-panel-sub {
+            font-family: var(--serif);
+            font-size: 15px;
+            color: var(--muted);
+            margin-bottom: 22px;
+        }
+        /* Task 1's variant carries the wine "reserved" signal unconditionally
+           — the whole panel is only ever shown to non-Pro users already. */
+        #task1-lock.chamber-panel { border-color: var(--wine); }
+
+        /* Once a question is loaded, the idle dressing steps aside and the
+           surrounding panel shrinks to a slim utility strip around the
+           persistent "Request a Question" control — never a floating
+           orphan button, in either state. */
+        #question-panel .chamber-panel { margin-bottom: 20px; }
+        #question-panel:has(#question-display[style*="block"]) .chamber-idle-copy { display: none; }
+        #question-panel:has(#question-display[style*="block"]) .chamber-panel {
+            padding: 14px 20px;
+            text-align: left;
+        }
+        .task1-lock-cta { text-decoration: none; }
 
         /* ── Pro upsell modal (quota-exceeded paywall) ─────── */
         .pro-modal-overlay {
@@ -199,46 +351,83 @@
             flex: 0 0 auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--border); background: transparent; color: var(--muted);
             font-family: var(--sans); font-size: 13px; cursor: pointer;
         }
-        #question-display { padding: 28px 28px 24px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 16px; border-radius: 2px; }
-        .question-label { font-family: var(--sans); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+        /* ── The Question Set Before Thee (试卷箋) ─────────────────────────── */
+        #question-display {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-top: 4px solid var(--gold-warm);
+            padding: 22px 26px 26px;
+            margin-bottom: 16px;
+        }
+        .question-label { font-family: var(--sans); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
         #writing-panel { margin-top: 20px; }
-        #question-prompt { font-family: var(--serif); font-size: 18px; line-height: 1.6; }
-        #chart-description { background: var(--surface-alt, #f5f5f5); padding: 12px; font-size: 13px; overflow-x: auto; margin-top: 12px; white-space: pre; font-family: var(--sans); }
-        #chart-container { width: 100%; max-width: 100%; overflow: hidden; margin-top: 16px; }
+        #question-prompt { font-family: var(--serif); font-size: 19px; line-height: 1.75; color: var(--ink); }
+        #chart-description { background: var(--paper); padding: 14px; font-size: 13px; overflow-x: auto; margin-top: 14px; white-space: pre; font-family: var(--sans); border: 1px solid var(--border); }
+        #chart-container { width: 100%; max-width: 100%; overflow: hidden; margin-top: 16px; padding: 12px; background: var(--paper); border: 1px solid var(--border); }
         .pie-chart-canvas { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
         .pie-chart-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 8px 16px; width: 100%; margin-top: 12px; }
         .pie-chart-legend-item { display: flex; align-items: flex-start; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
         .pie-chart-swatch { flex: 0 0 12px; width: 12px; height: 12px; margin-top: 3px; border-radius: 2px; }
         .pie-chart-label { min-width: 0; line-height: 1.35; }
-        #question-loading, #submit-loading { font-family: var(--serif); font-style: italic; color: var(--muted); margin: 12px 0; }
+
+        /* Loading states — a small spun ring via ::before, never bare text.
+           The parent keeps display:block (showElement/hideElement force
+           'block'/'none' via inline style, which always wins over a
+           stylesheet's display value) — so the spinner is inline-block
+           content flowing beside the text, not a flex child. */
+        #question-loading, #submit-loading {
+            font-family: var(--serif); font-style: italic; color: var(--muted);
+            margin: 12px 0; padding: 14px 18px;
+            background: var(--surface); border: 1px solid var(--border);
+        }
+        #question-loading::before, #submit-loading::before {
+            content: ''; display: inline-block;
+            width: 12px; height: 12px; margin-right: 10px; vertical-align: -2px;
+            border: 2px solid var(--border); border-top-color: var(--gold);
+            border-radius: 50%;
+            animation: chamber-spin 0.8s linear infinite;
+        }
+        @keyframes chamber-spin { to { transform: rotate(360deg); } }
+
+        /* ── The Manuscript (手稿區) ────────────────────────────────────────── */
         #essay-input {
             width: 100%;
-            padding: 20px 24px;
+            padding: 24px 26px;
             font-size: 16px;
-            line-height: 1.75;
+            line-height: 1.8;
             border: 1px solid var(--border);
-            border-radius: 2px;
             resize: vertical;
             min-height: 360px;
             font-family: var(--serif);
-            background: var(--surface);
+            background: var(--paper);
             color: var(--ink);
-            transition: border-color 0.15s ease;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }
         #essay-input:focus {
             outline: none;
-            border-color: var(--navy);
+            border-color: var(--gold);
+            box-shadow: 0 0 0 3px var(--gold-warm-soft);
         }
-        #word-count-display { margin: 12px 0 16px; font-size: 14px; color: var(--muted); font-family: var(--sans); }
-        #word-count { font-size: 18px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+        #word-count-display { margin: 10px 0 16px; font-size: 13px; color: var(--muted); font-family: var(--sans); font-style: italic; text-align: right; }
+        #word-count { font-size: 15px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; font-style: normal; }
         .submit-row { display: flex; align-items: center; gap: 16px; margin-top: 16px; }
         #word-count-warning { color: #c0392b; }
+
+        /* ── The Examiner's Minute (考官批註) ───────────────────────────────── */
+        #feedback-panel {
+            padding: 26px 30px;
+            background: var(--surface);
+            border-left: 3px solid var(--green);
+            border-top: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+        .feedback-kicker { color: var(--green); margin-bottom: 18px; }
         #priority-fix-callout {
             border-left: 3px solid var(--gold);
             padding: 16px 20px;
             margin-bottom: 24px;
-            background: var(--surface);
-            border-radius: 0 2px 2px 0;
+            background: var(--paper);
         }
         #priority-fix-callout strong {
             font-family: var(--serif);
@@ -256,9 +445,11 @@
         }
         #band-display {
             font-family: var(--serif);
-            font-size: 28px;
+            font-size: 26px;
             font-weight: 500;
-            margin: 24px 0 20px;
+            margin: 4px 0 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
             color: var(--ink);
             letter-spacing: 0.01em;
         }
@@ -271,7 +462,9 @@
             margin-top: 4px;
             letter-spacing: 0.02em;
         }
-        .criterion-card { border: 1px solid var(--border); padding: 20px 24px; margin-bottom: 12px; background: var(--surface); border-radius: 2px; }
+        /* Criteria separated by hairlines, not stacked background blocks. */
+        .criterion-card { padding: 18px 0; border-bottom: 1px dashed var(--border); }
+        .criterion-card:last-child { border-bottom: none; padding-bottom: 4px; }
         .criterion-card h3 {
             margin: 0 0 10px;
             font-family: var(--sans);
@@ -313,7 +506,7 @@
             font-weight: 600;
             color: var(--navy);
         }
-        #feedback-actions { display: flex; gap: 12px; margin-top: 20px; }
+        #feedback-actions { display: flex; gap: 12px; margin-top: 24px; }
         #timer-display {
             display: none;
             align-items: center;
@@ -346,13 +539,29 @@
             font-size: 16px;
         }
 
-        /* Action buttons — leave .tab-btn / #btn-dismiss-timer to their own rules. */
-        #btn-get-question, #btn-submit, #feedback-actions button {
+        /* Action buttons — leave .tab-btn / #btn-dismiss-timer to their own rules.
+           Gold hairline accents mirror hub.html's .btn-primary treatment. */
+        #btn-get-question, #btn-submit, #feedback-actions button, .task1-lock-cta {
             font-family: var(--serif); font-size: 15px; padding: 10px 22px;
-            border: 1px solid var(--navy); background: var(--navy); color: #fff;
+            border: 1px solid var(--green); background: var(--green); color: #fff;
             cursor: pointer; border-radius: 2px;
+            position: relative; overflow: hidden;
+            display: inline-block; text-decoration: none;
         }
-        #btn-get-question:hover, #btn-submit:hover, #feedback-actions button:hover { background: var(--green-dark); }
+        #btn-get-question::before, #btn-get-question::after,
+        #btn-submit::before, #btn-submit::after,
+        #feedback-actions button::before, #feedback-actions button::after,
+        .task1-lock-cta::before, .task1-lock-cta::after {
+            content: '';
+            position: absolute;
+            top: 5px; bottom: 5px;
+            width: 1px;
+            background: var(--gold);
+            opacity: 0.45;
+        }
+        #btn-get-question::before, #btn-submit::before, #feedback-actions button::before, .task1-lock-cta::before { left: 5px; }
+        #btn-get-question::after, #btn-submit::after, #feedback-actions button::after, .task1-lock-cta::after { right: 5px; }
+        #btn-get-question:hover, #btn-submit:hover, #feedback-actions button:hover, .task1-lock-cta:hover { background: var(--green-dark); }
         #btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
         #btn-dismiss-timer { font-family: var(--serif); font-style: italic; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; }
         #btn-dismiss-timer:hover { color: var(--ink); }
@@ -361,15 +570,32 @@
 <body>
     <div class="page-shell">
         <header class="topbar">
-            <span class="topbar__crest">Blabby · The Writing Examination</span>
             <a class="topbar__return" href="/index.html">Return to the Hall</a>
         </header>
 
+        <div class="masthead">
+            <svg class="masthead-crest" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z"/>
+                <line x1="4" y1="26" x2="28" y2="26" stroke-width="2"/>
+                <circle cx="16" cy="7" r="2" fill="currentColor"/>
+                <circle cx="4"  cy="13" r="2" fill="currentColor"/>
+                <circle cx="28" cy="13" r="2" fill="currentColor"/>
+            </svg>
+            <h1 class="masthead-title">Blabby · The Writing Examination</h1>
+            <p class="masthead-kicker">HEREIN THY PROSE IS WEIGHED</p>
+        </div>
+
+        <div class="chamber-divider" aria-hidden="true"><span></span>◆<span></span></div>
+
         <main id="main-content" style="display:none">
+            <span class="chamber-corner tl" aria-hidden="true"></span>
+            <span class="chamber-corner tr" aria-hidden="true"></span>
+            <span class="chamber-corner bl" aria-hidden="true"></span>
+            <span class="chamber-corner br" aria-hidden="true"></span>
 
             <!-- Tab switcher -->
             <div id="tab-switcher">
-                <button id="tab-task1" class="tab-btn" onclick="switchTab('task1')">Task 1 — Chart  <span id="pro-badge" style="display:none">Pro</span></button>
+                <button id="tab-task1" class="tab-btn" onclick="switchTab('task1')">Task 1 — Chart  <span id="pro-badge" class="kicker" style="display:none"><svg class="seal-dot" viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="3.5" fill="currentColor"/></svg>Pro</span></button>
                 <button id="tab-task2" class="tab-btn active" onclick="switchTab('task2')">Task 2 — Essay</button>
             </div>
 
@@ -390,17 +616,40 @@
             </div>
 
             <!-- Task 1 Pro lock overlay -->
-            <div id="task1-lock" style="display:none">
-                <p>Task 1 practice is reserved for Pro members.</p>
-                <a href="/upgrade.html?source=writing_task1">Enquire about Pro membership</a>
+            <div id="task1-lock" class="chamber-panel" style="display:none">
+                <svg class="task1-lock-seal chamber-panel-seal" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z"/>
+                    <line x1="4" y1="26" x2="28" y2="26" stroke-width="2"/>
+                    <circle cx="16" cy="7" r="2" fill="currentColor"/>
+                    <circle cx="4"  cy="13" r="2" fill="currentColor"/>
+                    <circle cx="28" cy="13" r="2" fill="currentColor"/>
+                </svg>
+                <p class="task1-lock-title chamber-panel-title">The Chart Room's seal is yet unbroken.</p>
+                <p class="task1-lock-sub chamber-panel-sub">免費版不開放 Task 1（圖表寫作），Pro 可練習。</p>
+                <a class="task1-lock-cta" href="/upgrade.html?source=writing_task1">加入 Pro，NT$199／月 →</a>
             </div>
 
-            <!-- Question panel -->
+            <!-- Question panel. .chamber-panel wraps the persistent
+                 #btn-get-question so it is never a floating orphan button —
+                 idle, it's the panel's own CTA; once a question loads, the
+                 idle copy hides (via :has(), see above) and the panel itself
+                 shrinks to a slim "fetch another" strip. -->
             <div id="question-panel">
-                <button id="btn-get-question" onclick="getQuestion()">Request a Question</button>
+                <div class="chamber-panel">
+                    <svg class="chamber-panel-seal chamber-idle-copy" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4 26 L4 14 L10 19 L16 8 L22 19 L28 14 L28 26 Z"/>
+                        <line x1="4" y1="26" x2="28" y2="26" stroke-width="2"/>
+                        <circle cx="16" cy="7" r="2" fill="currentColor"/>
+                        <circle cx="4"  cy="13" r="2" fill="currentColor"/>
+                        <circle cx="28" cy="13" r="2" fill="currentColor"/>
+                    </svg>
+                    <p class="chamber-panel-title chamber-idle-copy">The blank page awaits thy pen.</p>
+                    <p class="chamber-panel-sub chamber-idle-copy">按下方按鈕領取題目，作答後送出即可獲得批改。</p>
+                    <button id="btn-get-question" onclick="getQuestion()">Request a Question</button>
+                </div>
                 <div id="question-loading" style="display:none">Preparing your task…</div>
                 <div id="question-display" style="display:none">
-                    <p class="question-label">The Question</p>
+                    <p class="question-label">The Question Set Before Thee</p>
                     <p id="question-prompt"></p>
                     <pre id="chart-description" style="display:none"></pre>
                     <div id="chart-container" style="display:none"></div>
@@ -426,6 +675,7 @@
 
             <!-- Feedback panel -->
             <div id="feedback-panel" style="display:none">
+                <p class="kicker feedback-kicker">The Examiner's Minute</p>
                 <div id="priority-fix-callout">
                     <strong>Primary Counsel</strong>
                     <p id="priority-fix-text"></p>
