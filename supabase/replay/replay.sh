@@ -8,8 +8,242 @@ set -euo pipefail
 : "${PGURI:?PGURI must be set (e.g. postgresql://postgres:postgres@localhost:5432/postgres)}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIGRATIONS="$HERE/../migrations"
+ECPAY_MIGRATION="$MIGRATIONS/20260730_ecpay_backend.sql"
 
 psql_run() { psql "$PGURI" -v ON_ERROR_STOP=1 -q -f "$1"; }
+
+assert_ecpay_migration_left_no_partial_state() {
+    local fixture_mode="${1:-clean}"
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+          FROM pg_constraint c
+         WHERE c.conrelid = 'public.payment_events'::regclass
+           AND c.conname = 'payment_events_source_check'
+           AND pg_get_constraintdef(c.oid) LIKE '%ecpay_callback%'
+    ) THEN
+        RAISE EXCEPTION 'failed migration changed payment_events source constraint';
+    END IF;
+    IF to_regclass('public.subscriptions_merchant_trade_no_uniq') IS NOT NULL THEN
+        RAISE EXCEPTION 'failed migration left merchant trade unique index';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_proc p
+         WHERE p.oid = to_regprocedure('public.is_user_pro(uuid)')
+           AND p.prosrc ILIKE '%is_pro_grant%'
+           AND p.prosrc ILIKE '%subscriptions%'
+           AND p.prosrc NOT ILIKE '%COALESCE(p.is_pro, false)%'
+    ) THEN
+        RAISE EXCEPTION 'failed migration changed or lost is_user_pro dependency body';
+    END IF;
+END $$;
+SQL
+
+    case "$fixture_mode" in
+        clean)
+            psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'subscriptions'
+           AND column_name IN ('merchant_trade_no', 'ecpay_trade_no')
+    ) THEN
+        RAISE EXCEPTION 'failed migration left an ECPay subscription column';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public'
+           AND p.proname = 'accept_ecpay_payment'
+    ) THEN
+        RAISE EXCEPTION 'failed migration left accept_ecpay_payment';
+    END IF;
+END $$;
+SQL
+            ;;
+        function_fixture)
+            psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+DO $$
+BEGIN
+    IF to_regprocedure(
+        'public.accept_ecpay_payment(text,integer,text,text,jsonb,text,uuid,integer,timestamp with time zone,timestamp with time zone)'
+    ) IS NOT NULL THEN
+        RAISE EXCEPTION 'failed migration created the expected acceptance RPC';
+    END IF;
+    IF to_regprocedure('public.accept_ecpay_payment(integer)') IS NULL THEN
+        RAISE EXCEPTION 'failed migration removed the collision fixture';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'subscriptions'
+           AND column_name IN ('merchant_trade_no', 'ecpay_trade_no')
+    ) THEN
+        RAISE EXCEPTION 'failed migration left an ECPay subscription column';
+    END IF;
+END $$;
+SQL
+            ;;
+        merchant_fixture)
+            psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'subscriptions'
+           AND column_name = 'merchant_trade_no'
+           AND data_type = 'text'
+           AND is_nullable = 'YES'
+    ) OR EXISTS (
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'subscriptions'
+           AND column_name = 'ecpay_trade_no'
+    ) THEN
+        RAISE EXCEPTION 'failed migration changed the partial merchant fixture';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public'
+           AND p.proname = 'accept_ecpay_payment'
+    ) THEN
+        RAISE EXCEPTION 'failed migration left accept_ecpay_payment';
+    END IF;
+END $$;
+SQL
+            ;;
+        *)
+            echo "unknown replay fixture mode: $fixture_mode" >&2
+            return 1
+            ;;
+    esac
+}
+
+expect_ecpay_migration_failure() {
+    local label="$1"
+    local migration_file="${2:-$ECPAY_MIGRATION}"
+    local fixture_mode="${3:-clean}"
+    local output_file="$REPLAY_PROOF_DIR/${label}.log"
+
+    if psql "$PGURI" -v ON_ERROR_STOP=1 -q -f "$migration_file" \
+        >"$output_file" 2>&1; then
+        echo "FAIL  $label: migration unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_ecpay_migration_left_no_partial_state "$fixture_mode"
+    echo "ok    $label (rejected, no partial migration state)"
+}
+
+run_ecpay_migration_contract_proofs() {
+    REPLAY_PROOF_DIR="$(mktemp -d)"
+    local fault_migration="$REPLAY_PROOF_DIR/20260730_forced_failure.sql"
+    trap 'rm -rf "$REPLAY_PROOF_DIR"' RETURN
+
+    echo
+    echo "── prove full ECPay migration rollback and gates ─────"
+
+    # Full-file atomicity: inject a failure after §2, without modifying the
+    # repository migration, and prove §1/§2 rolled back with the transaction.
+    awk '
+        /-- §3  get_admin_pro_breakdown/ && !injected {
+            print "SELECT 1 / 0;"
+            injected = 1
+        }
+        { print }
+    ' "$ECPAY_MIGRATION" >"$fault_migration"
+    if ! grep -q 'SELECT 1 / 0;' "$fault_migration"; then
+        echo "failed to inject migration fault" >&2
+        return 1
+    fi
+    expect_ecpay_migration_failure "atomic_midfile_failure" "$fault_migration"
+
+    # P1: a bare is_pro user must be rejected before any mutation.
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO auth.users (id, email)
+VALUES ('00000000-0000-0000-0000-000000000071',
+        'bare-pro-preflight@example.invalid')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.profiles (id, is_pro, is_pro_grant)
+VALUES ('00000000-0000-0000-0000-000000000071', true, false)
+ON CONFLICT (id) DO UPDATE
+SET is_pro = true, is_pro_grant = false, pro_grant_expires_at = NULL;
+SQL
+    expect_ecpay_migration_failure "preflight_bare_is_pro"
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q -c \
+        "DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-000000000071'"
+
+    # P2: the append-only dependency trigger may not be missing.
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q -c \
+        "DROP TRIGGER payment_events_immutable_trg ON public.payment_events"
+    expect_ecpay_migration_failure "preflight_missing_immutable_trigger"
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+CREATE TRIGGER payment_events_immutable_trg
+    BEFORE UPDATE OR DELETE ON public.payment_events
+    FOR EACH ROW EXECUTE FUNCTION public.payment_events_immutable();
+SQL
+
+    # P3: an unknown same-name overload must not be overwritten or ignored.
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+CREATE FUNCTION public.accept_ecpay_payment(integer)
+RETURNS integer LANGUAGE sql AS 'SELECT $1';
+SQL
+    expect_ecpay_migration_failure \
+        "preflight_unknown_function_overload" "$ECPAY_MIGRATION" "function_fixture"
+    if [[ "$(psql "$PGURI" -v ON_ERROR_STOP=1 -qAt -c \
+        "SELECT public.accept_ecpay_payment(17)")" != "17" ]]; then
+        echo "unknown overload was changed by rejected migration" >&2
+        return 1
+    fi
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q -c \
+        "DROP FUNCTION public.accept_ecpay_payment(integer)"
+
+    # P4: a plausible partial/manual backfill with duplicate trade numbers and
+    # no repository index is incompatible. The gate must reject it as-is rather
+    # than guessing new identifiers or silently repairing unknown state.
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+ALTER TABLE public.subscriptions ADD COLUMN merchant_trade_no text;
+INSERT INTO auth.users (id, email)
+VALUES
+    ('00000000-0000-0000-0000-000000000072',
+     'partial-order-one@example.invalid'),
+    ('00000000-0000-0000-0000-000000000073',
+     'partial-order-two@example.invalid')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.subscriptions (
+    user_id, order_id, status, amount, merchant_trade_no
+) VALUES
+    ('00000000-0000-0000-0000-000000000072',
+     'PARTIAL-ORDER-ONE', 'pending', 199, 'DUPLICATE-PARTIAL'),
+    ('00000000-0000-0000-0000-000000000073',
+     'PARTIAL-ORDER-TWO', 'pending', 199, 'DUPLICATE-PARTIAL');
+SQL
+    expect_ecpay_migration_failure \
+        "preflight_incompatible_subscription_mapping" "$ECPAY_MIGRATION" "merchant_fixture"
+    psql "$PGURI" -v ON_ERROR_STOP=1 -q <<'SQL'
+DELETE FROM auth.users
+WHERE id IN (
+    '00000000-0000-0000-0000-000000000072',
+    '00000000-0000-0000-0000-000000000073'
+);
+ALTER TABLE public.subscriptions DROP COLUMN merchant_trade_no;
+SQL
+
+    rm -rf "$REPLAY_PROOF_DIR"
+    trap - RETURN
+}
 
 echo "── shim ──────────────────────────────────────────────"
 psql_run "$HERE/00_local_shim.sql"
@@ -25,9 +259,17 @@ for f in $(ls "$MIGRATIONS"/*.sql | sort); do
     case "$base" in
         *_rollback.sql) echo "skip  $base  (rollback script, not a forward migration)"; continue ;;
     esac
+    if [[ "$f" == "$ECPAY_MIGRATION" ]]; then
+        run_ecpay_migration_contract_proofs
+    fi
     psql_run "$f"
     echo "ok    $base"
 done
+
+echo
+echo "── prove complete ECPay migration is safely rerunnable "
+psql_run "$ECPAY_MIGRATION"
+echo "ok    20260730_ecpay_backend.sql (complete rerun)"
 
 echo
 echo "── assert required RPCs exist ───────────────────────"

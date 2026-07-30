@@ -37,6 +37,57 @@ def test_replay_is_fail_fast_clean_db_ci_without_production_credentials():
     assert "SUPABASE_SERVICE_KEY" not in REPLAY
 
 
+def test_production_migration_owns_its_transaction_and_gates_before_mutation():
+    assert re.search(r"(?m)^BEGIN;$", MIGRATION)
+    assert re.search(r"(?m)^COMMIT;$", MIGRATION)
+    assert MIGRATION.index("BEGIN;") < MIGRATION.index("DO $preflight$")
+    assert MIGRATION.index("DO $preflight$") < MIGRATION.index(
+        "ALTER TABLE public.payment_events"
+    )
+    assert MIGRATION.rindex("COMMIT;") > MIGRATION.index(
+        "GRANT EXECUTE ON FUNCTION public.accept_ecpay_payment"
+    )
+    assert "CREATE UNIQUE INDEX CONCURRENTLY" not in MIGRATION
+    assert "WHEN OTHERS" not in MIGRATION
+
+
+def test_preflight_covers_dependencies_drift_entitlement_and_rpc_collisions():
+    preflight = MIGRATION[
+        MIGRATION.index("DO $preflight$") : MIGRATION.index("$preflight$;") + 12
+    ]
+    for contract in (
+        "required table public.profiles is missing",
+        "required table public.subscriptions is missing",
+        "required table public.payment_events is missing",
+        "payment_events immutable trigger is missing or incompatible",
+        "payment_events_idem_uniq is missing or incompatible",
+        "public.is_user_pro(uuid) is not the expected 20260726 definition",
+        "bare profiles.is_pro entitlement would be lost",
+        "subscriptions.merchant_trade_no is incompatible",
+        "existing merchant_trade_no lacks the expected unique partial index",
+        "unknown public.accept_ecpay_payment overload exists",
+    ):
+        assert contract in preflight
+    assert preflight.index("bare profiles.is_pro entitlement would be lost") < (
+        MIGRATION.index("ALTER TABLE public.payment_events")
+    )
+
+
+def test_replay_proves_full_file_rollback_rejections_and_safe_rerun():
+    for scenario in (
+        "atomic_midfile_failure",
+        "preflight_bare_is_pro",
+        "preflight_missing_immutable_trigger",
+        "preflight_unknown_function_overload",
+        "preflight_incompatible_subscription_mapping",
+    ):
+        assert scenario in REPLAY
+    assert 'print "SELECT 1 / 0;"' in REPLAY
+    assert "assert_ecpay_migration_left_no_partial_state" in REPLAY
+    assert 'psql_run "$ECPAY_MIGRATION"' in REPLAY
+    assert "complete rerun" in REPLAY
+
+
 def test_atomic_section_covers_activation_duplicates_rejections_and_rollback():
     block = _section(
         "── assert ECPay acceptance is atomic and idempotent",

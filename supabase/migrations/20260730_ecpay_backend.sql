@@ -62,6 +62,355 @@
 -- profiles.is_pro is NOT dropped by this file.
 -- ============================================================================
 
+BEGIN;
+
+-- ── EXECUTABLE PRE-MUTATION GATE ────────────────────────────────────────────
+-- Strategy A: this migration is safe to re-run. The gate accepts either the
+-- exact 20260726 dependency state or the exact state produced by this file.
+-- Unknown overloads, partially-created columns/indexes, or dependency drift
+-- abort the transaction before the first schema mutation.
+DO $preflight$
+DECLARE
+    expected_name text;
+    expected_type text;
+    expected_not_null boolean;
+    actual_type text;
+    actual_not_null boolean;
+    source_values text[];
+    source_constraint_count integer;
+    fn_oid oid;
+    fn_body text;
+    expected_is_user_pro_body text;
+    expected_accept_signature regprocedure;
+BEGIN
+    -- Dependency relations must be ordinary/partitioned tables in public.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = 'profiles'
+          AND c.relkind IN ('r', 'p')
+    ) THEN
+        RAISE EXCEPTION 'ECPay preflight: required table public.profiles is missing';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = 'subscriptions'
+          AND c.relkind IN ('r', 'p')
+    ) THEN
+        RAISE EXCEPTION 'ECPay preflight: required table public.subscriptions is missing';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = 'payment_events'
+          AND c.relkind IN ('r', 'p')
+    ) THEN
+        RAISE EXCEPTION 'ECPay preflight: required table public.payment_events is missing';
+    END IF;
+
+    -- The columns this migration and its RPC depend on must have the exact
+    -- types/nullability created by the repository migrations. Extra unrelated
+    -- columns are allowed.
+    FOR expected_name, expected_type, expected_not_null IN
+        SELECT * FROM (VALUES
+            ('id',         'uuid',                     true),
+            ('user_id',    'uuid',                     true),
+            ('order_id',   'text',                     false),
+            ('plan',       'text',                     true),
+            ('status',     'text',                     true),
+            ('amount',     'integer',                  false),
+            ('started_at', 'timestamp with time zone', false),
+            ('expires_at', 'timestamp with time zone', false),
+            ('created_at', 'timestamp with time zone', false),
+            ('updated_at', 'timestamp with time zone', false)
+        ) AS required(name, type_name, not_null)
+    LOOP
+        SELECT format_type(a.atttypid, a.atttypmod), a.attnotnull
+          INTO actual_type, actual_not_null
+          FROM pg_attribute a
+         WHERE a.attrelid = 'public.subscriptions'::regclass
+           AND a.attname = expected_name
+           AND a.attnum > 0
+           AND NOT a.attisdropped;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION
+                'ECPay preflight: subscriptions.% is missing', expected_name;
+        END IF;
+        IF actual_type <> expected_type OR actual_not_null <> expected_not_null THEN
+            RAISE EXCEPTION
+                'ECPay preflight: subscriptions.% has type/nullability %/%, expected %/%',
+                expected_name, actual_type, actual_not_null,
+                expected_type, expected_not_null;
+        END IF;
+    END LOOP;
+
+    FOR expected_name, expected_type, expected_not_null IN
+        SELECT * FROM (VALUES
+            ('id',                  'uuid',                     true),
+            ('received_at',         'timestamp with time zone', true),
+            ('source',              'text',                     true),
+            ('merchant_trade_no',   'text',                     false),
+            ('total_success_times', 'integer',                  false),
+            ('rtn_code',            'text',                     false),
+            ('rtn_msg',             'text',                     false),
+            ('checkmac_valid',      'boolean',                  true),
+            ('user_id',             'uuid',                     false),
+            ('subscription_id',     'uuid',                     false),
+            ('raw_payload',         'jsonb',                    true),
+            ('processed_at',        'timestamp with time zone', false)
+        ) AS required(name, type_name, not_null)
+    LOOP
+        SELECT format_type(a.atttypid, a.atttypmod), a.attnotnull
+          INTO actual_type, actual_not_null
+          FROM pg_attribute a
+         WHERE a.attrelid = 'public.payment_events'::regclass
+           AND a.attname = expected_name
+           AND a.attnum > 0
+           AND NOT a.attisdropped;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION
+                'ECPay preflight: payment_events.% is missing', expected_name;
+        END IF;
+        IF actual_type <> expected_type OR actual_not_null <> expected_not_null THEN
+            RAISE EXCEPTION
+                'ECPay preflight: payment_events.% has type/nullability %/%, expected %/%',
+                expected_name, actual_type, actual_not_null,
+                expected_type, expected_not_null;
+        END IF;
+    END LOOP;
+
+    -- Exactly one validated source CHECK must exist under the repository name.
+    -- Extracting its string literals avoids depending on pg_get_constraintdef's
+    -- whitespace/cast formatting across supported PostgreSQL versions.
+    SELECT count(*)
+      INTO source_constraint_count
+      FROM pg_constraint c
+     WHERE c.conrelid = 'public.payment_events'::regclass
+       AND c.conname = 'payment_events_source_check'
+       AND c.contype = 'c'
+       AND c.convalidated;
+    IF source_constraint_count <> 1 THEN
+        RAISE EXCEPTION
+            'ECPay preflight: expected one validated payment_events_source_check, found %',
+            source_constraint_count;
+    END IF;
+
+    SELECT array_agg(match[1] ORDER BY match[1])
+      INTO source_values
+      FROM pg_constraint c
+      CROSS JOIN LATERAL regexp_matches(
+          pg_get_constraintdef(c.oid), $regex$'([^']+)'$regex$, 'g'
+      ) AS match
+     WHERE c.conrelid = 'public.payment_events'::regclass
+       AND c.conname = 'payment_events_source_check';
+    IF source_values <> ARRAY[
+        'lemonsqueezy', 'period_return_url', 'reconciliation', 'return_url'
+    ]::text[]
+       AND source_values <> ARRAY[
+        'ecpay_callback', 'lemonsqueezy', 'period_return_url',
+        'reconciliation', 'return_url'
+    ]::text[] THEN
+        RAISE EXCEPTION
+            'ECPay preflight: payment_events_source_check has unknown allowed values';
+    END IF;
+
+    -- The 20260726 append-only trigger must be enabled and attached to the
+    -- expected function for BEFORE UPDATE OR DELETE.
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_trigger t
+          JOIN pg_proc p ON p.oid = t.tgfoid
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE t.tgrelid = 'public.payment_events'::regclass
+           AND t.tgname = 'payment_events_immutable_trg'
+           AND NOT t.tgisinternal
+           AND t.tgenabled IN ('O', 'A')
+           AND t.tgtype = 27  -- ROW + BEFORE + DELETE + UPDATE
+           AND n.nspname = 'public'
+           AND p.proname = 'payment_events_immutable'
+    ) THEN
+        RAISE EXCEPTION
+            'ECPay preflight: payment_events immutable trigger is missing or incompatible';
+    END IF;
+
+    -- The replay key must keep NULLS NOT DISTINCT. Validate structure through
+    -- pg_index rather than trusting only the index name.
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_index i
+          JOIN pg_class idx ON idx.oid = i.indexrelid
+         WHERE i.indrelid = 'public.payment_events'::regclass
+           AND idx.relnamespace = 'public'::regnamespace
+           AND idx.relname = 'payment_events_idem_uniq'
+           AND i.indisunique
+           AND i.indisvalid
+           AND i.indisready
+           AND i.indnullsnotdistinct
+           AND i.indpred IS NULL
+           AND pg_get_indexdef(i.indexrelid) ILIKE
+               '%(merchant_trade_no, total_success_times, source)%'
+    ) THEN
+        RAISE EXCEPTION
+            'ECPay preflight: payment_events_idem_uniq is missing or incompatible';
+    END IF;
+
+    -- Exact dependency body: active grant OR active, unexpired subscription,
+    -- never the legacy bare profiles.is_pro flag.
+    fn_oid := to_regprocedure('public.is_user_pro(uuid)');
+    IF fn_oid IS NULL THEN
+        RAISE EXCEPTION
+            'ECPay preflight: dependency function public.is_user_pro(uuid) is missing';
+    END IF;
+    SELECT regexp_replace(lower(p.prosrc), '\s+', ' ', 'g')
+      INTO fn_body
+      FROM pg_proc p
+     WHERE p.oid = fn_oid
+       AND p.prosecdef
+       AND p.provolatile = 's'
+       AND p.proconfig @> ARRAY['search_path=public'];
+    expected_is_user_pro_body := regexp_replace(lower($expected$
+      SELECT
+           EXISTS (
+             SELECT 1 FROM profiles p
+             WHERE p.id = is_user_pro.user_id
+               AND COALESCE(p.is_pro_grant, FALSE)
+               AND (p.pro_grant_expires_at IS NULL OR p.pro_grant_expires_at > now())
+           )
+        OR EXISTS (
+             SELECT 1 FROM subscriptions s
+             WHERE s.user_id = is_user_pro.user_id
+               AND s.status = 'active'
+               AND s.expires_at > now()
+           );
+    $expected$), '\s+', ' ', 'g');
+    IF fn_body IS NULL OR btrim(fn_body) <> btrim(expected_is_user_pro_body) THEN
+        RAISE EXCEPTION
+            'ECPay preflight: public.is_user_pro(uuid) is not the expected 20260726 definition';
+    END IF;
+
+    -- Mechanical entitlement gate. Do not disclose identities in the error.
+    IF EXISTS (
+        SELECT 1
+          FROM public.profiles p
+         WHERE p.is_pro IS TRUE
+           AND NOT (
+                p.is_pro_grant IS TRUE
+                AND (p.pro_grant_expires_at IS NULL
+                     OR p.pro_grant_expires_at > now())
+           )
+           AND NOT EXISTS (
+                SELECT 1
+                  FROM public.subscriptions s
+                 WHERE s.user_id = p.id
+                   AND s.status = 'active'
+                   AND s.expires_at > now()
+           )
+    ) THEN
+        RAISE EXCEPTION
+            'ECPay preflight: bare profiles.is_pro entitlement would be lost';
+    END IF;
+
+    -- A pre-existing column is accepted only when it exactly matches this
+    -- migration's nullable text design and its unique partial index. This makes
+    -- a complete rerun safe while rejecting partial/manual applications.
+    IF EXISTS (
+        SELECT 1 FROM pg_attribute
+         WHERE attrelid = 'public.subscriptions'::regclass
+           AND attname = 'merchant_trade_no'
+           AND attnum > 0 AND NOT attisdropped
+    ) THEN
+        SELECT format_type(a.atttypid, a.atttypmod), a.attnotnull
+          INTO actual_type, actual_not_null
+          FROM pg_attribute a
+         WHERE a.attrelid = 'public.subscriptions'::regclass
+           AND a.attname = 'merchant_trade_no'
+           AND a.attnum > 0 AND NOT a.attisdropped;
+        IF actual_type <> 'text' OR actual_not_null THEN
+            RAISE EXCEPTION
+                'ECPay preflight: subscriptions.merchant_trade_no is incompatible';
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1
+              FROM pg_index i
+              JOIN pg_class idx ON idx.oid = i.indexrelid
+             WHERE i.indrelid = 'public.subscriptions'::regclass
+               AND idx.relnamespace = 'public'::regnamespace
+               AND idx.relname = 'subscriptions_merchant_trade_no_uniq'
+               AND i.indisunique AND i.indisvalid AND i.indisready
+               AND i.indpred IS NOT NULL
+               AND pg_get_indexdef(i.indexrelid) ILIKE
+                   '%(merchant_trade_no) WHERE (merchant_trade_no IS NOT NULL)%'
+        ) THEN
+            RAISE EXCEPTION
+                'ECPay preflight: existing merchant_trade_no lacks the expected unique partial index';
+        END IF;
+    ELSIF to_regclass('public.subscriptions_merchant_trade_no_uniq') IS NOT NULL THEN
+        RAISE EXCEPTION
+            'ECPay preflight: merchant trade index exists without its column';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM pg_attribute
+         WHERE attrelid = 'public.subscriptions'::regclass
+           AND attname = 'ecpay_trade_no'
+           AND attnum > 0 AND NOT attisdropped
+    ) THEN
+        SELECT format_type(a.atttypid, a.atttypmod), a.attnotnull
+          INTO actual_type, actual_not_null
+          FROM pg_attribute a
+         WHERE a.attrelid = 'public.subscriptions'::regclass
+           AND a.attname = 'ecpay_trade_no'
+           AND a.attnum > 0 AND NOT a.attisdropped;
+        IF actual_type <> 'text' OR actual_not_null THEN
+            RAISE EXCEPTION
+                'ECPay preflight: subscriptions.ecpay_trade_no is incompatible';
+        END IF;
+    END IF;
+
+    -- No unknown overload may be overwritten or left callable. The one expected
+    -- signature is deliberately CREATE OR REPLACE below and its ACL converges.
+    expected_accept_signature := to_regprocedure(
+        'public.accept_ecpay_payment(text,integer,text,text,jsonb,text,uuid,integer,timestamp with time zone,timestamp with time zone)'
+    );
+    IF EXISTS (
+        SELECT 1
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public'
+           AND p.proname = 'accept_ecpay_payment'
+           AND (expected_accept_signature IS NULL OR p.oid <> expected_accept_signature)
+    ) THEN
+        RAISE EXCEPTION
+            'ECPay preflight: unknown public.accept_ecpay_payment overload exists';
+    END IF;
+    IF expected_accept_signature IS NOT NULL AND EXISTS (
+        SELECT 1
+          FROM pg_proc p
+          CROSS JOIN LATERAL aclexplode(p.proacl) acl
+         WHERE p.oid = expected_accept_signature
+           AND acl.privilege_type = 'EXECUTE'
+           AND acl.grantee NOT IN (
+               0,
+               p.proowner,
+               'anon'::regrole::oid,
+               'authenticated'::regrole::oid,
+               'service_role'::regrole::oid
+           )
+    ) THEN
+        RAISE EXCEPTION
+            'ECPay preflight: existing accept_ecpay_payment has an unknown EXECUTE grantee';
+    END IF;
+    IF expected_accept_signature IS NOT NULL
+       AND (SELECT p.proowner
+              FROM pg_proc p
+             WHERE p.oid = expected_accept_signature) <> current_user::regrole::oid THEN
+        RAISE EXCEPTION
+            'ECPay preflight: existing accept_ecpay_payment has an unexpected owner';
+    END IF;
+END
+$preflight$;
+
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- §1  payment_events.source — admit 'ecpay_callback'
@@ -323,3 +672,5 @@ GRANT EXECUTE ON FUNCTION public.accept_ecpay_payment(
 -- 5. SELECT column_name FROM information_schema.columns
 --     WHERE table_name = 'subscriptions' AND column_name = 'ecpay_trade_no';
 --    → 1 row
+
+COMMIT;
