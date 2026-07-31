@@ -2751,6 +2751,13 @@ async def process(
             "witness_is_milestone": witness_is_milestone,
             "persisted":            persisted,
             "record_id":            new_record_id,
+            # Whether repair_memory was actually injected into this turn's
+            # system prompt (Pro-gated at L~2214). Distinct from
+            # memory_snapshot above — that's the unrelated weak-word/pattern
+            # detector, not repair memory. False for both "no qualifying
+            # history yet" and "not Pro"; the frontend cannot and must not
+            # try to tell those two apart from this field alone.
+            "memory_active":        bool(repair_block),
         }
         # Drill mode adds drill_score; non-drill turns return identical shape
         # to the previous version (acceptance: existing /process callers
