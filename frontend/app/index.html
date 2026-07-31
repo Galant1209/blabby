@@ -4470,8 +4470,18 @@
 
         function stopRecording() {
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                // iOS Safari:stop() 前先 requestData() 逼出緩衝音訊,避免最後一段沒 flush → 空 blob。
-                try { if (mediaRecorder.state === 'recording') mediaRecorder.requestData(); } catch (_) {}
+                // iOS Safari-only: stop() 前先 requestData() 逼出緩衝音訊,避免
+                // 最後一段沒 flush → 空 blob。webm(桌面 Chrome)本來就不需要這個
+                // ——start() 沒給 timeslice,stop() 自己就會 flush 完整錄音。
+                // 之前這裡沒有排除 webm,導致 requestData()+stop() 各自觸發一次
+                // ondataavailable(chunkCount 恆為 2),Chromium 的 webm muxer 在
+                // 真正 stop() finalize 前就被提前 flush,寫出的 duration 趨近
+                // 零,音訊資料本體完整卻被 Groq 判定「太短」。
+                // 根因見 2026-07-31 P0 調查:Playwright 重現 + ffprobe/hachoir
+                // 皆讀出 duration≈0.001s,只發生在 webm 路徑。
+                if (recMime !== 'audio/webm') {
+                    try { if (mediaRecorder.state === 'recording') mediaRecorder.requestData(); } catch (_) {}
+                }
                 mediaRecorder.stop();
             }
             isRecording = false;
@@ -4874,8 +4884,11 @@
             clearInterval(p2RecordTimer);
             p2RecordTimer = null;
             if (p2MediaRecorder && p2MediaRecorder.state !== 'inactive') {
-                // iOS Safari:stop() 前先 requestData() 逼出緩衝音訊,避免最後一段沒 flush → 空 blob。
-                try { if (p2MediaRecorder.state === 'recording') p2MediaRecorder.requestData(); } catch (_) {}
+                // iOS Safari-only — see stopRecording()'s comment (2026-07-31
+                // P0) for why this must not run on the webm path.
+                if (p2RecMime !== 'audio/webm') {
+                    try { if (p2MediaRecorder.state === 'recording') p2MediaRecorder.requestData(); } catch (_) {}
+                }
                 p2MediaRecorder.stop();
             }
             p2IsRecording = false;
