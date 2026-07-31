@@ -548,6 +548,41 @@
             background: rgba(107, 26, 26, 0.045);
         }
 
+        /* Repair memory marginalia — quiet tail line, three states.
+           Never a banner, never a modal. */
+        .repair-memory-note {
+            margin: 4px 0 14px;
+            padding-top: 14px;
+            border-top: 1px dashed var(--border);
+            font-family: var(--serif);
+        }
+        .repair-memory-rule {
+            display: inline-block;
+            width: 14px;
+            height: 2px;
+            margin-right: 8px;
+            vertical-align: middle;
+            background: currentColor;
+            opacity: 0.7;
+        }
+        .repair-memory-en {
+            font-style: italic;
+            font-size: 14px;
+        }
+        .repair-memory-zh {
+            display: block;
+            margin: 3px 0 0 22px;
+            font-size: 12px;
+            opacity: 0.82;
+        }
+        .repair-memory-note.state-active       { color: var(--green); }
+        .repair-memory-note.state-ledger-empty { color: var(--muted); }
+        .repair-memory-note.state-sealed {
+            color: var(--wine);
+            cursor: pointer;
+        }
+        .repair-memory-note.state-sealed:hover { opacity: 0.85; }
+
         .feedback-label {
             font-family: 'Libre Baskerville', serif;
             font-style: italic;
@@ -3164,6 +3199,11 @@
                         <button id="next-btn">下一題</button>
                     </div>
                 </div>
+                <div id="repair-memory-note" class="repair-memory-note" style="display:none">
+                    <span class="repair-memory-rule" aria-hidden="true"></span>
+                    <span id="repair-memory-en" class="repair-memory-en"></span>
+                    <span id="repair-memory-zh" class="repair-memory-zh"></span>
+                </div>
             </div>
 
             <!-- ── Part 2 phases ────────────────────────────── -->
@@ -5125,6 +5165,60 @@
             }
         }
 
+        // Repair memory marginalia — three states, quiet tail line under the
+        // feedback card. Pro status reuses the existing isUserPro() signal
+        // (no new API call). data.memory_active is distinct from
+        // data.memory_snapshot (unrelated weak-word detector) — do not
+        // conflate the two.
+        const REPAIR_MEMORY_COPY = {
+            active: {
+                en: 'The Examiner recalls thy former stumbles.',
+                zh: '考官記得你先前的錯，這次會盯著看。',
+            },
+            ledger_empty: {
+                en: "The Examiner's ledger awaits thy record.",
+                zh: '考官的記錄簿尚未寫下你的名字——多練幾回，他便會記得。',
+            },
+            sealed: {
+                en: "The Examiner's memory of thee is sealed.",
+                zh: '考官不會記得你的錯——除非你持有 Pro。',
+            },
+        };
+        const REPAIR_MEMORY_STATE_CLASS = {
+            active: 'state-active',
+            ledger_empty: 'state-ledger-empty',
+            sealed: 'state-sealed',
+        };
+
+        function renderRepairMemoryNote(data) {
+            const note = document.getElementById('repair-memory-note');
+            if (!note) return;
+            const enEl = document.getElementById('repair-memory-en');
+            const zhEl = document.getElementById('repair-memory-zh');
+
+            const state = !isUserPro()
+                ? 'sealed'
+                : (data && data.memory_active ? 'active' : 'ledger_empty');
+            const copy = REPAIR_MEMORY_COPY[state];
+
+            Object.values(REPAIR_MEMORY_STATE_CLASS).forEach(c => note.classList.remove(c));
+            note.classList.add(REPAIR_MEMORY_STATE_CLASS[state]);
+            if (enEl) enEl.textContent = copy.en;
+            if (zhEl) zhEl.textContent = copy.zh;
+
+            if (state === 'sealed') {
+                note.onclick = () => {
+                    try { window.analytics?.track('repair_memory_seal_click', { state }); } catch (_) {}
+                    window.location.href = '/upgrade.html?source=speaking_memory';
+                };
+            } else {
+                note.onclick = null;
+            }
+
+            note.style.display = '';
+            try { window.analytics?.track('repair_memory_exposure', { state }); } catch (_) { /* never block UI on tracking */ }
+        }
+
         function compactEvidenceItems(items) {
             if (!Array.isArray(items)) return [];
             const counts = new Map();
@@ -5625,6 +5719,7 @@
             // 下一題
             document.getElementById('next-question-text').textContent = data.next_question || '';
             renderSoftLockNote(data);
+            renderRepairMemoryNote(data);
 
             feedbackSection.classList.add('visible');
             scrollToFeedback();
