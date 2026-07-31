@@ -2265,12 +2265,40 @@ async def process(
                 tmp.write(audio_bytes)
                 tmp_path = tmp.name
             try:
+                # Pre-flight decodability probe — mirrors the existing
+                # /part2/evaluate guard (_media_duration_seconds, backed by
+                # hachoir + a custom EBML Cluster-timecode fallback for the
+                # webm-duration-omitted case). Root cause (2026-07-31 P0):
+                # requestData() called unconditionally before stop() on the
+                # webm/desktop path left Chromium's muxer with a near-zero
+                # Duration despite a full-size, structurally valid blob —
+                # bytes reach Groq fine, Groq's own length check rejects
+                # them with "Audio file is too short". Catch that here with
+                # a clear 4xx instead of paying for a Groq round-trip to
+                # find out.
+                try:
+                    # _media_duration_seconds always returns a positive float
+                    # or raises — it never returns a non-positive value.
+                    await asyncio.to_thread(_media_duration_seconds, tmp_path)
+                except Exception as exc:
+                    logger.warning(
+                        "[/process] audio failed decodability probe: user=%s filename=%s "
+                        "suffix=%s bytes=%d error=%s",
+                        user_id, audio.filename, ext, len(audio_bytes), exc,
+                    )
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Audio file is truncated or has no valid duration, please re-record.",
+                    ) from exc
+
                 with open(tmp_path, "rb") as f:
                     transcript = groq_client.audio.transcriptions.create(
                         model="whisper-large-v3-turbo",
                         file=f,
                         response_format="text",
                     )
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(
                     "[/process] Groq transcription failed: user=%s filename=%s suffix=%s bytes=%d status=%s body=%s error=%s",
