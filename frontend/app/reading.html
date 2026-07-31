@@ -1682,6 +1682,7 @@
             // chunks arrive (~12s to first chunk during backend warmup + LLM
             // TTFT). Blocking fallback path (summonViaBlocking) keeps the
             // overlay since it has nothing to render until the response lands.
+            const streamStartedAt = Date.now();
             window.analytics.track('reading_stream_started');
 
             resetPassageBodyForStreaming();
@@ -1723,6 +1724,7 @@
             let passageBodyText = '';
             let streamErrored = false;
             let questionsFetchPromise = null;
+            let fallbackReason = null;
 
             // Stall watchdog: if no chunk in 8s, abort and fallback.
             let stallTimer = null;
@@ -1731,6 +1733,7 @@
                 stallTimer = setTimeout(() => {
                     try { reader.cancel('stall_timeout'); } catch (_) {}
                     streamErrored = true;
+                    fallbackReason = 'stall_timeout';
                 }, 8000);
             };
             armStallTimer();
@@ -1791,6 +1794,14 @@
             }
 
             if (streamErrored || !passageMetadata) {
+                const elapsed_ms = Date.now() - streamStartedAt;
+                const reason = fallbackReason
+                    || (!passageMetadata && !streamErrored ? 'no_metadata' : 'other');
+                console.warn(
+                    '[reading] SSE stream abandoned, falling back to blocking',
+                    { reason, elapsed_ms },
+                );
+                window.analytics.track('reading_stream_fallback', { reason, elapsed_ms });
                 hideQuestionsWaitingState();
                 showState('landing');
                 return summonViaBlocking();
