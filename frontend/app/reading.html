@@ -285,6 +285,12 @@
         .vocab-target:hover {
             border-bottom-color: rgba(44, 36, 22, 0.75);
         }
+        /* Pool-path serving flags a word as a personal weakness (joined
+           against user_vocabulary, Pro-only). Same dotted underline
+           language, deepened into --wine rather than a new affordance. */
+        .vocab-target.vocab-target--weak {
+            border-bottom-color: var(--wine);
+        }
         .vocab-target.is-saved {
             border-bottom: 1px solid var(--gold);
         }
@@ -1214,11 +1220,25 @@
             const bodyEl = $('passage-body');
             bodyEl.innerHTML = '';
 
-            const targetsSet = new Set(
-                Array.isArray(passage.vocab_targets)
-                    ? passage.vocab_targets.map(w => String(w).toLowerCase())
-                    : []
-            );
+            // vocab_targets is either list[string] (SSE/blocking generation
+            // paths — generation-time only, unchanged) or
+            // list[{word, is_weak}] (pool-first serving path, tagged
+            // server-side against the reader's own vocab weaknesses).
+            // Normalise both shapes into a lowercase word set + the subset
+            // flagged weak.
+            const rawTargets = Array.isArray(passage.vocab_targets) ? passage.vocab_targets : [];
+            const targetsSet = new Set();
+            const weakSet = new Set();
+            rawTargets.forEach(t => {
+                if (t && typeof t === 'object') {
+                    const w = String(t.word || '').toLowerCase();
+                    if (!w) return;
+                    targetsSet.add(w);
+                    if (t.is_weak) weakSet.add(w);
+                } else {
+                    targetsSet.add(String(t).toLowerCase());
+                }
+            });
 
             const paragraphs = String(passage.body || '')
                 .split(/\n\s*\n/)
@@ -1262,6 +1282,9 @@
                     span.className = 'vocab-target';
                     span.textContent = word;
                     span.dataset.word = lower;
+                    if (weakSet.has(lower)) {
+                        span.classList.add('vocab-target--weak');
+                    }
                     if (state.savedWords.has(lower)) {
                         span.classList.add('is-saved');
                     }
@@ -1638,8 +1661,10 @@
 
         // ────────────────────────────────────────────────────────────────
         //  Summon flow — generate passage + start attempt
-        //  Streaming path is default; blocking is automatic fallback.
-        //  Use ?stream=false to force blocking (debug / A-B testing).
+        //  Pool-first is tried before either live path. Streaming is the
+        //  default live fallback; blocking is streaming's own fallback.
+        //  Use ?stream=false to force blocking on a pool miss (debug / A-B
+        //  testing) — does not affect the pool attempt itself.
         // ────────────────────────────────────────────────────────────────
         async function summonPassage() {
             window.analytics.track('reading_summon_clicked');
@@ -1648,10 +1673,14 @@
             // a "button disabled but no feedback" gap.
             $('btn-summon').disabled = true;
 
-            const useStreaming =
-                new URLSearchParams(window.location.search).get('stream') !== 'false';
-
             try {
+                if (await summonViaPool()) {
+                    return;
+                }
+
+                const useStreaming =
+                    new URLSearchParams(window.location.search).get('stream') !== 'false';
+
                 if (useStreaming) {
                     await summonViaStreaming();
                 } else {
@@ -1670,6 +1699,66 @@
             } finally {
                 $('btn-summon').disabled = false;
             }
+        }
+
+        // Pool-first attempt: GET /api/reading/passage returns a
+        // pregenerated passage + its full 9 questions in one round trip
+        // (no SSE, no separate questions call). Returns true when the pool
+        // served the request (hit, or a 403 paywall the caller must not
+        // retry against) — summonPassage must not fall through to the live
+        // paths in that case. Returns false on any miss or fetch failure,
+        // in which case the live streaming/blocking paths run completely
+        // unchanged, as if this function never ran.
+        async function summonViaPool() {
+            let res;
+            try {
+                res = await authFetch('GET', '/api/reading/passage');
+            } catch (err) {
+                window.analytics.track('reading_pool_fallback', { reason: 'network_error' });
+                return false;
+            }
+
+            if (res.status === 403) {
+                window.analytics.track('reading_paywall_hit', { stage: 'pool' });
+                showState('landing');
+                showProModal('reading_quota');
+                return true;
+            }
+            if (!res.ok) {
+                window.analytics.track('reading_pool_fallback', { reason: 'http_' + res.status });
+                return false;
+            }
+
+            let body;
+            try {
+                body = await res.json();
+            } catch (err) {
+                window.analytics.track('reading_pool_fallback', { reason: 'malformed_response' });
+                return false;
+            }
+            if (!body || !body.pool_hit) {
+                window.analytics.track('reading_pool_fallback', {
+                    reason: (body && body.fallback_reason) || 'unknown',
+                });
+                return false;
+            }
+
+            const fullPassage = {
+                title:         body.title,
+                body:          body.body,
+                vocab_targets: body.vocab_targets || [],
+            };
+            state.passage = fullPassage;
+            state.passageId = body.passage_id;
+            showState('exam');
+            finalizePassageWithVocab(fullPassage);
+            window.analytics.track('reading_pool_hit', { topic: body.topic });
+
+            // Shared with the streaming path: starts the attempt, sets
+            // state.attemptId, hides the (never-shown) waiting state, and
+            // renders the question cards.
+            await continueWithQuestions(body.questions, body.passage_id);
+            return true;
         }
 
         // Streaming path. Passage streams as SSE; questions fetched in
