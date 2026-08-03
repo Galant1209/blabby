@@ -7134,6 +7134,49 @@ def _client_reading_questions(rows: list[dict]) -> list[dict]:
         key=lambda r: r["order_idx"],
     )
 
+
+def _tag_vocab_weakness(vocab_targets: Optional[list], user_id: str, is_pro: bool) -> list[dict]:
+    """
+    Reshape a stored vocab_targets list[str] (fixed at generation time —
+    unchanged by this function's caller) into list[{"word", "is_weak"}] for
+    the pool serving response. is_weak is Pro-gated: Free users always get
+    is_weak=False regardless of their user_vocabulary contents.
+
+    Non-fatal: a join failure logs a warning and falls back to is_weak=False
+    for every word rather than blocking the response.
+    """
+    words = [w for w in (vocab_targets or []) if isinstance(w, str)]
+    weak_words: set[str] = set()
+    if is_pro and words and supabase_admin is not None:
+        try:
+            uv_resp = (
+                supabase_admin.table("user_vocabulary")
+                .select("vocabulary_item_id")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            item_ids = [
+                r["vocabulary_item_id"] for r in (uv_resp.data or [])
+                if r.get("vocabulary_item_id")
+            ]
+            if item_ids:
+                vi_resp = (
+                    supabase_admin.table("vocabulary_items")
+                    .select("word")
+                    .in_("id", item_ids)
+                    .execute()
+                )
+                weak_words = {
+                    row["word"].strip().lower()
+                    for row in (vi_resp.data or [])
+                    if row.get("word")
+                }
+        except Exception:
+            logger.warning(
+                "vocab is_weak join failed", extra={"user_id": user_id}, exc_info=True,
+            )
+    return [{"word": w, "is_weak": w.lower() in weak_words} for w in words]
+
 # IELTS Reading raw-to-band mapping for the 9-question Blabby format. Scales
 # proportionally from the standard 40-question Academic Reading band table.
 _READING_BAND_BY_SCORE: dict[int, float] = {
@@ -8786,6 +8829,178 @@ def pregenerate_reading_passages(target_per_topic: int = READING_POOL_TARGET):
         return
     for topic in READING_POOL_TOPICS:
         _pregenerate_reading_topic(topic, target_per_topic)
+
+
+@app.get("/api/reading/passage")
+@limiter.limit("12/minute")
+async def reading_get_pool_passage(
+    request: Request,
+    topic: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Pool-first passage fetch. Serves a pregenerated
+    (is_pregenerated=True AND questions_ready=True) passage plus its full
+    question set in a single round trip, avoiding the SSE path's two-call
+    timing dependency (passage metadata event, then a separate
+    /reading/questions/generate call). On a pool miss the frontend falls
+    back to the existing /reading/passage/generate_stream live path
+    unchanged — this endpoint never generates on the request path itself.
+
+    vocab_targets is reshaped from the stored list[str] (fixed at
+    generation time, untouched by this endpoint) into
+    list[{"word", "is_weak"}] here at serving time. is_weak is Pro-gated.
+    """
+    user_id = verify_token(authorization)
+
+    if topic is not None and topic not in READING_POOL_TOPICS:
+        raise HTTPException(status_code=400, detail="invalid topic")
+
+    # Pre-emptive guard, same rationale as the two generate endpoints: don't
+    # hand a free user a full passage they can't attempt today. Pool-hit is
+    # token-free, but /reading/attempt/start is still the authoritative gate.
+    _enforce_reading_quota(user_id)
+
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    fallback_reason = "pool_empty"
+    excluded_ids: list[str] = []
+    try:
+        for _ in range(3):
+            pool_query = (
+                supabase_admin.table("reading_passages")
+                .select(
+                    "id, title, body, difficulty_band, topic, word_count, "
+                    "vocab_targets, used_count"
+                )
+                .eq("is_pregenerated", True)
+                .eq("questions_ready", True)
+            )
+            if topic is not None:
+                pool_query = pool_query.eq("topic", topic)
+            if excluded_ids:
+                pool_query = pool_query.not_.in_("id", excluded_ids)
+            pool_resp = (
+                pool_query.order("used_count", desc=False)
+                .order("created_at", desc=False)
+                .limit(1)
+                .execute()
+            )
+            if not pool_resp.data:
+                break
+            row = pool_resp.data[0]
+            passage_id = row["id"]
+            row_topic = row["topic"]
+
+            # Serving-time re-check: pool flags can lag a manual question
+            # delete (or any other out-of-band mutation). Re-verify the full
+            # 9-question set actually exists before serving; if not, retire
+            # this passage and try the next candidate.
+            try:
+                q_count_resp = (
+                    supabase_admin.table("reading_questions")
+                    .select("id", count="exact")
+                    .eq("passage_id", passage_id)
+                    .execute()
+                )
+                q_count = q_count_resp.count or 0
+            except Exception:
+                logger.exception(
+                    "reading pool serving-time question count failed",
+                    extra={"passage_id": passage_id},
+                )
+                fallback_reason = "pool_lookup_error"
+                break
+
+            if q_count != READING_TOTAL_QUESTIONS:
+                logger.warning(
+                    "reading_pool_reject passage_id=%s topic=%s "
+                    "reason=question_count_mismatch got=%d",
+                    passage_id, row_topic, q_count,
+                )
+                try:
+                    supabase_admin.table("reading_passages").update(
+                        {"is_pregenerated": False}
+                    ).eq("id", passage_id).execute()
+                except Exception:
+                    logger.exception(
+                        "reading pool reject: failed to retire passage %s", passage_id,
+                    )
+                excluded_ids.append(passage_id)
+                continue
+
+            questions_resp = (
+                supabase_admin.table("reading_questions")
+                .select(
+                    "id, question_type, question_text, options, "
+                    "correct_answer, explanation, evidence_quote, order_idx"
+                )
+                .eq("passage_id", passage_id)
+                .order("order_idx")
+                .execute()
+            )
+            questions = _client_reading_questions(questions_resp.data or [])
+
+            try:
+                supabase_admin.table("reading_passages").update(
+                    {"used_count": (row.get("used_count") or 0) + 1}
+                ).eq("id", passage_id).execute()
+            except Exception:
+                logger.warning(
+                    "reading pool used_count increment failed",
+                    extra={"passage_id": passage_id},
+                )
+
+            # On-demand top-up: if this passage's topic bucket dips below
+            # the low watermark, replenish in a background thread. Never
+            # blocks or fails this response — the user still gets the
+            # pooled passage.
+            try:
+                remaining = (
+                    supabase_admin.table("reading_passages")
+                    .select("id", count="exact")
+                    .eq("topic", row_topic)
+                    .eq("is_pregenerated", True)
+                    .eq("questions_ready", True)
+                    .execute()
+                ).count or 0
+                if remaining < READING_POOL_LOW_WATERMARK:
+                    _replenish_reading_async(row_topic)
+            except Exception:
+                logger.warning(
+                    "low-watermark check failed for reading/%s", row_topic, exc_info=True,
+                )
+
+            is_pro = get_user_pro_status(user_id)
+            vocab_targets = _tag_vocab_weakness(row.get("vocab_targets"), user_id, is_pro)
+
+            logger.info(
+                "reading_pool_hit topic=%s passage_id=%s", row_topic, passage_id,
+            )
+            return {
+                "pool_hit":        True,
+                "passage_id":      passage_id,
+                "title":           row["title"],
+                "body":            row["body"],
+                "topic":           row_topic,
+                "difficulty_band": row["difficulty_band"],
+                "word_count":      row.get("word_count"),
+                "vocab_targets":   vocab_targets,
+                "questions":       questions,
+            }
+        if excluded_ids and fallback_reason == "pool_empty":
+            fallback_reason = "pool_exhausted_rejects"
+    except HTTPException:
+        raise
+    except Exception:
+        fallback_reason = "pool_lookup_error"
+        logger.exception("reading pool lookup failed; falling back to live generation")
+
+    logger.warning(
+        "reading_live_fallback topic=%s reason=%s", topic or "-", fallback_reason,
+    )
+    return {"pool_hit": False, "fallback_reason": fallback_reason}
 
 
 @app.post("/reading/attempt/start")
