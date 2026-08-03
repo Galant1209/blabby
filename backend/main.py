@@ -224,6 +224,12 @@ async def startup_event():
         id="nightly_writing_pregen",
         replace_existing=True,
     )
+    _scheduler.add_job(
+        pregenerate_reading_passages,
+        CronTrigger(hour="*/6", minute=0, timezone="UTC"),
+        id="nightly_reading_pregen",
+        replace_existing=True,
+    )
     # Startup prime (30s delay so DB connections are ready)
     _scheduler.add_job(
         pregenerate_writing_questions,
@@ -232,7 +238,14 @@ async def startup_event():
         id="startup_writing_pregen",
         replace_existing=True,
     )
-    logger.info("APScheduler started: writing pregeneration scheduled")
+    _scheduler.add_job(
+        pregenerate_reading_passages,
+        "date",
+        run_date=datetime.now(timezone.utc) + timedelta(seconds=30),
+        id="startup_reading_pregen",
+        replace_existing=True,
+    )
+    logger.info("APScheduler started: writing + reading pregeneration scheduled")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -7073,6 +7086,18 @@ READING_PASSAGE_MAX_TOKENS = 6000
 READING_QUESTIONS_MAX_TOKENS = 4000
 READING_LLM_RETRIES = 2  # so 1 initial + 2 retries = 3 total attempts
 
+# Pool topics — single-dimension bucketing (topic only; no difficulty-band
+# axis). reading_passages.is_pregenerated / questions_ready / used_count
+# added in the pool migration (see idx_reading_passages_pool).
+READING_POOL_TOPICS = [
+    "general", "technology", "urban planning", "social history", "linguistics",
+]
+READING_POOL_TARGET = 6
+READING_POOL_LOW_WATERMARK = 2
+# Pregenerated passages use a fixed band; per-user calibration happens at
+# serving time via vocab is_weak tagging, not passage difficulty_band.
+READING_POOL_DIFFICULTY_BAND = 6.0
+
 # Columns of reading_questions the client may see while still ANSWERING.
 # Mirrors the column-level grant given to `authenticated` in
 # supabase/migrations/20260714_p1_rls_and_reading_answers.sql:69-71.
@@ -7394,6 +7419,68 @@ def _generate_questions_for_passage(
         )
 
     return questions_data
+
+
+def _generate_reading_passage_and_questions(
+    difficulty_band: float,
+    topic: Optional[str],
+    user_band_for_targets: float,
+    log_extra: Optional[dict] = None,
+) -> tuple[dict, dict]:
+    """
+    Shared passage + questions (+ vocab_targets) LLM generation, no DB
+    access. Extracted from /reading/passage/generate so the blocking
+    endpoint and the pool pregen worker share one generation path instead
+    of duplicating the validator-retry loop.
+
+    Returns (passage_data, questions_data). Raises HTTPException(500) on
+    passage or questions retry exhaustion (validate_passage / the
+    _generate_questions_for_passage helper it delegates to).
+    """
+    extra_base = log_extra or {}
+    passage_prompt = build_passage_prompt(difficulty_band, topic)
+    passage_data: Optional[dict] = None
+    last_passage_reason: Optional[str] = None
+    for attempt in range(READING_LLM_RETRIES + 1):
+        try:
+            candidate = _run_claude_json(
+                passage_prompt,
+                "Generate the passage as specified.",
+                READING_PASSAGE_MAX_TOKENS,
+            )
+        except Exception:
+            logger.exception(
+                "reading passage LLM call failed",
+                extra={**extra_base, "attempt": attempt},
+            )
+            last_passage_reason = "llm_call_failed"
+            continue
+        ok, reason = validate_passage(candidate)
+        if ok:
+            passage_data = candidate
+            break
+        last_passage_reason = reason
+        logger.warning(
+            "reading passage validator rejected output",
+            extra={**extra_base, "attempt": attempt, "reason": reason},
+        )
+    if passage_data is None:
+        logger.error(
+            "reading passage generation failed after retries",
+            extra={**extra_base, "reason": last_passage_reason},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "passage_generation_failed",
+                "reason": last_passage_reason or "unknown",
+            },
+        )
+
+    questions_data = _generate_questions_for_passage(
+        passage_data["body"], difficulty_band, user_band_for_targets,
+    )
+    return passage_data, questions_data
 
 
 def _get_user_band_reading(user_id: str) -> Optional[float]:
@@ -7990,47 +8077,7 @@ async def reading_generate_passage(
 
     _enforce_reading_quota(user_id)
 
-    # --- Passage generation with validator retries -------------------------
-    passage_prompt = build_passage_prompt(difficulty_band, topic)
-    passage_data: Optional[dict] = None
-    last_passage_reason: Optional[str] = None
-    for attempt in range(READING_LLM_RETRIES + 1):
-        try:
-            candidate = _run_claude_json(
-                passage_prompt,
-                "Generate the passage as specified.",
-                READING_PASSAGE_MAX_TOKENS,
-            )
-        except Exception:
-            logger.exception(
-                "reading passage LLM call failed",
-                extra={"user_id": user_id, "attempt": attempt},
-            )
-            last_passage_reason = "llm_call_failed"
-            continue
-        ok, reason = validate_passage(candidate)
-        if ok:
-            passage_data = candidate
-            break
-        last_passage_reason = reason
-        logger.warning(
-            "reading passage validator rejected output",
-            extra={"user_id": user_id, "attempt": attempt, "reason": reason},
-        )
-    if passage_data is None:
-        logger.error(
-            "reading passage generation failed after retries",
-            extra={"user_id": user_id, "reason": last_passage_reason},
-        )
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "passage_generation_failed",
-                "reason": last_passage_reason or "unknown",
-            },
-        )
-
-    # --- Question generation via shared helper ----------------------------
+    # --- Passage + question generation via shared helper --------------------
     # vocab_targets are calibrated against the user's own band, not just the
     # requested passage difficulty. Falls back to difficulty_band (which itself
     # falls back to 6.0 above) for first-time Reading users with no prior band.
@@ -8045,8 +8092,9 @@ async def reading_generate_passage(
     # since the orphan-passage rollback logic below only protects against the
     # questions-insert failure (DB-level), not LLM-generation failure (which
     # happens before any passage is persisted, so no rollback needed).
-    questions_data = _generate_questions_for_passage(
-        passage_data["body"], difficulty_band, user_band_for_targets,
+    passage_data, questions_data = _generate_reading_passage_and_questions(
+        difficulty_band, topic, user_band_for_targets,
+        log_extra={"user_id": user_id},
     )
 
     # --- Persist ------------------------------------------------------------
@@ -8556,6 +8604,188 @@ async def reading_generate_questions(
     )
 
     return {"questions": _client_reading_questions(inserted)}
+
+
+# ── Reading pool pregeneration ──────────────────────────────────────────────
+# Mirrors the Writing pool worker shape (_pregenerate_task1_subtype /
+# pregenerate_writing_questions / _replenish_task1_async), single-dimension
+# bucketed by topic instead of task1_subtype. Two-phase insert: passage row
+# first (is_pregenerated=False, questions_ready=False), then all 9 questions;
+# only after questions insert succeeds does a single update flip both flags
+# to True. A questions-insert failure is NOT rolled back — the passage stays
+# questions_ready=False and is simply excluded from every pool query
+# (idx_reading_passages_pool / the eq(is_pregenerated, True) filters), same
+# shape as the 5 pre-existing orphan passages that predate pool tracking.
+
+def _pregenerate_reading_topic(topic: str, target_per_topic: int = READING_POOL_TARGET):
+    """Top up ONE topic's pool to target_per_topic pool-ready passages.
+    Shared by the full pregeneration sweep and the on-demand low-watermark
+    top-up. Fails silently — never crashes the server or a serving thread."""
+    if supabase_admin is None:
+        logger.warning("reading pregen: supabase_admin not configured | topic=%s", topic)
+        return
+
+    try:
+        existing = (
+            supabase_admin.table("reading_passages")
+            .select("id", count="exact")
+            .eq("topic", topic)
+            .eq("is_pregenerated", True)
+            .eq("questions_ready", True)
+            .execute()
+        )
+        current_count = existing.count or 0
+    except Exception:
+        logger.exception("reading pregen: pool count query failed | topic=%s", topic)
+        return
+
+    needed = target_per_topic - current_count
+    if needed <= 0:
+        logger.info("reading pregen: topic=%s has %d, skipping", topic, current_count)
+        return
+
+    logger.info("reading pregen: generating %d passage(s) for topic=%s", needed, topic)
+    generated = 0
+    failed = 0
+    for _ in range(needed):
+        try:
+            passage_data, questions_data = _generate_reading_passage_and_questions(
+                READING_POOL_DIFFICULTY_BAND,
+                topic,
+                READING_POOL_DIFFICULTY_BAND,
+                log_extra={"pool_topic": topic},
+            )
+        except Exception:
+            failed += 1
+            logger.warning(
+                "reading pregen: generation failed | topic=%s", topic, exc_info=True,
+            )
+            continue
+
+        vocab_targets = questions_data.get("vocab_targets") or []
+        try:
+            passage_insert = supabase_admin.table("reading_passages").insert({
+                "title":           passage_data["title"],
+                "body":            passage_data["body"],
+                "difficulty_band": READING_POOL_DIFFICULTY_BAND,
+                "topic":           topic,
+                "source":          "ai_generated",
+                "word_count":      passage_data["word_count"],
+                "vocab_targets":   vocab_targets,
+                "is_pregenerated": False,
+                "questions_ready": False,
+            }).execute()
+            passage_id = (passage_insert.data or [{}])[0].get("id")
+            if not passage_id:
+                raise RuntimeError("passage insert returned no id")
+        except Exception:
+            failed += 1
+            logger.warning(
+                "reading pregen: passage insert failed | topic=%s", topic, exc_info=True,
+            )
+            continue
+
+        try:
+            question_rows = [
+                {
+                    "passage_id":     passage_id,
+                    "question_type":  q["question_type"],
+                    "question_text":  q["question_text"],
+                    "options":        q.get("options"),
+                    "correct_answer": q["correct_answer"],
+                    "explanation":    q["explanation"],
+                    "evidence_quote": q.get("evidence_quote"),
+                    "order_idx":      q["order_idx"],
+                }
+                for q in questions_data["questions"]
+            ]
+            questions_insert = (
+                supabase_admin.table("reading_questions").insert(question_rows).execute()
+            )
+            inserted = questions_insert.data or []
+            if len(inserted) != READING_TOTAL_QUESTIONS:
+                raise RuntimeError(
+                    f"expected {READING_TOTAL_QUESTIONS} question rows, got {len(inserted)}"
+                )
+        except Exception:
+            # Do NOT roll back the passage — see module note above. Must log
+            # passage_id: this is the only trace linking the soft orphan back
+            # to this run once the exception unwinds.
+            failed += 1
+            logger.warning(
+                "reading pregen: questions insert failed, passage left as soft "
+                "orphan (questions_ready stays False) | topic=%s passage_id=%s",
+                topic, passage_id, exc_info=True,
+            )
+            continue
+
+        try:
+            supabase_admin.table("reading_passages").update({
+                "questions_ready": True,
+                "is_pregenerated": True,
+            }).eq("id", passage_id).execute()
+        except Exception:
+            failed += 1
+            logger.warning(
+                "reading pregen: pool-ready flag update failed | topic=%s passage_id=%s",
+                topic, passage_id, exc_info=True,
+            )
+            continue
+
+        generated += 1
+        logger.info(
+            "reading pregen: created topic=%s passage_id=%s", topic, passage_id,
+        )
+
+    logger.info(
+        "[READING_PREGEN_TOPIC] topic=%s needed=%d generated=%d failed=%d",
+        topic, needed, generated, failed,
+    )
+
+
+_reading_replenish_lock = threading.Lock()
+_reading_replenish_inflight = set()
+
+
+def _replenish_reading_async(topic: str):
+    """Fire-and-forget background top-up of one topic's pool. Deduplicates:
+    at most one in-flight replenish per topic. Never blocks or fails the
+    caller.
+
+    Known limitation: _reading_replenish_lock / _reading_replenish_inflight
+    are in-process state. Under multiple server replicas each replica can
+    independently decide to replenish the same topic at the same time — the
+    dedup only holds within a single process. Same limitation as Writing's
+    _replenish_task1_async; not fixed here."""
+    with _reading_replenish_lock:
+        if topic in _reading_replenish_inflight:
+            return
+        _reading_replenish_inflight.add(topic)
+
+    def _run():
+        try:
+            _pregenerate_reading_topic(topic)
+        except Exception:
+            logger.warning(f"on-demand replenish failed for reading/{topic}", exc_info=True)
+        finally:
+            with _reading_replenish_lock:
+                _reading_replenish_inflight.discard(topic)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def pregenerate_reading_passages(target_per_topic: int = READING_POOL_TARGET):
+    """
+    Ensure reading_passages has at least target_per_topic pool-ready
+    (is_pregenerated=True AND questions_ready=True) passages per topic in
+    READING_POOL_TOPICS. Called by APScheduler on startup and every 6 hours.
+    Fails silently — never crashes the server.
+    """
+    if supabase_admin is None:
+        logger.warning("pregenerate_reading_passages: supabase_admin not configured")
+        return
+    for topic in READING_POOL_TOPICS:
+        _pregenerate_reading_topic(topic, target_per_topic)
 
 
 @app.post("/reading/attempt/start")
