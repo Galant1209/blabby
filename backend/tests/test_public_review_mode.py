@@ -140,6 +140,32 @@ def test_different_visitors_have_separate_lifetime_quota():
     assert len(store.used) == 2
 
 
+def test_anonymous_status_reads_authoritative_quota_without_consuming_it():
+    store = _QuotaStore()
+    visitor = str(uuid.uuid4())
+    _run_process(store, visitor)
+    with patch.dict(os.environ, {
+        "PUBLIC_REVIEW_MODE": "true",
+        "ANONYMOUS_ID_HASH_SECRET": "unit-test-hmac-secret",
+    }), patch.object(main, "supabase_admin", store):
+        result = asyncio.run(main.anonymous_trial_status(
+            request=_request(),
+            x_blabby_visitor_id=visitor,
+        ))
+    assert result == {"limit": 10, "used": 1, "remaining": 9, "allowed": True}
+    assert list(store.used.values()) == [1]
+
+
+def test_anonymous_status_is_not_public_when_review_mode_is_off():
+    with patch.dict(os.environ, {"PUBLIC_REVIEW_MODE": "false"}), \
+         pytest.raises(HTTPException) as excinfo:
+        asyncio.run(main.anonymous_trial_status(
+            request=_request(),
+            x_blabby_visitor_id=str(uuid.uuid4()),
+        ))
+    assert excinfo.value.status_code == 404
+
+
 def test_spoofing_visitor_id_does_not_bypass_ip_rate_limit():
     main._anonymous_rate_buckets.clear()
     ip_hash = "a" * 64
@@ -195,11 +221,41 @@ def test_public_pages_show_price_term_refund_and_real_contact():
     assert "PUBLIC_REVIEW_MODE" in index
     assert "publicReviewMode: true" in config
     assert "X-Blabby-Visitor-ID" in index
+    assert "/api/anonymous-trial/status" in index
     assert "pro_waitlist" not in index
     assert "Notify me" not in index
     assert "NT$199／月" not in index + upgrade
     assert index.count('id="pro-modal-overlay"') == 1
     assert "#pro-modal-overlay {" not in index
+
+
+def test_anonymous_conversion_uses_existing_auth_and_privacy_safe_telemetry():
+    index = (APP_DIR / "index.html").read_text(encoding="utf-8")
+    conversion = (APP_DIR / "anonymous-conversion.js").read_text(encoding="utf-8")
+    for event in (
+        "anonymous_speaking_viewed",
+        "anonymous_speaking_started",
+        "anonymous_process_success",
+        "anonymous_milestone_5",
+        "anonymous_milestone_8",
+        "anonymous_quota_completed",
+        "anonymous_signup_cta_clicked",
+        "anonymous_login_cta_clicked",
+        "auth_completed_from_anonymous",
+        "anonymous_quota_exceeded",
+    ):
+        assert event in index
+    assert "blabby_auth_source" in index
+    assert "window.localStorage.removeItem(AUTH_SOURCE_KEY)" in index
+    assert "anonymousTrialComplete" in index
+    assert "recordBtn.disabled = anonymousTrialComplete" in index
+    assert "retryQuestionBtn.disabled = anonymousTrialComplete" in index
+    assert "nextBtn.disabled = anonymousTrialComplete" in index
+    assert "raw_ip" not in conversion.lower()
+    assert "transcript" not in conversion.lower()
+    assert "audio" not in conversion.lower()
+    assert "email" not in conversion.lower()
+    assert "visitor" not in conversion.lower()
 
 
 def test_upgrade_stays_public_and_checkout_keeps_authenticated_attribution():

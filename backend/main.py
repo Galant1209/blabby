@@ -961,6 +961,34 @@ def _consume_anonymous_quota(visitor_hash: str, ip_hash: str) -> dict:
     return state
 
 
+@app.get("/api/anonymous-trial/status")
+async def anonymous_trial_status(
+    request: Request,
+    x_blabby_visitor_id: Optional[str] = Header(None, alias="X-Blabby-Visitor-ID"),
+):
+    """Read the authoritative lifetime quota without consuming a practice.
+
+    The response exposes counts only. Raw visitor/IP values are hashed by the
+    existing anonymous identity boundary and never returned or persisted here.
+    """
+    if not is_public_review_mode():
+        raise HTTPException(status_code=404, detail="Not found")
+    visitor_hash, ip_hash = _anonymous_identity(request, x_blabby_visitor_id)
+    state = _anonymous_quota_rpc(
+        "get_anonymous_process_quota",
+        visitor_hash,
+        ip_hash,
+    )
+    used = max(0, min(int(state.get("used", 0)), ANONYMOUS_PROCESS_LIMIT))
+    remaining = max(0, ANONYMOUS_PROCESS_LIMIT - used)
+    return {
+        "limit": ANONYMOUS_PROCESS_LIMIT,
+        "used": used,
+        "remaining": remaining,
+        "allowed": bool(state.get("allowed", remaining > 0)),
+    }
+
+
 def verify_admin(authorization: Optional[str]) -> str:
     user_id = verify_token(authorization)
     try:
