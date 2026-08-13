@@ -181,6 +181,7 @@ def test_review_mode_off_restores_process_auth_gate():
 def test_public_pages_show_price_term_refund_and_real_contact():
     index = (APP_DIR / "index.html").read_text(encoding="utf-8")
     upgrade = (APP_DIR / "upgrade.html").read_text(encoding="utf-8")
+    privacy = (APP_DIR / "privacy.html").read_text(encoding="utf-8")
     config = (APP_DIR / "config.js").read_text(encoding="utf-8")
     for source in (index, upgrade):
         assert "Blabby Pro" in source
@@ -188,7 +189,9 @@ def test_public_pages_show_price_term_refund_and_real_contact():
         assert "不自動續訂" in source
         assert "退款申請" in source
         assert "14–21 個工作天" in source
+    for source in (index, upgrade, privacy):
         assert "galant19951209@gmail.com" in source
+        assert "zeta2878@gmail.com" in source
     assert "PUBLIC_REVIEW_MODE" in index
     assert "publicReviewMode: true" in config
     assert "X-Blabby-Visitor-ID" in index
