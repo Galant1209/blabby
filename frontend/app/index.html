@@ -2819,7 +2819,7 @@
             margin-bottom: 16px; padding: 22px 24px; border: 1.5px solid var(--gold);
             background: linear-gradient(135deg, rgba(201,168,76,.11), rgba(255,255,255,.92));
         }
-        .retention-resume-card[hidden], .session-closure[hidden] { display: none; }
+        .retention-resume-card[hidden], .progress-evidence-card[hidden], .session-closure[hidden] { display: none; }
         .retention-eyebrow { margin: 0 0 5px; color: var(--gold); font: 600 11px/1.4 var(--sans); letter-spacing: .1em; }
         .retention-resume-card h2, .session-closure h3 { margin: 0 0 8px; color: var(--ink); font: 600 21px/1.35 var(--serif-tc); }
         .retention-focus-status { color: var(--muted); font: 600 12px/1.4 var(--sans); }
@@ -2836,6 +2836,16 @@
         .session-closure-row { margin-top: 12px; }
         .session-closure-row span { display: block; color: var(--muted); font: 600 11px/1.4 var(--sans); letter-spacing: .08em; }
         .session-closure-row strong, .session-closure-row p { margin: 3px 0 0; color: var(--ink); font-size: 14px; line-height: 1.6; }
+        .progress-evidence-card { margin-bottom: 16px; padding: 20px 22px; border: 1px solid var(--border); background: var(--surface); }
+        .progress-evidence-card h2 { margin: 0 0 4px; color: var(--ink); font: 600 19px/1.4 var(--serif-tc); }
+        .progress-evidence-tag { margin: 0 0 14px; color: var(--green); font: 600 13px/1.4 var(--sans); }
+        .progress-evidence-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .progress-evidence-panel { min-width: 0; padding: 12px; background: var(--paper); border: 1px solid var(--border); }
+        .progress-evidence-panel span { display: block; margin-bottom: 5px; color: var(--muted); font: 600 11px/1.4 var(--sans); letter-spacing: .08em; }
+        .progress-evidence-panel p { margin: 0; color: var(--ink-soft); font: 500 14px/1.6 var(--serif-tc); overflow-wrap: anywhere; }
+        .progress-evidence-observation { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border); color: var(--ink); font-size: 14px; line-height: 1.6; }
+        .progress-evidence-link { margin-top: 12px; min-height: 40px; padding: 9px 12px; border: 1px solid var(--green); color: var(--green); background: transparent; font: 600 13px/1.3 var(--sans); cursor: pointer; }
+        .session-closure-evidence { color: var(--green) !important; }
         @media (max-width: 560px) {
             .public-product { margin-top: 16px; padding: 22px 18px; }
             .public-product h2 { font-size: 25px; }
@@ -2844,6 +2854,9 @@
             .anonymous-conversion-actions > * { width: 100%; text-align: center; }
             .retention-resume-card { padding: 18px; }
             .retention-actions > * { width: 100%; }
+            .progress-evidence-card { padding: 18px; }
+            .progress-evidence-pair { grid-template-columns: 1fr; }
+            .progress-evidence-link { width: 100%; }
         }
         body.anonymous-review .user-menu-wrapper,
         body.anonymous-review #practice-hub,
@@ -2855,6 +2868,7 @@
         body.anonymous-review #admin-section,
         body.anonymous-review #part-switcher,
         body.anonymous-review #retention-resume-card,
+        body.anonymous-review #progress-evidence-card,
         body.anonymous-review #session-closure,
         body.anonymous-review #bottom-nav { display: none !important; }
 
@@ -3233,6 +3247,7 @@
                     <div class="session-closure-row"><span>今天</span><p id="session-closure-today"></p></div>
                     <div class="session-closure-row"><span>還在處理</span><strong id="session-closure-focus"></strong></div>
                     <div class="session-closure-row"><span>下次</span><p id="session-closure-next"></p></div>
+                    <p id="session-closure-evidence" class="session-closure-evidence" hidden>這次回答已加入你的進度證據。</p>
                     <div class="retention-actions">
                         <button id="session-closure-continue" class="retention-primary" type="button">下次從這裡繼續</button>
                     </div>
@@ -3300,6 +3315,18 @@
                 <button id="retention-resume-cta" class="retention-primary" type="button">開始口說</button>
                 <button id="retention-resolve-cta" class="retention-secondary" type="button" hidden>標記為已解決</button>
             </div>
+        </section>
+
+        <section id="progress-evidence-card" class="progress-evidence-card fade-in" hidden aria-labelledby="progress-evidence-title">
+            <p class="retention-eyebrow">最近看得到的變化</p>
+            <h2 id="progress-evidence-title">你的回答，前後放在一起</h2>
+            <p id="progress-evidence-tag" class="progress-evidence-tag"></p>
+            <div class="progress-evidence-pair">
+                <div class="progress-evidence-panel"><span>以前</span><p id="progress-evidence-before"></p></div>
+                <div class="progress-evidence-panel"><span>最近</span><p id="progress-evidence-after"></p></div>
+            </div>
+            <p id="progress-evidence-observation" class="progress-evidence-observation"></p>
+            <button id="progress-evidence-open" class="progress-evidence-link" type="button">查看進度紀錄</button>
         </section>
 
         <section id="practice-hub" class="practice-hub card-v3 fade-in module-card" style="margin-bottom: 16px;">
@@ -3416,6 +3443,7 @@
 
     <script src="/anonymous-conversion.js"></script>
     <script src="/retention.js"></script>
+    <script src="/progress-evidence.js"></script>
     <script>
         const API_BASE = 'https://blabby-backend.onrender.com';
         const CFG = window.BLABBY_CONFIG || {};
@@ -3455,6 +3483,7 @@
 
         const anonymousConversion = window.BlabbyAnonymousConversion;
         const retention = window.BlabbyRetention;
+        const progressEvidence = window.BlabbyProgressEvidence;
         const AUTH_SOURCE_KEY = 'blabby_auth_source';
         let anonymousTrialState = anonymousConversion.stateFor(0, 10);
         let anonymousTrialComplete = false;
@@ -3603,6 +3632,8 @@
         const retentionResumeCard = document.getElementById('retention-resume-card');
         const retentionResumeCta = document.getElementById('retention-resume-cta');
         const retentionResolveCta = document.getElementById('retention-resolve-cta');
+        const progressEvidenceCard = document.getElementById('progress-evidence-card');
+        const progressEvidenceOpen = document.getElementById('progress-evidence-open');
         const recordBtn       = document.getElementById('record-btn');
         const statusText      = document.getElementById('status-text');
         const recorderSection = document.querySelector('.recorder-card');
@@ -3612,6 +3643,7 @@
         const endSessionBtn   = document.getElementById('end-session-btn');
         const sessionClosure  = document.getElementById('session-closure');
         const sessionClosureContinue = document.getElementById('session-closure-continue');
+        const sessionClosureEvidence = document.getElementById('session-closure-evidence');
         const questionText    = document.getElementById('question-text');
         const questionMeta    = document.getElementById('question-meta');
         const nextQuestionEl  = document.getElementById('next-question-text');
@@ -3767,6 +3799,9 @@
         let resumeCardViewedId = null;
         let authenticatedSessionAnswerCount = 0;
         let latestAuthenticatedFeedback = null;
+        let progressEvidenceModel = progressEvidence.modelFrom(null);
+        let progressEvidenceViewedId = null;
+        let progressEvidenceInsufficientTracked = false;
         let currentTopicSession = null; // { topic, count }
         let practisedInSession = new Set(); // questions seen this session
         let currentDrillTag = null; // 'weak_vocab' | 'lack_detail' | null
@@ -3873,6 +3908,50 @@
             } catch (_) { /* analytics must never block practice */ }
         }
 
+        function trackProgressEvidenceEvent(eventName, source) {
+            if (document.body.classList.contains('anonymous-review')) return;
+            try {
+                window.analytics?.track(eventName, progressEvidence.eventProps(progressEvidenceModel, source));
+            } catch (_) { /* analytics must never block practice */ }
+        }
+
+        function renderProgressEvidenceCard() {
+            if (!progressEvidenceCard || document.body.classList.contains('anonymous-review')) return;
+            if (!progressEvidenceModel.hasEvidence) {
+                progressEvidenceCard.hidden = true;
+                return;
+            }
+            document.getElementById('progress-evidence-tag').textContent = progressEvidenceModel.weakness.label;
+            document.getElementById('progress-evidence-before').textContent = `“${progressEvidenceModel.before.snippet}”`;
+            document.getElementById('progress-evidence-after').textContent = `“${progressEvidenceModel.after.snippet}”`;
+            document.getElementById('progress-evidence-observation').textContent = progressEvidenceModel.observation.label;
+            progressEvidenceCard.hidden = false;
+            if (progressEvidenceViewedId !== progressEvidenceModel.after.id) {
+                trackProgressEvidenceEvent('progress_evidence_viewed', 'authenticated_home');
+                progressEvidenceViewedId = progressEvidenceModel.after.id;
+            }
+        }
+
+        async function loadProgressEvidence() {
+            progressEvidenceModel = progressEvidence.modelFrom(null);
+            if (!sb || document.body.classList.contains('anonymous-review')) return;
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session) return;
+                const res = await fetch(`${API_BASE}/api/progress/evidence`, {
+                    headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                if (!res.ok) throw new Error(`progress evidence ${res.status}`);
+                progressEvidenceModel = progressEvidence.modelFrom(await res.json());
+                if (!progressEvidenceModel.hasEvidence && !progressEvidenceInsufficientTracked) {
+                    trackProgressEvidenceEvent('progress_evidence_insufficient', 'authenticated_home');
+                    progressEvidenceInsufficientTracked = true;
+                }
+            } catch (err) {
+                console.error('progress evidence load failed:', err);
+            }
+        }
+
         function renderResumeCard({ resolvedJustNow = false } = {}) {
             if (!retentionResumeCard || document.body.classList.contains('anonymous-review')) return;
             retentionFocusModel = retention.resumeModel(pendingResume);
@@ -3961,7 +4040,7 @@
             if (endSessionBtn) endSessionBtn.hidden = authenticatedSessionAnswerCount < 3;
         }
 
-        function renderSessionClosure() {
+        async function renderSessionClosure() {
             if (!sessionClosure || authenticatedSessionAnswerCount < 3) return;
             const model = retention.closureModel(latestAuthenticatedFeedback, authenticatedSessionAnswerCount);
             document.getElementById('session-closure-today').textContent = model.today;
@@ -3971,6 +4050,16 @@
             document.getElementById('session-closure-next').textContent = model.focus
                 ? model.focus.nextAction.label
                 : model.neutral;
+            if (sessionClosureEvidence) sessionClosureEvidence.hidden = true;
+            if (latestAuthenticatedFeedback?.persisted === true) {
+                await loadProgressEvidence();
+                if (sessionClosureEvidence) {
+                    sessionClosureEvidence.hidden = !progressEvidence.includesRecord(
+                        progressEvidenceModel,
+                        latestAuthenticatedFeedback.record_id,
+                    );
+                }
+            }
             sessionClosure.hidden = false;
             endSessionBtn.hidden = true;
             trackRetentionEvent('session_closure_viewed', model.focus?.tag || '', 'speaking_part1');
@@ -3979,6 +4068,10 @@
 
         retentionResumeCta?.addEventListener('click', beginRetentionPractice);
         retentionResolveCta?.addEventListener('click', resolveCurrentFocus);
+        progressEvidenceOpen?.addEventListener('click', () => {
+            trackProgressEvidenceEvent('progress_evidence_opened', 'authenticated_home');
+            window.location.href = '/progress.html';
+        });
         endSessionBtn?.addEventListener('click', renderSessionClosure);
         sessionClosureContinue?.addEventListener('click', async () => {
             const model = retention.closureModel(latestAuthenticatedFeedback, authenticatedSessionAnswerCount);
@@ -4452,10 +4545,12 @@
             // allSettled is the explicit guarantee that one rejecting
             // won't short-circuit the others.
             pendingResume = null;
+            progressEvidenceModel = progressEvidence.modelFrom(null);
             weaknessSummary = null;
             dailyQuestion = null;
             await Promise.allSettled([
                 loadPendingResume(),
+                loadProgressEvidence(),
                 loadWeaknessSummary(),
                 loadDailyQuestion(),
                 loadDrillQuota(),
@@ -4464,12 +4559,14 @@
             if (practiceHub) practiceHub.style.display = '';
             updatePracticeHubState();
             renderResumeCard();
+            renderProgressEvidenceCard();
             renderWeaknessSummary();
         }
 
         function showSpeakingPractice() {
             if (practiceHub) practiceHub.style.display = 'none';
             if (retentionResumeCard) retentionResumeCard.hidden = true;
+            if (progressEvidenceCard) progressEvidenceCard.hidden = true;
             if (speakingPractice) speakingPractice.classList.add('visible');
             const switcher = p2El('part-switcher');
             if (switcher) switcher.style.display = '';

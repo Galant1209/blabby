@@ -11,6 +11,12 @@
 <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="./config.js"></script>
+<script src="./progress-evidence.js"></script>
+<script>
+!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+posthog.init('phc_yx3H55CAUHfsKFabX4ZQ5JHxTijKzHdyCiKzxvddaLTt',{api_host:'https://us.i.posthog.com',person_profiles:'identified_only'});
+window.analytics={track:(event,props)=>{try{posthog.capture(event,props||{});}catch(_){}},identify:(id)=>{try{posthog.identify(id);}catch(_){}}};
+</script>
 <style>
 :root {
     --bg: #F5F0E8;
@@ -79,6 +85,18 @@ main.page {
     color: var(--muted);
     font-style: italic;
 }
+
+.evidence-section { margin-bottom: 24px; }
+.evidence-section[hidden] { display: none; }
+.evidence-section__title { margin: 0 0 10px; color: var(--ink); font: 600 21px/1.4 var(--serif-tc); }
+.evidence-card { padding: 18px; background: var(--surface); border: 1px solid var(--border); }
+.evidence-card__tag { margin: 0 0 12px; color: var(--green); font-size: 13px; font-weight: 600; }
+.evidence-card__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.evidence-card__panel { min-width: 0; padding: 13px; background: var(--paper); border: 1px solid var(--border); }
+.evidence-card__panel span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; }
+.evidence-card__panel p { margin: 0; color: var(--ink-soft); font: 500 15px/1.6 var(--serif-tc); overflow-wrap: anywhere; }
+.evidence-card__observation { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border); color: var(--ink); font-size: 14px; }
+.evidence-neutral { padding: 18px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--border); font-size: 14px; line-height: 1.65; }
 .empty-state .lede {
     color: var(--ink);
     font-style: normal;
@@ -167,6 +185,9 @@ main.page {
         min-width: 0;
     }
 }
+@media (max-width: 559px) {
+    .evidence-card__pair { grid-template-columns: 1fr; }
+}
 
 /* Bottom nav (copied from history.html / index.html) */
 #bottom-nav {
@@ -204,6 +225,11 @@ main.page {
         <h1>Your Progress</h1>
         <div class="subtitle">First attempt, latest attempt, side by side.</div>
     </header>
+
+    <section id="evidence-section" class="evidence-section" aria-labelledby="evidence-title">
+        <h2 id="evidence-title" class="evidence-section__title">最近看得到的變化</h2>
+        <div id="evidence-mount"><div class="loading-state">Comparing recent evidence…</div></div>
+    </section>
 
     <div id="progress-list">
         <div class="loading-state">Gathering your past attempts…</div>
@@ -256,6 +282,7 @@ main.page {
     const SUPABASE_URL = cfg.supabaseUrl;
     const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
     const API_BASE = window.BLABBY_API_BASE || 'https://blabby-backend.onrender.com';
+    const progressEvidence = window.BlabbyProgressEvidence;
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !window.supabase) {
         document.body.innerHTML = '<main class="page"><p class="error-state">Missing Supabase config or SDK.</p></main>';
@@ -338,9 +365,26 @@ main.page {
         );
     }
 
+    function renderEvidence(model) {
+        if (!model.hasEvidence) {
+            return '<div class="evidence-neutral">再累積幾次練習後，Blabby 會用你自己的回答比較前後變化。</div>';
+        }
+        return (
+            '<article class="evidence-card">' +
+                '<p class="evidence-card__tag">' + escapeHtml(model.weakness.label) + '</p>' +
+                '<div class="evidence-card__pair">' +
+                    '<div class="evidence-card__panel"><span>以前</span><p>“' + escapeHtml(model.before.snippet) + '”</p></div>' +
+                    '<div class="evidence-card__panel"><span>最近</span><p>“' + escapeHtml(model.after.snippet) + '”</p></div>' +
+                '</div>' +
+                '<p class="evidence-card__observation">' + escapeHtml(model.observation.label) + '</p>' +
+            '</article>'
+        );
+    }
+
     async function getToken() {
         try {
             const { data: { session } } = await sb.auth.getSession();
+            if (session?.user?.id) window.analytics?.identify(session.user.id);
             return (session && session.access_token) || null;
         } catch (_) {
             return null;
@@ -349,19 +393,29 @@ main.page {
 
     async function load() {
         const mount = document.getElementById('progress-list');
+        const evidenceMount = document.getElementById('evidence-mount');
         const token = await getToken();
         if (!token) {
             window.location.href = '/index.html';
             return;
         }
         try {
-            const res = await fetch(`${API_BASE}/api/progress`, {
-                headers: { 'Authorization': `Bearer ${token}` },
-            });
-            if (!res.ok) {
-                throw new Error(`progress ${res.status}`);
-            }
-            const items = await res.json();
+            const headers = { 'Authorization': `Bearer ${token}` };
+            const [progressRes, evidenceRes] = await Promise.all([
+                fetch(`${API_BASE}/api/progress`, { headers }),
+                fetch(`${API_BASE}/api/progress/evidence`, { headers }),
+            ]);
+            if (!progressRes.ok) throw new Error(`progress ${progressRes.status}`);
+            if (!evidenceRes.ok) throw new Error(`progress evidence ${evidenceRes.status}`);
+            const items = await progressRes.json();
+            const evidenceModel = progressEvidence.modelFrom(await evidenceRes.json());
+            evidenceMount.innerHTML = renderEvidence(evidenceModel);
+            try {
+                window.analytics?.track(
+                    evidenceModel.hasEvidence ? 'progress_evidence_viewed' : 'progress_evidence_insufficient',
+                    progressEvidence.eventProps(evidenceModel, 'progress_page'),
+                );
+            } catch (_) {}
             if (!Array.isArray(items) || items.length === 0) {
                 mount.innerHTML = renderEmpty();
                 return;
@@ -372,6 +426,8 @@ main.page {
             mount.innerHTML =
                 '<div class="error-state">Could not load your progress. ' +
                 'Please refresh or try again later.</div>';
+            evidenceMount.innerHTML =
+                '<div class="error-state">Could not load progress evidence.</div>';
         }
     }
 

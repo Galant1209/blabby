@@ -4119,6 +4119,208 @@ async def get_progress(
     return items
 
 
+PROGRESS_EVIDENCE_SNIPPET_CHARS = 180
+PROGRESS_EVIDENCE_MIN_WORDS = 4
+_REASON_MARKERS = (
+    re.compile(r"\bbecause\b", re.IGNORECASE),
+    re.compile(r"\bsince\b", re.IGNORECASE),
+    re.compile(r"\bthe reason (?:is|was)\b", re.IGNORECASE),
+)
+_EXAMPLE_MARKERS = (
+    re.compile(r"\bfor example\b", re.IGNORECASE),
+    re.compile(r"\bfor instance\b", re.IGNORECASE),
+    re.compile(r"\bsuch as\b", re.IGNORECASE),
+)
+
+
+def _progress_evidence_snippet(value: object) -> str:
+    """Return a compact, whitespace-normalised, word-boundary snippet."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= PROGRESS_EVIDENCE_SNIPPET_CHARS:
+        return text
+    clipped = text[: PROGRESS_EVIDENCE_SNIPPET_CHARS + 1]
+    boundary = clipped.rfind(" ")
+    if boundary >= PROGRESS_EVIDENCE_SNIPPET_CHARS // 2:
+        clipped = clipped[:boundary]
+    else:
+        clipped = clipped[:PROGRESS_EVIDENCE_SNIPPET_CHARS]
+    return clipped.rstrip(" ,;:-") + "…"
+
+
+def _usable_progress_transcript(value: object) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text if len(text.split()) >= PROGRESS_EVIDENCE_MIN_WORDS else ""
+
+
+def _normalised_word_tokens(value: object) -> list[str]:
+    return re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", str(value or "").lower())
+
+
+def _contains_taught_expression(transcript: str, expression: object) -> bool:
+    phrase = _normalised_word_tokens(expression)
+    words = _normalised_word_tokens(transcript)
+    if not phrase or len(phrase) > 8 or len(words) < len(phrase):
+        return False
+    return any(words[i:i + len(phrase)] == phrase for i in range(len(words) - len(phrase) + 1))
+
+
+def _progress_observation(tag: str, before: dict, after: dict) -> dict:
+    before_text = _usable_progress_transcript(before.get("user_transcript"))
+    after_text = _usable_progress_transcript(after.get("user_transcript"))
+
+    if after.get("resolved") is True:
+        return {
+            "status": "evidence_available",
+            "label": "這個問題已標記為解決；以下保留前後紀錄。",
+        }
+
+    if tag == "lack_detail":
+        before_examples = any(p.search(before_text) for p in _EXAMPLE_MARKERS)
+        after_examples = any(p.search(after_text) for p in _EXAMPLE_MARKERS)
+        before_reasons = any(p.search(before_text) for p in _REASON_MARKERS)
+        after_reasons = any(p.search(after_text) for p in _REASON_MARKERS)
+        if after_examples and not before_examples:
+            return {
+                "status": "improvement_observed",
+                "label": "最近的回答開始加入具體例子。",
+            }
+        if after_reasons and not before_reasons:
+            return {
+                "status": "improvement_observed",
+                "label": "最近的回答開始把原因說出來。",
+            }
+
+    if tag == "weak_vocab":
+        taught = before.get("better_expression")
+        if (
+            _contains_taught_expression(after_text, taught)
+            and not _contains_taught_expression(before_text, taught)
+        ):
+            return {
+                "status": "improvement_observed",
+                "label": "最近的回答開始使用先前練過的更具體說法。",
+            }
+
+    return {
+        "status": "still_working",
+        "label": "這個問題在最近的回答仍然出現，還需要再觀察。",
+    }
+
+
+def _build_progress_evidence(rows: list[dict]) -> dict:
+    """Select one conservative same-weakness comparison from one user's rows.
+
+    The caller owns tenancy by querying with the JWT-derived user_id. This pure
+    function never falls back across tags and never treats length alone as an
+    improvement signal.
+    """
+    ordered_tagged_rows = [
+        row for row in rows
+        if (row.get("weakness_tag") or "").strip() in ALLOWED_WEAKNESS_TAGS
+        and row.get("id")
+        and row.get("created_at")
+    ]
+    ordered_tagged_rows.sort(key=lambda row: str(row.get("created_at") or ""))
+    valid_rows = [
+        row for row in rows
+        if (row.get("weakness_tag") or "").strip() in ALLOWED_WEAKNESS_TAGS
+        and row.get("id")
+        and row.get("created_at")
+        and _usable_progress_transcript(row.get("user_transcript"))
+    ]
+    valid_rows.sort(key=lambda row: str(row.get("created_at") or ""))
+
+    current_focus_tag = ""
+    for row in reversed(ordered_tagged_rows):
+        if row.get("resolved") is not True:
+            current_focus_tag = (row.get("weakness_tag") or "").strip()
+            break
+
+    by_tag: dict[str, list[dict]] = {}
+    for row in valid_rows:
+        tag = (row.get("weakness_tag") or "").strip()
+        by_tag.setdefault(tag, []).append(row)
+
+    candidates: list[dict] = []
+    for tag, tagged_rows in by_tag.items():
+        if len(tagged_rows) < 2:
+            continue
+        before = tagged_rows[0]
+        after = tagged_rows[-1]
+        if str(before.get("created_at")) >= str(after.get("created_at")):
+            continue
+        candidates.append({
+            "tag": tag,
+            "before": before,
+            "after": after,
+            "count": len(tagged_rows),
+            "current": tag == current_focus_tag,
+            "resolved": after.get("resolved") is True,
+        })
+
+    if not candidates:
+        return {"has_evidence": False, "reason": "insufficient_evidence"}
+
+    chosen = max(
+        candidates,
+        key=lambda item: (
+            item["current"],
+            item["resolved"],
+            item["count"],
+            str(item["after"].get("created_at") or ""),
+        ),
+    )
+    before = chosen["before"]
+    after = chosen["after"]
+    tag = chosen["tag"]
+    return {
+        "has_evidence": True,
+        "weakness": {"tag": tag, "label": WEAKNESS_LABELS.get(tag, tag)},
+        "before": {
+            "record_id": str(before["id"]),
+            "created_at": before.get("created_at"),
+            "snippet": _progress_evidence_snippet(before.get("user_transcript")),
+        },
+        "after": {
+            "record_id": str(after["id"]),
+            "created_at": after.get("created_at"),
+            "snippet": _progress_evidence_snippet(after.get("user_transcript")),
+        },
+        "observation": _progress_observation(tag, before, after),
+    }
+
+
+@app.get("/api/progress/evidence")
+@limiter.limit("20/minute")
+async def get_progress_evidence(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Return at most one short, same-user, same-weakness comparison."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        response = (
+            supabase_admin.table("practice_records")
+            .select(
+                "id, created_at, weakness_tag, user_transcript, "
+                "better_expression, resolved"
+            )
+            .eq("user_id", user_id)
+            .in_("weakness_tag", sorted(ALLOWED_WEAKNESS_TAGS))
+            # Bound the read to the caller's latest history, then restore
+            # chronological order inside the pure selector.
+            .order("created_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("progress evidence query failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load progress evidence") from exc
+    return _build_progress_evidence(response.data or [])
+
+
 @app.get("/api/diagnosis/timeline")
 @limiter.limit("20/minute")
 async def diagnosis_timeline(
