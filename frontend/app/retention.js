@@ -144,7 +144,85 @@
         };
     }
 
-    function prescriptionModel(record, activeTargetOrDueCount, maybeDueCount) {
+    function resolutionCandidate(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const recordId = String(raw.record_id || raw.recordId || '').trim();
+        const tag = String(raw.weakness_tag || raw.tag || '').trim();
+        if (!recordId || !['lack_detail', 'weak_vocab'].includes(tag)) return null;
+        return {
+            recordId,
+            tag,
+            label: String(raw.label || TAXONOMY[tag]?.label || '').slice(0, 80),
+            reason: String(raw.reason || '').slice(0, 64),
+            observation: String(raw.observation?.label || raw.observation || '').slice(0, 160),
+        };
+    }
+
+    function resolutionPracticeModel(candidateRaw) {
+        const candidate = resolutionCandidate(candidateRaw);
+        if (!candidate) return null;
+        const focus = focusFrom({
+            id: candidate.recordId,
+            weakness_tag: candidate.tag,
+            resolved: false,
+        });
+        const copy = TAXONOMY[candidate.tag] || FALLBACK;
+        return {
+            type: 'speaking_focus',
+            source: 'resolution_candidate_deferred',
+            title: copy.prescriptionTitle,
+            description: copy.evidence,
+            durationLabel: '約 4 分鐘',
+            action: {
+                target: 'speaking',
+                targetLabel: 'Speaking',
+                recommendedQuestionCount: 2,
+                weaknessTag: candidate.tag,
+                instruction: copy.nextAction,
+            },
+            cta: '開始確認',
+            focus,
+            canResolve: true,
+        };
+    }
+
+    function prescriptionModel(
+        record,
+        resolutionCandidateOrActiveTarget,
+        activeTargetOrDueCount,
+        maybeDueCount,
+    ) {
+        const hasResolutionSlot = arguments.length >= 4;
+        const candidate = hasResolutionSlot
+            ? resolutionCandidate(resolutionCandidateOrActiveTarget)
+            : null;
+        if (candidate) {
+            const focus = focusFrom({
+                id: candidate.recordId,
+                weakness_tag: candidate.tag,
+                resolved: false,
+            });
+            return {
+                type: 'resolution_review',
+                source: 'resolution_candidate',
+                title: `確認「${candidate.label}」是不是已經穩定`,
+                description: candidate.observation || '最近幾次相關練習沒有再出現同一個問題。',
+                durationLabel: '約 1 分鐘',
+                action: {
+                    target: 'resolution',
+                    targetLabel: 'Review',
+                    recommendedQuestionCount: 0,
+                    weaknessTag: candidate.tag,
+                    instruction: '這只是根據近期紀錄提出的建議；由你決定是否暫時結案。',
+                },
+                cta: '標記為暫時解決',
+                secondaryCta: '再練一次確認',
+                focus,
+                resolutionCandidate: candidate,
+                canResolve: true,
+            };
+        }
+
         const focus = focusFrom(record);
         if (focus) {
             const copy = TAXONOMY[focus.tag] || FALLBACK;
@@ -167,9 +245,12 @@
             };
         }
 
+        const activeTargetRaw = hasResolutionSlot
+            ? activeTargetOrDueCount
+            : resolutionCandidateOrActiveTarget;
         const activeTarget = activeVocabularyTarget(
-            activeTargetOrDueCount && typeof activeTargetOrDueCount === 'object'
-                ? activeTargetOrDueCount
+            activeTargetRaw && typeof activeTargetRaw === 'object'
+                ? activeTargetRaw
                 : null,
         );
         if (activeTarget) {
@@ -194,7 +275,11 @@
             };
         }
 
-        const dueInput = maybeDueCount === undefined ? activeTargetOrDueCount : maybeDueCount;
+        const dueInput = hasResolutionSlot
+            ? maybeDueCount
+            : (activeTargetOrDueCount === undefined
+                ? resolutionCandidateOrActiveTarget
+                : activeTargetOrDueCount);
         const due = Math.max(0, Math.floor(Number(dueInput) || 0));
         if (due > 0) {
             return {
@@ -267,16 +352,33 @@
         };
     }
 
+    function resolutionEventProps(modelOrCandidate, sourceOverride = '') {
+        const candidate = resolutionCandidate(
+            modelOrCandidate?.resolutionCandidate || modelOrCandidate,
+        );
+        const tag = candidate?.tag || String(modelOrCandidate?.weakness_tag || '').trim();
+        const reason = candidate?.reason || String(modelOrCandidate?.reason || '').trim();
+        return {
+            weakness_category: tag.slice(0, 64),
+            source: String(sourceOverride || modelOrCandidate?.source || 'authenticated_home').slice(0, 64),
+            reason: reason.slice(0, 64),
+            authenticated: true,
+        };
+    }
+
     root.BlabbyRetention = {
         TAXONOMY,
         focusFrom,
         resumeModel,
         closureModel,
         prescriptionModel,
+        resolutionCandidate,
+        resolutionPracticeModel,
         activeVocabularyTarget,
         activeVocabularyQuestion,
         eventProps,
         prescriptionEventProps,
         activeVocabularyEventProps,
+        resolutionEventProps,
     };
 })(typeof window !== 'undefined' ? window : globalThis);

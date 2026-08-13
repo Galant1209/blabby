@@ -87,7 +87,7 @@ for (const event of [
 
 assert.match(index, /loadActiveVocabTarget\(\)/);
 assert.match(index, /\/api\/vocabulary\/active-use\/current/);
-assert.match(index, /prescriptionModel = retention\.prescriptionModel\(pendingResume, activeVocabTarget, vocabDueCount\)/);
+assert.match(index, /prescriptionModel = retention\.prescriptionModel\([\s\S]*?pendingResume,[\s\S]*?resolutionCandidateState,[\s\S]*?activeVocabTarget,[\s\S]*?vocabDueCount/);
 assert.match(index, /activeVocabularyQuestion\([\s\S]*?QUESTION_BANK/);
 assert.match(index, /form\.append\('active_vocabulary_id', submittedActiveVocabularyId\)/);
 assert.match(index, /data\?\.persisted === true[\s\S]*?active_use_observed === true/);

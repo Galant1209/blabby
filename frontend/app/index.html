@@ -3807,7 +3807,8 @@
         // populated from GET /api/practice-records/last-unresolved on hub load.
         // NOT window-global, NOT localStorage — the server owns the state now.
         let pendingResume = null;
-        let prescriptionModel = retention.prescriptionModel(null, 0);
+        let resolutionCandidateState = null;
+        let prescriptionModel = retention.prescriptionModel(null, null, null, 0);
         let prescriptionViewedKey = null;
         let currentPrescriptionSession = null;
         let prescriptionStartAnswerCount = 0;
@@ -3993,9 +3994,24 @@
             } catch (_) { /* analytics must never block practice */ }
         }
 
+        function trackResolutionEvent(eventName, modelOrCandidate = prescriptionModel, source = '') {
+            if (document.body.classList.contains('anonymous-review')) return;
+            try {
+                window.analytics?.track(
+                    eventName,
+                    retention.resolutionEventProps(modelOrCandidate, source),
+                );
+            } catch (_) { /* analytics must never block practice */ }
+        }
+
         function renderPrescriptionCard({ resolvedJustNow = false } = {}) {
             if (!prescriptionCard || document.body.classList.contains('anonymous-review')) return;
-            prescriptionModel = retention.prescriptionModel(pendingResume, activeVocabTarget, vocabDueCount);
+            prescriptionModel = retention.prescriptionModel(
+                pendingResume,
+                resolutionCandidateState,
+                activeVocabTarget,
+                vocabDueCount,
+            );
             document.getElementById('prescription-title').textContent = prescriptionModel.title;
             document.getElementById('prescription-why').textContent = prescriptionModel.description;
             document.getElementById('prescription-instruction').textContent = prescriptionModel.action.instruction;
@@ -4009,6 +4025,7 @@
             document.getElementById('prescription-resolved-note').hidden = !resolvedJustNow;
             prescriptionCta.textContent = prescriptionModel.cta;
             prescriptionResolveCta.hidden = !prescriptionModel.canResolve;
+            prescriptionResolveCta.textContent = prescriptionModel.secondaryCta || '標記為已解決';
             prescriptionCard.hidden = false;
 
             const viewedKey = [
@@ -4016,10 +4033,14 @@
                 prescriptionModel.source,
                 prescriptionModel.action.weaknessTag,
                 prescriptionModel.action.activeVocabularyId || '',
+                prescriptionModel.resolutionCandidate?.recordId || '',
             ].join(':');
             if (prescriptionViewedKey !== viewedKey) {
                 trackPrescriptionEvent('prescription_viewed');
                 trackActiveVocabEvent('active_vocab_prescription_viewed');
+                if (prescriptionModel.type === 'resolution_review') {
+                    trackResolutionEvent('resolution_candidate_viewed');
+                }
                 prescriptionViewedKey = viewedKey;
             }
         }
@@ -4061,7 +4082,11 @@
                     setQuestion(picked.question, picked.topic || '');
                     currentTopicSession = { topic: picked.topic || '', count: 1 };
                 }
-            } else if (prescriptionModel.focus && pendingResume?.question?.trim()) {
+            } else if (
+                prescriptionModel.focus
+                && prescriptionModel.source !== 'resolution_candidate_deferred'
+                && pendingResume?.question?.trim()
+            ) {
                 setQuestion(pendingResume.question, pendingResume.topic || '');
                 currentTopicSession = { topic: pendingResume.topic || '', count: 1 };
             } else if (!currentQuestion || !currentQuestion.trim()) {
@@ -4091,7 +4116,7 @@
                 });
                 if (!res.ok) throw new Error(`resolve focus ${res.status}`);
                 trackRetentionEvent('current_focus_resolved', focus.tag, 'prescription_card');
-                await loadPendingResume();
+                await Promise.allSettled([loadPendingResume(), loadResolutionCandidate()]);
                 renderPrescriptionCard({ resolvedJustNow: true });
                 updatePracticeHubState();
             } catch (err) {
@@ -4101,11 +4126,72 @@
             }
         }
 
+        async function confirmResolutionCandidate() {
+            const candidate = prescriptionModel.resolutionCandidate;
+            if (!candidate || !sb) return;
+            prescriptionCta.disabled = true;
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session) return;
+                const res = await fetch(`${API_BASE}/api/practice-records/${encodeURIComponent(candidate.recordId)}/resolve`, {
+                    method: 'PATCH',
+                    headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                if (!res.ok) throw new Error(`confirm resolution ${res.status}`);
+                trackResolutionEvent('resolution_candidate_confirmed');
+                await Promise.allSettled([loadPendingResume(), loadResolutionCandidate()]);
+                renderPrescriptionCard({ resolvedJustNow: true });
+                updatePracticeHubState();
+            } catch (err) {
+                console.error('confirm resolution candidate failed:', err);
+            } finally {
+                prescriptionCta.disabled = false;
+            }
+        }
+
+        function deferResolutionCandidate() {
+            const practiceModel = retention.resolutionPracticeModel(
+                prescriptionModel.resolutionCandidate,
+            );
+            if (!practiceModel) return;
+            trackResolutionEvent('resolution_candidate_deferred');
+            prescriptionModel = practiceModel;
+            const pick = pickRandomFromBank();
+            if (pick?.question) {
+                setQuestion(pick.question, pick.topic || '');
+                currentTopicSession = { topic: pick.topic || '', count: 1 };
+            }
+            executePrescription();
+        }
+
+        function handlePrescriptionPrimary() {
+            if (prescriptionModel.type === 'resolution_review') {
+                confirmResolutionCandidate();
+                return;
+            }
+            executePrescription();
+        }
+
+        function handlePrescriptionSecondary() {
+            if (prescriptionModel.type === 'resolution_review') {
+                deferResolutionCandidate();
+                return;
+            }
+            resolveCurrentFocus();
+        }
+
         function registerAuthenticatedSuccess(data) {
             if (document.body.classList.contains('anonymous-review') || data?.anonymous_trial) return;
             authenticatedSessionAnswerCount += 1;
             latestAuthenticatedFeedback = data;
             trackRetentionEvent('authenticated_process_success', data?.weakness_tag || '', 'speaking_part1');
+            if (data?.weakness_recurred === true) {
+                trackResolutionEvent('resolved_weakness_recurred', {
+                    weakness_tag: data?.weakness_tag || '',
+                    reason: 'new_unresolved_after_resolved',
+                    source: 'speaking_part1',
+                });
+            }
             const activeResult = data?.active_vocabulary;
             const activeTargetId = currentPrescriptionSession?.action?.activeVocabularyId || '';
             const observedThisAnswer = (
@@ -4182,8 +4268,8 @@
             sessionClosure.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
-        prescriptionCta?.addEventListener('click', executePrescription);
-        prescriptionResolveCta?.addEventListener('click', resolveCurrentFocus);
+        prescriptionCta?.addEventListener('click', handlePrescriptionPrimary);
+        prescriptionResolveCta?.addEventListener('click', handlePrescriptionSecondary);
         progressEvidenceOpen?.addEventListener('click', () => {
             trackProgressEvidenceEvent('progress_evidence_opened', 'authenticated_home');
             window.location.href = '/progress.html';
@@ -4272,6 +4358,23 @@
                 console.error('last-unresolved fetch failed:', err);
                 pendingResume = null;
             }
+        }
+
+        async function loadResolutionCandidate() {
+            resolutionCandidateState = null;
+            if (!sb || document.body.classList.contains('anonymous-review')) return;
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session) return;
+                const res = await fetch(`${API_BASE}/api/practice-records/resolution-candidate`, {
+                    headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                if (!res.ok) return;
+                const body = await res.json();
+                resolutionCandidateState = body?.has_candidate === true
+                    ? retention.resolutionCandidate(body.candidate)
+                    : null;
+            } catch (_) { /* fail-silent: ordinary prescription remains available */ }
         }
 
         // Loader for the canonical weakness summary block (lives below
@@ -4687,6 +4790,7 @@
             // allSettled is the explicit guarantee that one rejecting
             // won't short-circuit the others.
             pendingResume = null;
+            resolutionCandidateState = null;
             activeVocabTarget = null;
             vocabDueCount = 0;
             progressEvidenceModel = progressEvidence.modelFrom(null);
@@ -4694,6 +4798,7 @@
             dailyQuestion = null;
             await Promise.allSettled([
                 loadPendingResume(),
+                loadResolutionCandidate(),
                 loadProgressEvidence(),
                 loadWeaknessSummary(),
                 loadDailyQuestion(),

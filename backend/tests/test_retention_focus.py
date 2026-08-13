@@ -137,5 +137,23 @@ def test_resume_endpoint_does_not_select_transcript_or_coach_response():
     block = source.split('def last_unresolved_practice_record(', 1)[1].split('def _build_weakness_summary(', 1)[0]
     assert "user_transcript" not in block
     assert "coach_response" not in block
-    assert '"id, question, topic, weakness_tag, resolved, created_at"' in block
+    assert '"id, question, topic, weakness_tag, resolved, created_at, mode"' in block
     assert '.in_("weakness_tag", sorted(ALLOWED_WEAKNESS_TAGS))' in block
+
+
+def test_latest_resolved_same_tag_suppresses_older_row_until_new_recurrence():
+    rows = [
+        {"id": "old-open", "weakness_tag": "lack_detail", "resolved": False, "created_at": "2026-08-01", "mode": "normal"},
+        {"id": "closed", "weakness_tag": "lack_detail", "resolved": True, "created_at": "2026-08-02", "mode": "normal"},
+        {"id": "other-open", "weakness_tag": "weak_vocab", "resolved": False, "created_at": "2026-08-03", "mode": "normal"},
+    ]
+    assert main._select_current_focus(rows)["id"] == "other-open"
+
+    rows.append({
+        "id": "recurrence",
+        "weakness_tag": "lack_detail",
+        "resolved": False,
+        "created_at": "2026-08-04",
+        "mode": "normal",
+    })
+    assert main._select_current_focus(rows)["id"] == "recurrence"

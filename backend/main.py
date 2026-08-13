@@ -288,6 +288,81 @@ WEAK_WORDS = {"very", "good", "interesting", "thing", "things", "stuff"}
 ALLOWED_WEAKNESS_TAGS = {
     "weak_vocab", "safe_answer", "lack_detail", "grammar_minor", "off_topic",
 }
+RESOLUTION_SUPPORTED_TAGS = {"lack_detail", "weak_vocab"}
+RESOLUTION_PRIOR_OCCURRENCES = 2
+RESOLUTION_RECENT_OPPORTUNITIES = 3
+RESOLUTION_HISTORY_LIMIT = 500
+
+
+def _is_normal_taxonomy_record(row: dict) -> bool:
+    """Only persisted Part 1 classifier rows are comparable opportunities."""
+    mode = str(row.get("mode") or "normal").strip().lower()
+    tag = str(row.get("weakness_tag") or "").strip()
+    return (
+        mode == "normal"
+        and tag in ALLOWED_WEAKNESS_TAGS
+        and bool(row.get("id"))
+        and bool(row.get("created_at"))
+    )
+
+
+def _latest_weakness_states(rows: list[dict]) -> dict[str, dict]:
+    """Return the newest normal Part 1 row for each weakness taxonomy tag."""
+    states: dict[str, dict] = {}
+    for row in sorted(
+        (item for item in rows if _is_normal_taxonomy_record(item)),
+        key=lambda item: str(item.get("created_at") or ""),
+        reverse=True,
+    ):
+        tag = str(row.get("weakness_tag") or "").strip()
+        states.setdefault(tag, row)
+    return states
+
+
+def _select_current_focus(rows: list[dict]) -> Optional[dict]:
+    """Select one open tag by latest tag state, preventing history resurrection."""
+    open_states = [
+        row for row in _latest_weakness_states(rows).values()
+        if row.get("resolved") is not True
+    ]
+    return max(
+        open_states,
+        key=lambda row: str(row.get("created_at") or ""),
+        default=None,
+    )
+
+
+def _resolved_weakness_recurred(
+    user_id: str,
+    weakness_tag: str,
+    new_record_id: Optional[str],
+) -> bool:
+    """Observe recurrence without mutating either the old or new record."""
+    if (
+        supabase_admin is None
+        or not new_record_id
+        or weakness_tag not in ALLOWED_WEAKNESS_TAGS
+    ):
+        return False
+    try:
+        response = (
+            supabase_admin.table("practice_records")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("weakness_tag", weakness_tag)
+            .eq("resolved", True)
+            .eq("mode", "normal")
+            .neq("id", new_record_id)
+            .limit(1)
+            .execute()
+        )
+        return bool(response.data or [])
+    except Exception:
+        logger.exception(
+            "resolved weakness recurrence lookup failed",
+            extra={"user_id": user_id, "weakness_tag": weakness_tag},
+        )
+        return False
 
 # Tag-specific drill prompts. Keyed by weakness_tag; each entry has:
 #   - expected_axis:    the axis name the LLM must return in drill_score.axis
@@ -2863,101 +2938,6 @@ async def process(
                         weakness_tag or "",
                     ))
 
-        # Auto-resolve the prior unresolved record for the SAME question if the
-        # new submission landed a DIFFERENT valid weakness_tag. Semantics match
-        # the spec exactly: pick the most recent prior (any tag), then check
-        # whether to flip it. If the most recent prior has the SAME tag, leave
-        # it alone — we do NOT skip over it to an older mismatched row.
-        #
-        # Failure here is swallowed: the student already got their feedback
-        # and the new record is already persisted; backfilling resolved state
-        # is not worth failing the response over.
-        if (
-            persisted
-            and question
-            and weakness_tag
-            and weakness_tag in ALLOWED_WEAKNESS_TAGS
-            and not is_drill_mode
-            and supabase_admin is not None
-        ):
-            try:
-                # Don't filter by question at the SQL layer — strict string
-                # equality silently skips retries that differ by trailing
-                # whitespace, curly vs straight apostrophes, or stray unicode.
-                # Pull the top 5 unresolved rows and do normalised matching
-                # in Python so two logically-identical question strings are
-                # treated as the same session.
-                prior_query = (
-                    supabase_admin.table("practice_records")
-                    .select("id, question, weakness_tag")
-                    .eq("user_id", user_id)
-                    .eq("resolved", False)
-                    .order("created_at", desc=True)
-                    .limit(5)
-                )
-                if new_record_id:
-                    prior_query = prior_query.neq("id", new_record_id)
-                prior_resp = prior_query.execute()
-                candidates = prior_resp.data or []
-                target = (question or "").strip()
-
-                # Count total attempts on this question (resolved + unresolved,
-                # including the just-inserted current record). Python-side
-                # whitespace-normalized matching keeps the count and the match
-                # below logically aligned, so a question string that drifted by
-                # whitespace / curly-vs-straight apostrophe doesn't undercount.
-                attempts_resp = (
-                    supabase_admin.table("practice_records")
-                    .select("id, question")
-                    .eq("user_id", user_id)
-                    .execute()
-                )
-                total_attempts = sum(
-                    1 for r in (attempts_resp.data or [])
-                    if (r.get("question") or "").strip() == target
-                )
-
-                # Force-resolve after 3 attempts on the same question, regardless
-                # of tag progression. Takes priority over the tag-comparison logic
-                # below: picks the most recent unresolved match from the
-                # candidates already pulled (DESC by created_at) and flips it.
-                if total_attempts >= 3:
-                    for rec in candidates:
-                        if (rec.get("question") or "").strip() == target:
-                            supabase_admin.table("practice_records").update(
-                                {"resolved": True}
-                            ).eq("id", rec["id"]).execute()
-                            logger.info(
-                                "force-resolved after %s attempts: %s",
-                                total_attempts, rec["id"],
-                            )
-                            break
-
-                prior = next(
-                    (
-                        c for c in candidates
-                        if (c.get("question") or "").strip() == target
-                    ),
-                    None,
-                )
-                if prior:
-                    prior_tag = prior.get("weakness_tag")
-                    prior_id = prior.get("id")
-                    if prior_id and prior_tag != weakness_tag:
-                        supabase_admin.table("practice_records").update(
-                            {"resolved": True}
-                        ).eq("id", prior_id).execute()
-                        logger.info(
-                            "auto-resolved prior practice_record %s "
-                            "(tag %r → %r) for user %s",
-                            prior_id, prior_tag, weakness_tag, user_id,
-                        )
-            except Exception:
-                logger.exception(
-                    "auto-resolve of prior practice_record failed",
-                    extra={"user_id": user_id, "question": question},
-                )
-
         # drill_usage INSERT (fire-and-forget). Runs after the LLM response
         # has been validated and unpacked, BEFORE response_payload assembly,
         # so the very next quota check reflects this drill. Failure is
@@ -2994,6 +2974,11 @@ async def process(
             user_text or "",
             persisted,
         ) if not is_anonymous else None
+        weakness_recurred = (
+            _resolved_weakness_recurred(user_id, weakness_tag, new_record_id)
+            if persisted and not is_anonymous and not is_drill_mode
+            else False
+        )
 
         response_payload = {
             "text":                 user_text,
@@ -3013,6 +2998,7 @@ async def process(
             "persisted":            persisted,
             "record_id":            new_record_id,
             "active_vocabulary":    active_vocabulary_observation,
+            "weakness_recurred":    weakness_recurred,
             # Whether repair_memory was actually injected into this turn's
             # system prompt (Pro-gated at L~2214). Distinct from
             # memory_snapshot above — that's the unrelated weak-word/pattern
@@ -3933,9 +3919,11 @@ async def last_unresolved_practice_record(
     authorization: Optional[str] = Header(None),
 ):
     """
-    Return the caller's most recent practice_record where resolved=false.
-    No unresolved record is a normal state, not an error — respond with
-    HTTP 200 and `null` so the client can render Scenario B cleanly.
+    Return the caller's current open weakness by latest per-tag state.
+
+    Looking at both resolved and unresolved rows prevents an older row with the
+    same tag from resurfacing after the user closes the latest occurrence. A
+    future newer unresolved row for that tag naturally opens it again.
     """
     user_id = verify_token(authorization)
     if supabase_admin is None:
@@ -3943,20 +3931,18 @@ async def last_unresolved_practice_record(
     try:
         response = (
             supabase_admin.table("practice_records")
-            .select("id, question, topic, weakness_tag, resolved, created_at")
+            .select("id, question, topic, weakness_tag, resolved, created_at, mode")
             .eq("user_id", user_id)
-            .eq("resolved", False)
             .in_("weakness_tag", sorted(ALLOWED_WEAKNESS_TAGS))
             .order("created_at", desc=True)
-            .limit(1)
+            .limit(RESOLUTION_HISTORY_LIMIT)
             .execute()
         )
     except Exception as exc:
         logger.exception("last-unresolved query failed", extra={"user_id": user_id})
         raise HTTPException(status_code=500, detail="Failed to load last session") from exc
 
-    rows = response.data or []
-    return rows[0] if rows else None
+    return _select_current_focus(response.data or [])
 
 
 def _build_weakness_summary(rows: list[dict], is_pro: bool = False) -> dict:
@@ -4225,6 +4211,84 @@ def _progress_observation(tag: str, before: dict, after: dict) -> dict:
     }
 
 
+def _resolution_candidate(rows: list[dict]) -> dict:
+    """Derive one conservative closure suggestion; never mutate history."""
+    ordered = sorted(
+        (row for row in rows if _is_normal_taxonomy_record(row)),
+        key=lambda row: str(row.get("created_at") or ""),
+    )
+    if not ordered:
+        return {"has_candidate": False, "reason": "insufficient_evidence"}
+
+    latest_states = _latest_weakness_states(ordered)
+    candidates: list[dict] = []
+    for tag in sorted(RESOLUTION_SUPPORTED_TAGS):
+        latest = latest_states.get(tag)
+        if not latest or latest.get("resolved") is True:
+            continue
+        occurrences = [
+            row for row in ordered
+            if str(row.get("weakness_tag") or "").strip() == tag
+        ]
+        if len(occurrences) < RESOLUTION_PRIOR_OCCURRENCES:
+            continue
+
+        latest_at = str(latest.get("created_at") or "")
+        later_opportunities = [
+            row for row in ordered
+            if str(row.get("created_at") or "") > latest_at
+        ]
+        recent = later_opportunities[-RESOLUTION_RECENT_OPPORTUNITIES:]
+        if len(recent) < RESOLUTION_RECENT_OPPORTUNITIES:
+            continue
+        if any(
+            str(row.get("weakness_tag") or "").strip() == tag
+            for row in recent
+        ):
+            continue
+
+        observation = _progress_observation(tag, occurrences[0], occurrences[-1])
+        if observation.get("status") != "improvement_observed":
+            continue
+
+        if tag == "weak_vocab":
+            meaningful_active_use = any(
+                taught.get("better_expression")
+                and any(
+                    str(later.get("created_at") or "")
+                    > str(taught.get("created_at") or "")
+                    and _contains_lexical_expression(
+                        later.get("user_transcript") or "",
+                        taught.get("better_expression"),
+                    )
+                    for later in ordered
+                )
+                for taught in occurrences
+            )
+            if not meaningful_active_use:
+                continue
+
+        candidates.append({
+            "record_id": str(latest["id"]),
+            "weakness_tag": tag,
+            "label": WEAKNESS_LABELS.get(tag, tag),
+            "reason": "recent_clean_evidence",
+            "observation": observation,
+            "evidence": {
+                "prior_occurrences": len(occurrences),
+                "recent_opportunities": len(recent),
+                "recent_recurrences": 0,
+            },
+            "_latest_at": latest_at,
+        })
+
+    if not candidates:
+        return {"has_candidate": False, "reason": "insufficient_evidence"}
+    selected = max(candidates, key=lambda item: item["_latest_at"])
+    selected.pop("_latest_at", None)
+    return {"has_candidate": True, "candidate": selected}
+
+
 def _build_progress_evidence(rows: list[dict]) -> dict:
     """Select one conservative same-weakness comparison from one user's rows.
 
@@ -4248,11 +4312,11 @@ def _build_progress_evidence(rows: list[dict]) -> dict:
     ]
     valid_rows.sort(key=lambda row: str(row.get("created_at") or ""))
 
-    current_focus_tag = ""
-    for row in reversed(ordered_tagged_rows):
-        if row.get("resolved") is not True:
-            current_focus_tag = (row.get("weakness_tag") or "").strip()
-            break
+    current_focus = _select_current_focus(ordered_tagged_rows)
+    current_focus_tag = (
+        (current_focus.get("weakness_tag") or "").strip()
+        if current_focus else ""
+    )
 
     by_tag: dict[str, list[dict]] = {}
     for row in valid_rows:
@@ -4337,6 +4401,46 @@ async def get_progress_evidence(
         logger.exception("progress evidence query failed", extra={"user_id": user_id})
         raise HTTPException(status_code=503, detail="Failed to load progress evidence") from exc
     return _build_progress_evidence(response.data or [])
+
+
+@app.get("/api/practice-records/resolution-candidate")
+@limiter.limit("20/minute")
+async def get_resolution_candidate(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Return a derived, owner-scoped closure suggestion with no transcript."""
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        response = (
+            supabase_admin.table("practice_records")
+            .select(
+                "id, created_at, mode, weakness_tag, resolved, "
+                "user_transcript, better_expression"
+            )
+            .eq("user_id", user_id)
+            .eq("mode", "normal")
+            .in_("weakness_tag", sorted(ALLOWED_WEAKNESS_TAGS))
+            .order("created_at", desc=False)
+            .limit(RESOLUTION_HISTORY_LIMIT + 1)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception(
+            "resolution candidate query failed",
+            extra={"user_id": user_id},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Failed to load resolution candidate",
+        ) from exc
+
+    rows = response.data or []
+    if len(rows) > RESOLUTION_HISTORY_LIMIT:
+        return {"has_candidate": False, "reason": "history_limit"}
+    return _resolution_candidate(rows)
 
 
 @app.get("/api/diagnosis/timeline")

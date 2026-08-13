@@ -92,7 +92,7 @@ assert.equal(index.includes('id="retention-resume-card"'), false);
 assert.ok(index.indexOf('id="prescription-card"') < index.indexOf('id="progress-evidence-card"'));
 assert.ok(index.indexOf('id="progress-evidence-card"') < index.indexOf('id="practice-hub"'));
 assert.match(index, /body\.anonymous-review #prescription-card/);
-assert.match(index, /prescriptionModel = retention\.prescriptionModel\(pendingResume, activeVocabTarget, vocabDueCount\)/);
+assert.match(index, /prescriptionModel = retention\.prescriptionModel\([\s\S]*?pendingResume,[\s\S]*?resolutionCandidateState,[\s\S]*?activeVocabTarget,[\s\S]*?vocabDueCount/);
 assert.match(index, /loadPendingResume\(\)[\s\S]*?loadVocabDueCount\(\)/);
 assert.equal(index.includes('/api/prescription/'), false);
 assert.match(index, /\/api\/vocabulary\/active-use\/current/);

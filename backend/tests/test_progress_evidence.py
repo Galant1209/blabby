@@ -136,6 +136,20 @@ def test_weak_vocab_requires_active_use_of_stored_taught_expression():
     assert main._progress_observation("weak_vocab", before, unused)["status"] == "still_working"
 
 
+def test_resolution_candidate_improvement_matches_progress_evidence_observation():
+    rows = [
+        _row("a", "user-a", "lack_detail", "I like the park near my home.", "2026-08-01"),
+        _row("b", "user-a", "lack_detail", "I like it because the park is quiet after work.", "2026-08-02"),
+        _row("c", "user-a", "safe_answer", "I prefer going there in the evening.", "2026-08-03"),
+        _row("d", "user-a", "grammar_minor", "My closest friend usually joins me.", "2026-08-04"),
+        _row("e", "user-a", "off_topic", "It is close to the station near home.", "2026-08-05"),
+    ]
+    candidate = main._resolution_candidate(rows)
+    evidence = main._build_progress_evidence(rows)
+    assert candidate["candidate"]["observation"]["status"] == "improvement_observed"
+    assert evidence["observation"] == candidate["candidate"]["observation"]
+
+
 @pytest.mark.parametrize(
     ("transcript", "target", "expected"),
     [
