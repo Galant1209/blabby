@@ -41,6 +41,62 @@
         nextAction: '再做 2 題口說，我們會繼續確認這個問題是否仍出現。',
     };
 
+    const ACTIVE_VOCAB_TOPIC_MAP = {
+        people: ['Friends'],
+        place: ['Living', 'Hometown', 'Travel'],
+        experience: ['Travel', 'Hobbies'],
+        shopping: ['Shopping'],
+        travel: ['Travel', 'Transport'],
+        study: ['Work & Study'],
+        work: ['Work & Study'],
+        technology: ['Technology'],
+        emotion: ['Work & Study', 'Daily Routine'],
+        hobby: ['Hobbies'],
+    };
+
+    function activeVocabularyTarget(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const id = String(raw.id || '').trim();
+        const word = String(raw.word || '').trim();
+        if (!id || !word || raw.active_use_observed === true) return null;
+        return {
+            id,
+            word: word.slice(0, 80),
+            topic: String(raw.topic || '').trim().toLowerCase().slice(0, 64),
+            reviewCount: Math.max(1, Math.floor(Number(raw.review_count) || 1)),
+        };
+    }
+
+    function stableQuestionIndex(value, length) {
+        if (!length) return 0;
+        let hash = 2166136261;
+        for (const char of String(value || '')) {
+            hash ^= char.codePointAt(0);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0) % length;
+    }
+
+    function activeVocabularyQuestion(targetRaw, questionBank) {
+        const target = activeVocabularyTarget(targetRaw);
+        const bank = Array.isArray(questionBank)
+            ? questionBank.filter(item => item && String(item.question || '').trim())
+            : [];
+        if (!target || bank.length === 0) return null;
+        const mappedTopics = ACTIVE_VOCAB_TOPIC_MAP[target.topic] || [];
+        const mapped = bank.filter(item => mappedTopics.includes(String(item.topic || '').trim()));
+        const pool = (mapped.length ? mapped : bank).slice().sort((a, b) => {
+            const aKey = `${String(a.topic || '')}\n${String(a.question || '')}`;
+            const bKey = `${String(b.topic || '')}\n${String(b.question || '')}`;
+            return aKey.localeCompare(bKey, 'en');
+        });
+        const picked = pool[stableQuestionIndex(target.id, pool.length)];
+        return {
+            question: String(picked.question || '').trim(),
+            topic: String(picked.topic || '').trim(),
+        };
+    }
+
     function focusFrom(record) {
         if (!record || record.resolved === true) return null;
         const tag = String(record.weakness_tag || '').trim();
@@ -88,7 +144,7 @@
         };
     }
 
-    function prescriptionModel(record, dueCount) {
+    function prescriptionModel(record, activeTargetOrDueCount, maybeDueCount) {
         const focus = focusFrom(record);
         if (focus) {
             const copy = TAXONOMY[focus.tag] || FALLBACK;
@@ -111,7 +167,35 @@
             };
         }
 
-        const due = Math.max(0, Math.floor(Number(dueCount) || 0));
+        const activeTarget = activeVocabularyTarget(
+            activeTargetOrDueCount && typeof activeTargetOrDueCount === 'object'
+                ? activeTargetOrDueCount
+                : null,
+        );
+        if (activeTarget) {
+            return {
+                type: 'active_vocabulary',
+                source: 'reviewed_vocabulary_without_active_use',
+                title: `把「${activeTarget.word}」說出口`,
+                description: '你已經看過這個字，現在試著在真正回答裡自然用一次。',
+                durationLabel: '約 3 分鐘',
+                action: {
+                    target: 'speaking',
+                    targetLabel: 'Speaking',
+                    recommendedQuestionCount: 1,
+                    weaknessTag: '',
+                    activeVocabularyId: activeTarget.id,
+                    instruction: `如果自然，可以試著用「${activeTarget.word}」。`,
+                },
+                cta: '帶著這個字練口說',
+                focus: null,
+                activeVocabulary: activeTarget,
+                canResolve: false,
+            };
+        }
+
+        const dueInput = maybeDueCount === undefined ? activeTargetOrDueCount : maybeDueCount;
+        const due = Math.max(0, Math.floor(Number(dueInput) || 0));
         if (due > 0) {
             return {
                 type: 'vocabulary_review',
@@ -173,13 +257,26 @@
         };
     }
 
+    function activeVocabularyEventProps(model, observed = false) {
+        return {
+            vocabulary_item_id: String(model?.action?.activeVocabularyId || '').slice(0, 64),
+            category: String(model?.activeVocabulary?.topic || 'uncategorized').slice(0, 64),
+            source: String(model?.source || 'authenticated_home').slice(0, 64),
+            active_use_observed: observed === true,
+            authenticated: true,
+        };
+    }
+
     root.BlabbyRetention = {
         TAXONOMY,
         focusFrom,
         resumeModel,
         closureModel,
         prescriptionModel,
+        activeVocabularyTarget,
+        activeVocabularyQuestion,
         eventProps,
         prescriptionEventProps,
+        activeVocabularyEventProps,
     };
 })(typeof window !== 'undefined' ? window : globalThis);

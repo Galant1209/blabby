@@ -2819,7 +2819,7 @@
             margin-bottom: 16px; padding: 20px 22px; border: 1.5px solid var(--gold);
             background: linear-gradient(135deg, rgba(201,168,76,.11), rgba(255,255,255,.92));
         }
-        .prescription-card[hidden], .progress-evidence-card[hidden], .session-closure[hidden], .prescription-session-context[hidden] { display: none; }
+        .prescription-card[hidden], .progress-evidence-card[hidden], .session-closure[hidden], .prescription-session-context[hidden], .active-vocab-observed[hidden] { display: none; }
         .retention-eyebrow { margin: 0 0 5px; color: var(--gold); font: 600 11px/1.4 var(--sans); letter-spacing: .1em; }
         .prescription-card h2, .session-closure h3 { margin: 0 0 8px; color: var(--ink); font: 600 23px/1.3 var(--serif-tc); }
         .retention-focus-status { color: var(--muted); font: 600 12px/1.4 var(--sans); }
@@ -2852,6 +2852,7 @@
         .progress-evidence-observation { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border); color: var(--ink); font-size: 14px; line-height: 1.6; }
         .progress-evidence-link { margin-top: 12px; min-height: 40px; padding: 9px 12px; border: 1px solid var(--green); color: var(--green); background: transparent; font: 600 13px/1.3 var(--sans); cursor: pointer; }
         .session-closure-evidence { color: var(--green) !important; }
+        .active-vocab-observed { margin: 0 0 10px; padding: 11px 13px; border-left: 2px solid var(--green); background: rgba(26,53,80,.06); color: var(--green); font: 600 14px/1.55 var(--serif-tc); }
         @media (max-width: 560px) {
             .public-product { margin-top: 16px; padding: 22px 18px; }
             .public-product h2 { font-size: 25px; }
@@ -3163,6 +3164,7 @@
                     <div class="feedback-label">你剛剛說：</div>
                     <div id="user-transcript" class="transcript-text"></div>
                 </div>
+                <p id="active-vocab-observed" class="active-vocab-observed" hidden></p>
                 <div id="drill-evidence-item" class="feedback-item drill-evidence-item" hidden>
                     <div class="feedback-label">這次 drill 的證據</div>
                     <div class="drill-evidence-topline">
@@ -3258,6 +3260,7 @@
                     <div class="session-closure-row"><span>還在處理</span><strong id="session-closure-focus"></strong></div>
                     <div class="session-closure-row"><span>下次</span><p id="session-closure-next"></p></div>
                     <p id="session-closure-evidence" class="session-closure-evidence" hidden>這次回答已加入你的進度證據。</p>
+                    <p id="session-closure-active-vocab" class="session-closure-evidence" hidden></p>
                     <div class="retention-actions">
                         <button id="session-closure-continue" class="retention-primary" type="button">下次從這裡繼續</button>
                     </div>
@@ -3651,6 +3654,8 @@
         const sessionClosure  = document.getElementById('session-closure');
         const sessionClosureContinue = document.getElementById('session-closure-continue');
         const sessionClosureEvidence = document.getElementById('session-closure-evidence');
+        const sessionClosureActiveVocab = document.getElementById('session-closure-active-vocab');
+        const activeVocabObservedNote = document.getElementById('active-vocab-observed');
         const questionText    = document.getElementById('question-text');
         const questionMeta    = document.getElementById('question-meta');
         const nextQuestionEl  = document.getElementById('next-question-text');
@@ -3807,6 +3812,9 @@
         let currentPrescriptionSession = null;
         let prescriptionStartAnswerCount = 0;
         let prescriptionSessionCompleted = false;
+        let activeVocabTarget = null;
+        let currentActiveVocabObserved = false;
+        let activeVocabObservedTracked = false;
         let vocabDueCount = 0;
         let authenticatedSessionAnswerCount = 0;
         let latestAuthenticatedFeedback = null;
@@ -3835,6 +3843,9 @@
             anonymousTrialComplete = false;
             authenticatedSessionAnswerCount = 0;
             latestAuthenticatedFeedback = null;
+            activeVocabTarget = null;
+            currentActiveVocabObserved = false;
+            activeVocabObservedTracked = false;
             authSection.style.display = 'none';
             mainSection.style.display = '';
             const trialStatus = document.getElementById('anonymous-trial-status');
@@ -3846,6 +3857,8 @@
             if (nextBtn) nextBtn.disabled = false;
             if (endSessionBtn) endSessionBtn.hidden = true;
             if (sessionClosure) sessionClosure.hidden = true;
+            if (activeVocabObservedNote) activeVocabObservedNote.hidden = true;
+            if (sessionClosureActiveVocab) sessionClosureActiveVocab.hidden = true;
             if (adminParams.get('admin') !== '1') {
                 showPracticeHub();
             }
@@ -3970,9 +3983,19 @@
             } catch (_) { /* analytics must never block practice */ }
         }
 
+        function trackActiveVocabEvent(eventName, model = prescriptionModel, observed = false) {
+            if (document.body.classList.contains('anonymous-review') || model?.type !== 'active_vocabulary') return;
+            try {
+                window.analytics?.track(
+                    eventName,
+                    retention.activeVocabularyEventProps(model, observed),
+                );
+            } catch (_) { /* analytics must never block practice */ }
+        }
+
         function renderPrescriptionCard({ resolvedJustNow = false } = {}) {
             if (!prescriptionCard || document.body.classList.contains('anonymous-review')) return;
-            prescriptionModel = retention.prescriptionModel(pendingResume, vocabDueCount);
+            prescriptionModel = retention.prescriptionModel(pendingResume, activeVocabTarget, vocabDueCount);
             document.getElementById('prescription-title').textContent = prescriptionModel.title;
             document.getElementById('prescription-why').textContent = prescriptionModel.description;
             document.getElementById('prescription-instruction').textContent = prescriptionModel.action.instruction;
@@ -3992,9 +4015,11 @@
                 prescriptionModel.type,
                 prescriptionModel.source,
                 prescriptionModel.action.weaknessTag,
+                prescriptionModel.action.activeVocabularyId || '',
             ].join(':');
             if (prescriptionViewedKey !== viewedKey) {
                 trackPrescriptionEvent('prescription_viewed');
+                trackActiveVocabEvent('active_vocab_prescription_viewed');
                 prescriptionViewedKey = viewedKey;
             }
         }
@@ -4014,6 +4039,7 @@
 
         function executePrescription() {
             trackPrescriptionEvent('prescription_clicked');
+            trackActiveVocabEvent('active_vocab_prescription_clicked');
             if (prescriptionModel.action.target === 'vocabulary') {
                 trackPrescriptionEvent('prescription_started');
                 window.location.href = '/vocabulary.html?source=prescription';
@@ -4023,7 +4049,19 @@
             currentPrescriptionSession = prescriptionModel;
             prescriptionStartAnswerCount = authenticatedSessionAnswerCount;
             prescriptionSessionCompleted = false;
-            if (prescriptionModel.focus && pendingResume?.question?.trim()) {
+            currentActiveVocabObserved = false;
+            activeVocabObservedTracked = false;
+            if (activeVocabObservedNote) activeVocabObservedNote.hidden = true;
+            if (prescriptionModel.type === 'active_vocabulary') {
+                const picked = retention.activeVocabularyQuestion(
+                    prescriptionModel.activeVocabulary,
+                    QUESTION_BANK,
+                );
+                if (picked?.question) {
+                    setQuestion(picked.question, picked.topic || '');
+                    currentTopicSession = { topic: picked.topic || '', count: 1 };
+                }
+            } else if (prescriptionModel.focus && pendingResume?.question?.trim()) {
                 setQuestion(pendingResume.question, pendingResume.topic || '');
                 currentTopicSession = { topic: pendingResume.topic || '', count: 1 };
             } else if (!currentQuestion || !currentQuestion.trim()) {
@@ -4037,6 +4075,7 @@
             renderPrescriptionSessionContext();
             setRecorderStatus('照這一輪的目標回答即可，建議題數不是限制。');
             trackPrescriptionEvent('prescription_started');
+            trackActiveVocabEvent('active_vocab_practice_started');
         }
 
         async function resolveCurrentFocus() {
@@ -4067,20 +4106,48 @@
             authenticatedSessionAnswerCount += 1;
             latestAuthenticatedFeedback = data;
             trackRetentionEvent('authenticated_process_success', data?.weakness_tag || '', 'speaking_part1');
+            const activeResult = data?.active_vocabulary;
+            const activeTargetId = currentPrescriptionSession?.action?.activeVocabularyId || '';
+            const observedThisAnswer = (
+                currentPrescriptionSession?.type === 'active_vocabulary'
+                && data?.persisted === true
+                && activeResult?.item_id === activeTargetId
+                && activeResult?.active_use_observed === true
+            );
+            if (activeVocabObservedNote) activeVocabObservedNote.hidden = !observedThisAnswer;
+            if (observedThisAnswer) {
+                currentActiveVocabObserved = true;
+                if (activeVocabObservedNote) {
+                    activeVocabObservedNote.textContent =
+                        `這次真的用到了「${currentPrescriptionSession.activeVocabulary.word}」。這個字已經出現在你的實際口說紀錄裡。`;
+                }
+                if (!activeVocabObservedTracked) {
+                    trackActiveVocabEvent('active_vocab_use_observed', currentPrescriptionSession, true);
+                    activeVocabObservedTracked = true;
+                }
+            }
             if (
                 currentPrescriptionSession?.action?.target === 'speaking'
                 && !prescriptionSessionCompleted
+                && data?.persisted === true
                 && authenticatedSessionAnswerCount - prescriptionStartAnswerCount
                     >= currentPrescriptionSession.action.recommendedQuestionCount
             ) {
                 prescriptionSessionCompleted = true;
                 trackPrescriptionEvent('prescription_session_completed');
+                trackActiveVocabEvent(
+                    'active_vocab_practice_completed',
+                    currentPrescriptionSession,
+                    currentActiveVocabObserved,
+                );
             }
-            if (endSessionBtn) endSessionBtn.hidden = authenticatedSessionAnswerCount < 3;
+            const closureMinimum = currentPrescriptionSession?.type === 'active_vocabulary' ? 1 : 3;
+            if (endSessionBtn) endSessionBtn.hidden = authenticatedSessionAnswerCount < closureMinimum;
         }
 
         async function renderSessionClosure() {
-            if (!sessionClosure || authenticatedSessionAnswerCount < 3) return;
+            const closureMinimum = currentPrescriptionSession?.type === 'active_vocabulary' ? 1 : 3;
+            if (!sessionClosure || authenticatedSessionAnswerCount < closureMinimum) return;
             const model = retention.closureModel(latestAuthenticatedFeedback, authenticatedSessionAnswerCount);
             document.getElementById('session-closure-today').textContent = model.today;
             document.getElementById('session-closure-focus').textContent = model.focus
@@ -4090,6 +4157,16 @@
                 ? model.focus.nextAction.label
                 : model.neutral;
             if (sessionClosureEvidence) sessionClosureEvidence.hidden = true;
+            if (sessionClosureActiveVocab) {
+                sessionClosureActiveVocab.hidden = !(
+                    currentPrescriptionSession?.type === 'active_vocabulary'
+                    && currentActiveVocabObserved
+                );
+                if (!sessionClosureActiveVocab.hidden) {
+                    sessionClosureActiveVocab.textContent =
+                        `這次你把「${currentPrescriptionSession.activeVocabulary.word}」真正用進了回答。`;
+                }
+            }
             if (latestAuthenticatedFeedback?.persisted === true) {
                 await loadProgressEvidence();
                 if (sessionClosureEvidence) {
@@ -4298,6 +4375,23 @@
         // Hub vocab-entry — show due-count subline if any items are due
         // for review. Fail-silently: any error leaves the line blank, the
         // CTA still works.
+        async function loadActiveVocabTarget() {
+            activeVocabTarget = null;
+            if (!sb || document.body.classList.contains('anonymous-review')) return;
+            try {
+                const { data: { session } } = await sb.auth.getSession();
+                if (!session) return;
+                const res = await fetch(`${API_BASE}/api/vocabulary/active-use/current`, {
+                    headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                if (!res.ok) return;
+                const body = await res.json();
+                activeVocabTarget = body?.has_target === true
+                    ? retention.activeVocabularyTarget(body.target)
+                    : null;
+            } catch (_) { /* fail-silent: ordinary SRS/baseline remains available */ }
+        }
+
         async function loadVocabDueCount() {
             vocabDueCount = 0;
             const dueCountEl = document.getElementById('vocab-due-count');
@@ -4583,6 +4677,9 @@
             clearDrillMode();
             currentPrescriptionSession = null;
             prescriptionSessionCompleted = false;
+            currentActiveVocabObserved = false;
+            activeVocabObservedTracked = false;
+            if (activeVocabObservedNote) activeVocabObservedNote.hidden = true;
             if (prescriptionSessionContext) prescriptionSessionContext.hidden = true;
             // Hold the hub hidden until the three loaders settle so the user
             // never sees a fallback flash before the real Scenario A/B
@@ -4590,6 +4687,7 @@
             // allSettled is the explicit guarantee that one rejecting
             // won't short-circuit the others.
             pendingResume = null;
+            activeVocabTarget = null;
             vocabDueCount = 0;
             progressEvidenceModel = progressEvidence.modelFrom(null);
             weaknessSummary = null;
@@ -4600,6 +4698,7 @@
                 loadWeaknessSummary(),
                 loadDailyQuestion(),
                 loadDrillQuota(),
+                loadActiveVocabTarget(),
                 loadVocabDueCount(),
             ]);
             if (practiceHub) practiceHub.style.display = '';
@@ -5006,6 +5105,13 @@
                     clearGentleLoading();
                     setRecorderStatus('請先登入');
                     return;
+                }
+                const submittedActiveVocabularyId =
+                    currentPrescriptionSession?.type === 'active_vocabulary'
+                        ? currentPrescriptionSession.action.activeVocabularyId
+                        : '';
+                if (accessToken && submittedActiveVocabularyId) {
+                    form.append('active_vocabulary_id', submittedActiveVocabularyId);
                 }
 
                 const controller = new AbortController();
@@ -6211,6 +6317,8 @@
             try { window.analytics && window.analytics.track('speaking_hub_clicked'); } catch (_) { /* never block on tracking */ }
             currentPrescriptionSession = null;
             prescriptionSessionCompleted = false;
+            currentActiveVocabObserved = false;
+            if (activeVocabObservedNote) activeVocabObservedNote.hidden = true;
             if (prescriptionSessionContext) prescriptionSessionContext.hidden = true;
             // Normal start path: the script-eval-time initial pick is skipped
             // on fresh loads (QUESTION_BANK loads async inside showPracticeHub),
@@ -6234,6 +6342,8 @@
                 if (!dailyQuestion || !dailyQuestion.text) return;
                 currentPrescriptionSession = null;
                 prescriptionSessionCompleted = false;
+                currentActiveVocabObserved = false;
+                if (activeVocabObservedNote) activeVocabObservedNote.hidden = true;
                 if (prescriptionSessionContext) prescriptionSessionContext.hidden = true;
                 if (dailyQuestion.text && dailyQuestion.text.trim()) setQuestion(dailyQuestion.text, dailyQuestion.topic || '');
                 currentPreviousTranscript = (dailyQuestion.previous_transcript || '').trim() || null;

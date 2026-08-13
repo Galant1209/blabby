@@ -27,6 +27,7 @@ import uuid
 import hmac
 import hashlib
 import math
+import unicodedata
 from urllib.parse import quote_plus
 from contextlib import asynccontextmanager
 from defusedxml import ElementTree as SafeElementTree
@@ -2215,6 +2216,7 @@ async def process(
     drill_tag: str = Form(""),
     previous_transcript: str = Form(""),
     retry_of: str = Form(""),
+    active_vocabulary_id: str = Form(""),
     authorization: Optional[str] = Header(None),
     x_blabby_visitor_id: Optional[str] = Header(None, alias="X-Blabby-Visitor-ID"),
 ):
@@ -2986,6 +2988,13 @@ async def process(
         # tag_secondary / tag_tertiary gate below. Cheap RPC; for drill
         # users the second call returns the same value as the first.
         is_pro = False if is_anonymous else get_user_pro_status(user_id)
+        active_vocabulary_observation = _active_vocab_process_observation(
+            user_id,
+            active_vocabulary_id,
+            user_text or "",
+            persisted,
+        ) if not is_anonymous else None
+
         response_payload = {
             "text":                 user_text,
             "coach_response":       coach_response,
@@ -3003,6 +3012,7 @@ async def process(
             "witness_is_milestone": witness_is_milestone,
             "persisted":            persisted,
             "record_id":            new_record_id,
+            "active_vocabulary":    active_vocabulary_observation,
             # Whether repair_memory was actually injected into this turn's
             # system prompt (Pro-gated at L~2214). Distinct from
             # memory_snapshot above — that's the unrelated weak-word/pattern
@@ -4153,10 +4163,18 @@ def _usable_progress_transcript(value: object) -> str:
 
 
 def _normalised_word_tokens(value: object) -> list[str]:
-    return re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", str(value or "").lower())
+    text = unicodedata.normalize("NFKC", str(value or "")).lower().replace("’", "'")
+    return re.findall(r"[^\W_]+(?:'[^\W_]+)?", text, flags=re.UNICODE)
 
 
-def _contains_taught_expression(transcript: str, expression: object) -> bool:
+def _contains_lexical_expression(transcript: str, expression: object) -> bool:
+    """Conservatively match one exact normalised word or phrase.
+
+    This is the shared lexical evidence boundary for both Progress Evidence
+    and Active Vocabulary.  It intentionally does not infer morphology:
+    ``overwhelm`` and ``overwhelming`` are different targets unless the stored
+    expression itself contains the observed form.
+    """
     phrase = _normalised_word_tokens(expression)
     words = _normalised_word_tokens(transcript)
     if not phrase or len(phrase) > 8 or len(words) < len(phrase):
@@ -4193,8 +4211,8 @@ def _progress_observation(tag: str, before: dict, after: dict) -> dict:
     if tag == "weak_vocab":
         taught = before.get("better_expression")
         if (
-            _contains_taught_expression(after_text, taught)
-            and not _contains_taught_expression(before_text, taught)
+            _contains_lexical_expression(after_text, taught)
+            and not _contains_lexical_expression(before_text, taught)
         ):
             return {
                 "status": "improvement_observed",
@@ -4969,6 +4987,193 @@ def _vocab_item_select() -> str:
         "topic, tags, simple_definition_en, common_chunk, speaking_sentence, "
         "common_mistake, better_than, usage_note_zh, created_at"
     )
+
+
+ACTIVE_VOCAB_MAX_HISTORY_RECORDS = 500
+
+
+def _active_vocab_timestamp(value: object) -> float:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _select_active_vocab_candidate(
+    vocabulary_rows: list[dict],
+    transcripts: list[str],
+    now: Optional[datetime] = None,
+) -> Optional[dict]:
+    """Choose one reviewed vocabulary item without lifetime active-use evidence.
+
+    The input transcript set must represent the caller's complete persisted
+    history.  The endpoint below refuses to call this selector when that
+    lifetime set cannot be read within the explicit safety bound.
+    """
+    current = now or datetime.now(timezone.utc)
+    current_ts = current.timestamp()
+    candidates: list[tuple[tuple, dict]] = []
+
+    for row in vocabulary_rows:
+        review_count = int(row.get("review_count") or 0)
+        last_reviewed_at = str(row.get("last_reviewed_at") or "").strip()
+        item = row.get("vocabulary_items") or {}
+        if isinstance(item, list):
+            item = item[0] if item else {}
+        word = str(item.get("word") or "").strip()
+        tokens = _normalised_word_tokens(word)
+        if review_count <= 0 or not last_reviewed_at or not row.get("id"):
+            continue
+        if not tokens or len(tokens) > 8 or len(word) > 80:
+            continue
+        if any(_contains_lexical_expression(text, word) for text in transcripts):
+            continue
+
+        next_review_ts = _active_vocab_timestamp(row.get("next_review_at"))
+        due_rank = 0 if next_review_ts and next_review_ts <= current_ts else 1
+        last_reviewed_ts = _active_vocab_timestamp(last_reviewed_at)
+        created_ts = _active_vocab_timestamp(row.get("created_at"))
+        rank = (
+            due_rank,
+            -last_reviewed_ts,
+            len(tokens),
+            len("".join(tokens)),
+            created_ts,
+            str(row.get("id")),
+        )
+        candidates.append((rank, {
+            "id": str(row["id"]),
+            "word": word,
+            "topic": str(item.get("topic") or "").strip(),
+            "review_count": review_count,
+            "active_use_observed": False,
+        }))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda entry: entry[0])
+    return candidates[0][1]
+
+
+def _active_vocab_process_observation(
+    user_id: Optional[str],
+    target_id: object,
+    transcript: str,
+    persisted: bool,
+) -> Optional[dict]:
+    """Return active-use evidence only for a persisted, caller-owned target."""
+    target = str(target_id or "").strip()
+    if not persisted or not user_id or not target or supabase_admin is None:
+        return None
+    try:
+        uuid.UUID(target)
+    except ValueError:
+        return None
+    try:
+        response = (
+            supabase_admin.table("user_vocabulary")
+            .select("id, review_count, last_reviewed_at, vocabulary_items(word)")
+            .eq("id", target)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception:
+        logger.exception(
+            "active vocabulary observation lookup failed",
+            extra={"user_id": user_id, "user_vocabulary_id": target},
+        )
+        return None
+    row = response.data if response else None
+    if not row or int(row.get("review_count") or 0) <= 0 or not row.get("last_reviewed_at"):
+        return None
+    item = row.get("vocabulary_items") or {}
+    if isinstance(item, list):
+        item = item[0] if item else {}
+    word = str(item.get("word") or "").strip()
+    return {
+        "item_id": target,
+        "active_use_observed": _contains_lexical_expression(transcript, word),
+    }
+
+
+@app.get("/api/vocabulary/active-use/current")
+@limiter.limit("20/minute")
+async def vocabulary_active_use_current(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Return one deterministic reviewed-but-unobserved target for the caller.
+
+    No transcript content leaves this endpoint.  If complete lifetime history
+    cannot be checked within the explicit bound, the endpoint returns no target
+    instead of making a false "not used yet" claim.
+    """
+    user_id = verify_token(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    select_cols = (
+        "id, vocabulary_item_id, review_count, last_reviewed_at, next_review_at, "
+        "created_at, vocabulary_items(id, word, topic, difficulty_level, ielts_band_level)"
+    )
+    try:
+        reviewed = (
+            supabase_admin.table("user_vocabulary")
+            .select(select_cols)
+            .eq("user_id", user_id)
+            .gt("review_count", 0)
+            .not_.is_("last_reviewed_at", "null")
+            .order("last_reviewed_at", desc=True)
+            .execute()
+        )
+        rows = reviewed.data or []
+        if not rows:
+            return {"has_target": False, "reason": "no_reviewed_vocabulary"}
+
+        count_response = (
+            supabase_admin.table("practice_records")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        history_count = int(count_response.count or 0)
+        if history_count > ACTIVE_VOCAB_MAX_HISTORY_RECORDS:
+            return {"has_target": False, "reason": "history_safety_bound"}
+
+        history_response = (
+            supabase_admin.table("practice_records")
+            .select("user_transcript")
+            .eq("user_id", user_id)
+            .not_.is_("user_transcript", "null")
+            .order("created_at", desc=False)
+            .limit(ACTIVE_VOCAB_MAX_HISTORY_RECORDS + 1)
+            .execute()
+        )
+        history_rows = history_response.data or []
+        if len(history_rows) > ACTIVE_VOCAB_MAX_HISTORY_RECORDS:
+            return {"has_target": False, "reason": "history_safety_bound"}
+        transcripts = [
+            str(row.get("user_transcript") or "")
+            for row in history_rows
+            if str(row.get("user_transcript") or "").strip()
+        ]
+        target = _select_active_vocab_candidate(rows, transcripts)
+        if not target:
+            return {"has_target": False, "reason": "no_unobserved_reviewed_vocabulary"}
+        return {
+            "has_target": True,
+            "target": target,
+            "practice": {"target": "speaking", "recommended_question_count": 1},
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("active vocabulary candidate query failed", extra={"user_id": user_id})
+        raise HTTPException(status_code=503, detail="Failed to load active vocabulary target") from exc
 
 
 @app.get("/api/vocabulary/items")

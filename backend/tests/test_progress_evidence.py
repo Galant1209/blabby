@@ -136,6 +136,21 @@ def test_weak_vocab_requires_active_use_of_stored_taught_expression():
     assert main._progress_observation("weak_vocab", before, unused)["status"] == "still_working"
 
 
+@pytest.mark.parametrize(
+    ("transcript", "target", "expected"),
+    [
+        ("The trip was overwhelming.", "overwhelming", True),
+        ("OVERWHELMING!", "overwhelming", True),
+        ("I can express the idea clearly.", "press", False),
+        ("It offers a wide, range of choices.", "a wide range of", True),
+        ("The café’s atmosphere was calm.", "café's atmosphere", True),
+        ("I felt overwhelming pressure.", "overwhelm", False),
+    ],
+)
+def test_shared_lexical_matcher_is_exact_conservative_and_phrase_safe(transcript, target, expected):
+    assert main._contains_lexical_expression(transcript, target) is expected
+
+
 @pytest.mark.parametrize("tag", ["safe_answer", "grammar_minor", "off_topic"])
 def test_unsupported_tags_never_claim_improvement(tag):
     before = _row("a", "user-a", tag, "This is my first complete answer today.", "2026-08-01")

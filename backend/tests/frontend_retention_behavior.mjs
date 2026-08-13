@@ -81,6 +81,8 @@ assert.ok(index.indexOf('id="prescription-card"') < index.indexOf('id="practice-
 assert.match(index, /@media \(max-width: 560px\)[\s\S]*?\.retention-actions > \* \{ width: 100%; \}/);
 assert.match(index, /id="end-session-btn"[\s\S]*?hidden>結束這輪練習/);
 assert.match(index, /id="session-closure-evidence"[\s\S]*?hidden>這次回答已加入你的進度證據。/);
+assert.match(index, /id="session-closure-active-vocab"[\s\S]*?hidden/);
+assert.match(index, /currentPrescriptionSession\?\.type === 'active_vocabulary'[\s\S]*?currentActiveVocabObserved/);
 assert.match(index, /latestAuthenticatedFeedback\?\.persisted === true/);
 assert.match(index, /progressEvidence\.includesRecord\([\s\S]*?latestAuthenticatedFeedback\.record_id/);
 
