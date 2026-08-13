@@ -53,7 +53,7 @@ for (const event of [
 }
 assert.match(index, /body\.anonymous-review #progress-evidence-card/);
 assert.match(index, /if \(!progressEvidenceModel\.hasEvidence\) \{[\s\S]*?progressEvidenceCard\.hidden = true/);
-assert.ok(index.indexOf('id="retention-resume-card"') < index.indexOf('id="progress-evidence-card"'));
+assert.ok(index.indexOf('id="prescription-card"') < index.indexOf('id="progress-evidence-card"'));
 assert.ok(index.indexOf('id="progress-evidence-card"') < index.indexOf('id="practice-hub"'));
 assert.match(index, /@media \(max-width: 560px\)[\s\S]*?\.progress-evidence-pair \{ grid-template-columns: 1fr; \}/);
 assert.match(progress, /再累積幾次練習後，Blabby 會用你自己的回答比較前後變化/);

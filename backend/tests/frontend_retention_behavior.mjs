@@ -15,8 +15,8 @@ const index = fs.readFileSync(new URL('../../frontend/app/index.html', import.me
 const expected = {
   weak_vocab: /替換一個.*簡單詞/,
   safe_answer: /明確立場/,
-  lack_detail: /Why 類口說/,
-  grammar_minor: /小文法/,
+  lack_detail: /具體原因或例子/,
+  grammar_minor: /文法問題是否重複出現/,
   off_topic: /直接回答問題/,
 };
 
@@ -44,7 +44,7 @@ const closure = retention.closureModel({
 assert.equal(closure.answerCount, 3);
 assert.equal(closure.today, '今天完成 3 題 Speaking Part 1。');
 assert.equal(closure.focus.tag, 'lack_detail');
-assert.match(closure.focus.nextAction.label, /Why 類口說/);
+assert.match(closure.focus.nextAction.label, /具體原因或例子/);
 
 const unpersisted = retention.closureModel({
   record_id: 'not-saved',
@@ -65,8 +65,6 @@ for (const forbidden of ['transcript', 'email', 'audio', 'raw_ip', 'user_content
 }
 
 for (const event of [
-  'resume_card_viewed',
-  'resume_card_clicked',
   'session_closure_viewed',
   'session_closure_continue_clicked',
   'current_focus_resolved',
@@ -74,11 +72,12 @@ for (const event of [
 ]) {
   assert.equal(index.includes(event), true);
 }
-assert.match(index, /body\.anonymous-review #retention-resume-card/);
+assert.match(index, /body\.anonymous-review #prescription-card/);
 assert.match(index, /body\.anonymous-review #session-closure/);
 assert.equal(index.includes('PENDING_RESUME_MAX_AGE_MS'), false);
 assert.equal(index.includes('/api/retention/resume'), false);
-assert.ok(index.indexOf('id="retention-resume-card"') < index.indexOf('id="practice-hub"'));
+assert.equal(index.includes('id="retention-resume-card"'), false);
+assert.ok(index.indexOf('id="prescription-card"') < index.indexOf('id="practice-hub"'));
 assert.match(index, /@media \(max-width: 560px\)[\s\S]*?\.retention-actions > \* \{ width: 100%; \}/);
 assert.match(index, /id="end-session-btn"[\s\S]*?hidden>結束這輪練習/);
 assert.match(index, /id="session-closure-evidence"[\s\S]*?hidden>這次回答已加入你的進度證據。/);
