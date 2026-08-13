@@ -23,6 +23,7 @@
     <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter+Tight:wght@400;500;600&family=Noto+Serif+TC:wght@400;500;600&display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Long+Cang&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet" />
 
+    <script src="/config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
@@ -2282,114 +2283,6 @@
             .before-after__row { flex-direction: column; gap: 12px; }
         }
 
-        /* Pro upgrade modal */
-        #pro-modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            z-index: 300;
-            background: rgba(44,36,22,0.55);
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        #pro-modal-overlay.visible {
-            display: flex;
-        }
-        #pro-modal {
-            background: #FDFAF4;
-            border: 1px solid #C4A96A;
-            border-radius: 8px;
-            padding: 32px 28px 28px;
-            max-width: 380px;
-            width: 100%;
-            position: relative;
-            box-shadow: 0 8px 32px rgba(44,36,22,0.22);
-        }
-        .pro-modal__close {
-            position: absolute;
-            top: 14px; right: 16px;
-            background: none; border: none;
-            font-size: 20px; color: #8A7E6E;
-            cursor: pointer; line-height: 1;
-        }
-        .pro-modal__close:hover { color: #2C2416; }
-        .pro-modal__crown {
-            font-size: 28px; text-align: center;
-            margin-bottom: 12px;
-        }
-        .pro-modal__title {
-            font-family: 'EB Garamond', Georgia, serif;
-            font-size: 24px; font-weight: 500;
-            color: #2C2416; text-align: center;
-            margin-bottom: 6px;
-        }
-        .pro-modal__sub {
-            font-family: 'EB Garamond', Georgia, serif;
-            font-style: italic;
-            font-size: 14px; color: #8A7E6E;
-            text-align: center; margin-bottom: 20px;
-            line-height: 1.6;
-        }
-        .pro-modal__features {
-            list-style: none;
-            margin: 0 0 24px;
-            padding: 0;
-            border-top: 1px solid #E8DFC8;
-            border-bottom: 1px solid #E8DFC8;
-            padding: 16px 0;
-        }
-        .pro-modal__features li {
-            font-family: 'EB Garamond', Georgia, serif;
-            font-size: 15px; color: #3a3022;
-            padding: 4px 0 4px 20px;
-            position: relative;
-            line-height: 1.5;
-        }
-        .pro-modal__features li::before {
-            content: '✦';
-            position: absolute; left: 0;
-            color: #C9A84C; font-size: 11px;
-            top: 7px;
-        }
-        .pro-modal__email-row {
-            display: flex; gap: 8px;
-            margin-bottom: 10px;
-        }
-        .pro-modal__email {
-            flex: 1;
-            padding: 10px 14px;
-            border: 1px solid #C4B89A;
-            border-radius: 6px;
-            font-family: 'EB Garamond', Georgia, serif;
-            font-size: 15px; color: #2C2416;
-            background: #F5F0E8;
-            outline: none;
-        }
-        .pro-modal__email:focus { border-color: #C9A84C; }
-        .pro-modal__submit {
-            padding: 10px 18px;
-            background: #2D5016; color: #C9A84C;
-            border: none; border-radius: 6px;
-            font-family: 'EB Garamond', Georgia, serif;
-            font-size: 15px; cursor: pointer;
-            white-space: nowrap;
-            transition: background 0.15s;
-        }
-        .pro-modal__submit:hover { background: #1f3810; }
-        .pro-modal__submit:disabled { opacity: 0.5; cursor: not-allowed; }
-        .pro-modal__note {
-            font-size: 11px; color: #B8A07A;
-            text-align: center; font-style: italic;
-        }
-        .pro-modal__thanks {
-            text-align: center;
-            font-family: 'EB Garamond', Georgia, serif;
-            font-size: 16px; color: #2D5016;
-            padding: 12px 0;
-            font-style: italic;
-        }
-
         /* ── Part 2 ─────────────────────────────────────────── */
         .part-switcher {
             display: flex;
@@ -2880,6 +2773,51 @@
         }
         /* ── /Pro upsell modal ─────────────────────────────────── */
 
+        .public-product {
+            width: min(calc(100% - 32px), 680px);
+            margin: 24px auto 8px;
+            padding: 28px;
+            position: relative;
+            z-index: 2;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            box-shadow: 0 14px 34px rgba(44, 36, 22, 0.08);
+        }
+        .public-product__eyebrow { color: var(--green); font: 600 12px/1.4 var(--sans); letter-spacing: .12em; text-transform: uppercase; }
+        .public-product h2 { margin: 5px 0 8px; font: 600 30px/1.2 var(--serif-tc); }
+        .public-product__lead { color: var(--ink-soft); margin: 0 0 18px; }
+        .public-product__price { color: var(--wine); font: 600 28px/1.2 var(--serif-tc); margin: 0; }
+        .public-product__term { font-weight: 600; margin: 5px 0 18px; }
+        .public-product__facts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
+        .public-product__fact { border-top: 1px solid var(--border); padding-top: 12px; }
+        .public-product__fact h3 { font: 600 16px/1.4 var(--serif-tc); margin: 0 0 5px; }
+        .public-product__fact p, .public-product__fact li { font-size: 13px; color: var(--ink-soft); }
+        .public-product__fact ul { margin: 0; padding-left: 18px; }
+        .public-product__actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+        .public-product__buy, .public-product__login {
+            min-height: 44px; padding: 10px 16px; display: inline-flex; align-items: center; justify-content: center;
+            font: 600 14px/1.3 var(--sans); text-decoration: none;
+        }
+        .public-product__buy { color: var(--surface); background: var(--green); border: 1px solid var(--green); }
+        .public-product__login { color: var(--green); background: transparent; border: 1px solid var(--green); }
+        .anonymous-trial-note { margin-top: 10px; font-size: 13px; color: var(--muted); }
+        @media (max-width: 560px) {
+            .public-product { margin-top: 16px; padding: 22px 18px; }
+            .public-product h2 { font-size: 25px; }
+            .public-product__facts { grid-template-columns: 1fr; }
+            .public-product__actions a { width: 100%; }
+        }
+        body.anonymous-review .user-menu-wrapper,
+        body.anonymous-review #practice-hub,
+        body.anonymous-review #writing-hub,
+        body.anonymous-review #reading-hub,
+        body.anonymous-review #diagnosis-entry,
+        body.anonymous-review #weakness-summary-block,
+        body.anonymous-review #vocab-entry,
+        body.anonymous-review #admin-section,
+        body.anonymous-review #part-switcher,
+        body.anonymous-review #bottom-nav { display: none !important; }
+
         /* ── 入室契約 The Covenant ───────────────────────────── */
         #covenant-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center}
         #covenant-overlay[hidden]{display:none}
@@ -2974,6 +2912,45 @@
     <span class="bg-diamond" style="bottom:24%;right:5%">◆</span>
     <span class="bg-diamond" style="bottom:8%;left:11%">◆</span>
     <span class="bg-diamond" style="bottom:38%;left:48%">◆</span>
+    <section id="public-product-section" class="public-product" aria-labelledby="public-product-title">
+        <p class="public-product__eyebrow">AI IELTS 口說練習服務</p>
+        <h2 id="public-product-title">Blabby Pro</h2>
+        <p class="public-product__lead">錄音回答 IELTS 題目，由 AI 提供口說批改、弱點訓練與現有會員功能的 Pro 使用權。</p>
+        <p class="public-product__price">NT$199 / 30 天</p>
+        <p class="public-product__term">單次購買 30 天使用權，不自動續訂。</p>
+        <div class="public-product__facts">
+            <div class="public-product__fact">
+                <h3>Free 與 Pro</h3>
+                <ul>
+                    <li>Free：Speaking 一般批改每月 20 次、Drill 每週 20 次、Part 2 每月 10 次；Reading 每日 1 篇、Writing 每日 3 篇</li>
+                    <li>Pro：上述練習不限次數，開放 Writing Task 1，並提供跨場次弱點修正記憶</li>
+                </ul>
+            </div>
+            <div class="public-product__fact">
+                <h3>收費標準</h3>
+                <ul>
+                    <li>付款成功並啟用 Pro 起算 30 天</li>
+                    <li>到期後不自動續訂；需要時再主動購買</li>
+                    <li>信用卡付款，不另收信用卡手續費</li>
+                </ul>
+            </div>
+            <div class="public-product__fact" id="refund-policy">
+                <h3>退款申請</h3>
+                <ul>
+                    <li>如需退款，請於付款後 7 日內提出申請；法令另有保障時從其規定</li>
+                    <li>核准後終止該筆 Pro 使用權，原則上退回原付款方式</li>
+                    <li>銀行退刷入帳約需 14–21 個工作天</li>
+                    <li>付款異常、重複扣款或未成功啟用，請寄信人工處理</li>
+                </ul>
+                <p><a href="mailto:galant19951209@gmail.com">galant19951209@gmail.com</a></p>
+            </div>
+        </div>
+        <div class="public-product__actions">
+            <a class="public-product__buy" href="/upgrade.html">購買 Blabby Pro｜NT$199 / 30 天</a>
+            <a class="public-product__login" href="/?login=1">登入／建立帳號</a>
+        </div>
+        <p class="anonymous-trial-note">公開體驗模式可免登入試用 Speaking Part 1；成功批改最多 10 次。</p>
+    </section>
     <div id="auth-section">
         <div class="auth-card">
             <svg class="logo-svg" width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -3086,6 +3063,7 @@
 
             <section class="recorder-card">
                 <div class="status-text" id="status-text">準備好了就按錄音</div>
+                <div id="anonymous-trial-status" class="anonymous-trial-note" hidden>免登入體驗：剩餘 10 次成功批改</div>
                 <div id="retry-context" style="display:none">
                   <div class="retry-context__label">上一次的回答</div>
                   <div id="retry-prev-transcript" class="retry-context__transcript"></div>
@@ -3351,7 +3329,7 @@
                     </tbody>
                 </table>
                 <div class="pro-modal-actions">
-                    <a class="pro-modal-cta" id="pro-modal-cta" href="/upgrade.html">加入 Pro，NT$199／月 →</a>
+                    <a class="pro-modal-cta" id="pro-modal-cta" href="/upgrade.html">購買 Blabby Pro｜NT$199 / 30 天</a>
                     <button class="pro-modal-dismiss" id="pro-modal-dismiss" type="button">知道了</button>
                 </div>
             </div>
@@ -3361,9 +3339,11 @@
 
     <script>
         const API_BASE = 'https://blabby-backend.onrender.com';
+        const CFG = window.BLABBY_CONFIG || {};
+        const PUBLIC_REVIEW_MODE = CFG.publicReviewMode === true;
 
-        const SUPABASE_URL      = 'https://mkwywkwruyqzdhuzwnoa.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rd3l3a3dydXlxemRodXp3bm9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MjY1NDQsImV4cCI6MjA5MjUwMjU0NH0.qVNtw6L7oXamzGlvXbVSHkELhG4YnXjWWgKbGublJj8';
+        const SUPABASE_URL      = CFG.supabaseUrl || 'https://mkwywkwruyqzdhuzwnoa.supabase.co';
+        const SUPABASE_ANON_KEY = CFG.supabaseAnonKey || '';
 
         // If the CDN fails, `window.supabase` is undefined. Guarding here means
         // the rest of the script (incl. event listeners) still runs so the page
@@ -3377,6 +3357,21 @@
             console.log('Supabase initialized');
         } catch (err) {
             console.error('Supabase init failed:', err);
+        }
+
+        function anonymousVisitorId() {
+            const name = 'blabby_visitor_id=';
+            const existing = document.cookie.split(';').map(v => v.trim())
+                .find(v => v.startsWith(name));
+            if (existing) return decodeURIComponent(existing.slice(name.length));
+            const id = (window.crypto && typeof window.crypto.randomUUID === 'function')
+                ? window.crypto.randomUUID()
+                : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                    const r = Math.random() * 16 | 0;
+                    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                });
+            document.cookie = `${name}${encodeURIComponent(id)}; Max-Age=31536000; Path=/; SameSite=Lax; Secure`;
+            return id;
         }
 
         // Surface any uncaught error so a silent failure is visible.
@@ -3587,6 +3582,7 @@
         let loadingTimers = [];
 
         async function showMain() {
+            document.body.classList.remove('anonymous-review');
             authSection.style.display = 'none';
             mainSection.style.display = '';
             if (adminParams.get('admin') !== '1') {
@@ -3605,6 +3601,21 @@
             }
         }
 
+        async function showAnonymousMain() {
+            document.body.classList.add('anonymous-review');
+            authSection.style.display = 'none';
+            mainSection.style.display = '';
+            const trialStatus = document.getElementById('anonymous-trial-status');
+            if (trialStatus) trialStatus.hidden = false;
+            if (QUESTION_BANK.length === 0) await loadQuestionBank();
+            const initial = pickRandomFromBank();
+            if (initial && initial.question) {
+                currentTopicSession = { topic: initial.topic, count: 1 };
+                setQuestion(initial.question, initial.topic);
+            }
+            showSpeakingPractice();
+        }
+
         // Mirrors the gate in admin.html. Client-side check only — the link
         // is just UI affordance; backend /admin/* still enforces ADMIN_EMAILS
         // on its own. Mirror this list when adding a new admin.
@@ -3617,6 +3628,7 @@
             }
         }
         function showAuth() {
+            document.body.classList.remove('anonymous-review');
             authSection.style.display = '';
             mainSection.style.display = 'none';
         }
@@ -4058,7 +4070,7 @@
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
                     window.analytics?.track('upgrade_nudge_clicked', { source: 'weakness', weakness_tag: topTag || '' });
-                    openProModal('weakness');
+                    showProModal('weakness');
                 });
                 nudge.appendChild(link);
                 container.appendChild(nudge);
@@ -4226,62 +4238,23 @@
             if (initial.question && initial.question.trim()) setQuestion(initial.question, initial.topic);
         }
 
-        // ── Pro upgrade modal ─────────────────────────────────
-        function openProModal(source) {
-            const overlay = document.getElementById('pro-modal-overlay');
-            if (overlay) overlay.classList.add('visible');
-            document.getElementById('pro-modal-form').style.display = '';
-            document.getElementById('pro-modal-thanks').style.display = 'none';
-            document.getElementById('pro-modal-email').value = '';
-            window.analytics?.track('pro_modal_opened', { source });
-        }
-        function closeProModal() {
-            const overlay = document.getElementById('pro-modal-overlay');
-            if (overlay) overlay.classList.remove('visible');
-        }
-        const overlay = document.getElementById('pro-modal-overlay');
-        const modal = document.getElementById('pro-modal');
-
-        document.getElementById('pro-modal-close')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeProModal();
-        });
-
-        overlay?.addEventListener('click', (e) => {
-            if (modal && !modal.contains(e.target)) closeProModal();
-        });
-        document.getElementById('pro-modal-submit')?.addEventListener('click', async () => {
-            const emailEl = document.getElementById('pro-modal-email');
-            const email = emailEl?.value?.trim();
-            if (!email || !email.includes('@')) {
-                emailEl?.focus();
-                return;
-            }
-            const btn = document.getElementById('pro-modal-submit');
-            btn.disabled = true;
-            btn.textContent = 'Saving…';
-            try {
-                await sb.from('pro_waitlist').upsert({ email, created_at: new Date().toISOString() });
-                window.analytics?.track('pro_waitlist_joined', { email });
-            } catch (_) {}
-            document.getElementById('pro-modal-form').style.display = 'none';
-            document.getElementById('pro-modal-thanks').style.display = '';
-            setTimeout(closeProModal, 3000);
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closeProModal();
-        });
-        // ── End Pro upgrade modal ─────────────────────────────
-
         // Auth bootstrap: show main if session exists, else show auth form.
         (async () => {
-            if (!sb) { showAuth(); return; }
+            const loginRequested = adminParams.get('login') === '1';
+            if (!sb) {
+                if (PUBLIC_REVIEW_MODE && !loginRequested) await showAnonymousMain();
+                else showAuth();
+                return;
+            }
             try {
                 const { data: { session } } = await sb.auth.getSession();
-                if (session) showMain(); else showAuth();
+                if (session) showMain();
+                else if (PUBLIC_REVIEW_MODE && !loginRequested) await showAnonymousMain();
+                else showAuth();
             } catch (err) {
                 console.error('getSession error:', err);
-                showAuth();
+                if (PUBLIC_REVIEW_MODE && !loginRequested) await showAnonymousMain();
+                else showAuth();
             }
         })();
 
@@ -4307,7 +4280,8 @@
             } catch (err) {
                 console.error('signOut threw:', err);
             }
-            showAuth();
+            if (PUBLIC_REVIEW_MODE) showAnonymousMain();
+            else showAuth();
         });
 
         authGoogleBtn.addEventListener('click', async () => {
@@ -4553,15 +4527,11 @@
             }
 
             try {
-                if (!sb) {
-                    clearGentleLoading();
-                    setRecorderStatus('請先登入');
-                    return;
-                }
-
-                const { data: { session } } = await sb.auth.getSession();
+                const { data: { session } } = sb
+                    ? await sb.auth.getSession()
+                    : { data: { session: null } };
                 const accessToken = session && session.access_token;
-                if (!accessToken) {
+                if (!accessToken && !PUBLIC_REVIEW_MODE) {
                     clearGentleLoading();
                     setRecorderStatus('請先登入');
                     return;
@@ -4573,9 +4543,9 @@
                 try {
                     res = await fetch(`${API_BASE}/process`, {
                         method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`
-                        },
+                        headers: accessToken
+                            ? { 'Authorization': `Bearer ${accessToken}` }
+                            : { 'X-Blabby-Visitor-ID': anonymousVisitorId() },
                         body: form,
                         signal: controller.signal,
                     });
@@ -4591,19 +4561,30 @@
                 }
                 if (res.status === 403) {
                     const body403 = await res.json().catch(() => ({}));
+                    const error403 = body403.error || (body403.detail && body403.detail.error);
                     reportRecLog({ part: 1, mime: recMime, ext, size: blob.size, status: 403, error: JSON.stringify(body403).slice(0, 300) });
                     clearGentleLoading();
-                    if (body403.error === 'feedback_quota_reached') {
+                    if (error403 === 'anonymous_quota_exceeded') {
+                        setRecorderStatus('免費體驗已使用完畢，可登入／建立帳號繼續使用。');
+                        const trialStatus = document.getElementById('anonymous-trial-status');
+                        if (trialStatus) trialStatus.textContent = '免登入體驗：剩餘 0 次';
+                    } else if (error403 === 'feedback_quota_reached') {
                         setRecorderStatus('本月練習額度已用完。');
                         window.analytics?.track('feedback_quota_hit', { source: 'practice' });
                         showProModal('feedback_quota');
-                    } else if (body403.error === 'quota_exceeded') {
+                    } else if (error403 === 'quota_exceeded') {
                         setRecorderStatus('Drill 額度已用完。');
                         window.analytics?.track('drill_quota_hit', { source: 'practice' });
                         showProModal('drill_quota');
                     } else {
                         setRecorderStatus('額度已用完，請升級 Pro 繼續練習。');
                     }
+                    recordBtn.disabled = false;
+                    return;
+                }
+                if (res.status === 429) {
+                    clearGentleLoading();
+                    setRecorderStatus('操作太快了，請稍候一分鐘再試。');
                     recordBtn.disabled = false;
                     return;
                 }
@@ -4625,7 +4606,14 @@
                     }
                 } else {
                     renderFeedback(data);
-                    setRecorderStatus('批改完成，準備好再按錄音');
+                    if (data.anonymous_trial) {
+                        const remaining = Number(data.anonymous_trial.remaining || 0);
+                        const trialStatus = document.getElementById('anonymous-trial-status');
+                        if (trialStatus) trialStatus.textContent = `免登入體驗：剩餘 ${remaining} 次成功批改`;
+                        setRecorderStatus(`批改完成，免費體驗剩餘 ${remaining} 次`);
+                    } else {
+                        setRecorderStatus('批改完成，準備好再按錄音');
+                    }
                 }
             } catch (err) {
                 console.error('submit error:', err);
@@ -6599,31 +6587,6 @@
             }
         })();
     </script>
-
-    <div id="pro-modal-overlay" role="dialog" aria-modal="true" aria-label="Blabby Pro">
-        <div id="pro-modal">
-            <button class="pro-modal__close" id="pro-modal-close" aria-label="Close">✕</button>
-            <div class="pro-modal__crown">♛</div>
-            <div class="pro-modal__title">Blabby Pro</div>
-            <div class="pro-modal__sub">For those who intend to pass,<br>not merely to practise.</div>
-            <ul class="pro-modal__features">
-                <li>Unlimited targeted drills on your weaknesses</li>
-                <li>Visual vocabulary patterns — see what you overuse</li>
-                <li>Full speaking history with progress timeline</li>
-                <li>Priority access to new features</li>
-            </ul>
-            <div id="pro-modal-form">
-                <div class="pro-modal__email-row">
-                    <input type="email" class="pro-modal__email" id="pro-modal-email" placeholder="your@email.com" autocomplete="email">
-                    <button class="pro-modal__submit" id="pro-modal-submit">Notify me</button>
-                </div>
-                <div class="pro-modal__note">Early bird pricing. No spam. Unsubscribe anytime.</div>
-            </div>
-            <div id="pro-modal-thanks" class="pro-modal__thanks" style="display:none">
-                Thy name is inscribed. We shall be in touch.
-            </div>
-        </div>
-    </div>
 
     <!-- ───────── 入室契約 The Covenant ───────── -->
     <div id="covenant-overlay" hidden aria-hidden="true">

@@ -134,6 +134,12 @@ ADMIN_EMAILS         = {
     if email.strip()
 }
 
+ANONYMOUS_PROCESS_LIMIT = 10
+ANONYMOUS_PROCESS_RATE_LIMIT = 3
+ANONYMOUS_PROCESS_RATE_WINDOW_SECONDS = 60
+_anonymous_rate_buckets: dict[str, list[float]] = {}
+_anonymous_rate_lock = threading.Lock()
+
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 import anthropic
 anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
@@ -814,6 +820,147 @@ def verify_token(authorization: Optional[str]) -> str:
     return user.id
 
 
+def is_public_review_mode() -> bool:
+    """Keep the temporary public surface reversible without removing Auth."""
+    return os.getenv("PUBLIC_REVIEW_MODE", "false").strip().lower() == "true"
+
+
+def _anonymous_hash(value: str, namespace: str) -> str:
+    """Return a stable privacy-safe identifier; raw visitor/IP values never persist."""
+    secret = os.getenv("ANONYMOUS_ID_HASH_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "anonymous_trial_unavailable",
+                "message": "Anonymous trial is temporarily unavailable.",
+            },
+        )
+    return hmac.new(
+        secret.encode("utf-8"),
+        f"{namespace}:{value}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _anonymous_identity(request: Request, visitor_id: Optional[str]) -> tuple[str, str]:
+    """Validate the first-party visitor cookie value forwarded by the frontend.
+
+    request.client.host is used instead of trusting a caller-supplied
+    X-Forwarded-For header. In production Uvicorn may normalize proxy headers
+    only from its configured trusted proxy; application code never parses the
+    untrusted header itself.
+    """
+    raw_visitor = (visitor_id or "").strip()
+    if raw_visitor:
+        try:
+            raw_visitor = str(uuid.UUID(raw_visitor))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "invalid_visitor_id"},
+            ) from exc
+    else:
+        # Direct API clients may not have the first-party frontend cookie. The
+        # IP identity still prevents rotating this generated value as a bypass.
+        raw_visitor = str(uuid.uuid4())
+
+    client_host = request.client.host if request.client else "unknown"
+    return (
+        _anonymous_hash(raw_visitor, "visitor"),
+        _anonymous_hash(client_host, "ip"),
+    )
+
+
+def _enforce_anonymous_rate_limit(ip_hash: str, now: Optional[float] = None) -> None:
+    """Process-local abuse throttle reusing the app's existing limiter model."""
+    current = time.monotonic() if now is None else now
+    cutoff = current - ANONYMOUS_PROCESS_RATE_WINDOW_SECONDS
+    with _anonymous_rate_lock:
+        recent = [t for t in _anonymous_rate_buckets.get(ip_hash, []) if t > cutoff]
+        if len(recent) >= ANONYMOUS_PROCESS_RATE_LIMIT:
+            _anonymous_rate_buckets[ip_hash] = recent
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "anonymous_rate_limit_exceeded",
+                    "retry_after_seconds": ANONYMOUS_PROCESS_RATE_WINDOW_SECONDS,
+                },
+                headers={"Retry-After": str(ANONYMOUS_PROCESS_RATE_WINDOW_SECONDS)},
+            )
+        recent.append(current)
+        _anonymous_rate_buckets[ip_hash] = recent
+
+
+def _anonymous_quota_rpc(
+    rpc_name: str,
+    visitor_hash: str,
+    ip_hash: str,
+) -> dict:
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database service not configured")
+    try:
+        result = supabase_admin.rpc(
+            rpc_name,
+            {
+                "p_visitor_hash": visitor_hash,
+                "p_ip_hash": ip_hash,
+                "p_limit": ANONYMOUS_PROCESS_LIMIT,
+            },
+        ).execute()
+    except Exception as exc:
+        logger.exception("anonymous quota RPC failed: %s", rpc_name)
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "anonymous_quota_unavailable"},
+        ) from exc
+    data = result.data
+    if isinstance(data, list) and len(data) == 1:
+        data = data[0]
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "anonymous_quota_unavailable"},
+        )
+    return data
+
+
+def _check_anonymous_quota(visitor_hash: str, ip_hash: str) -> dict:
+    state = _anonymous_quota_rpc(
+        "get_anonymous_process_quota",
+        visitor_hash,
+        ip_hash,
+    )
+    if not state.get("allowed", False):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "anonymous_quota_exceeded",
+                "limit": ANONYMOUS_PROCESS_LIMIT,
+                "remaining": 0,
+            },
+        )
+    return state
+
+
+def _consume_anonymous_quota(visitor_hash: str, ip_hash: str) -> dict:
+    state = _anonymous_quota_rpc(
+        "consume_anonymous_process_quota",
+        visitor_hash,
+        ip_hash,
+    )
+    if not state.get("allowed", False):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "anonymous_quota_exceeded",
+                "limit": ANONYMOUS_PROCESS_LIMIT,
+                "remaining": 0,
+            },
+        )
+    return state
+
+
 def verify_admin(authorization: Optional[str]) -> str:
     user_id = verify_token(authorization)
     try:
@@ -977,7 +1124,11 @@ def is_intensity_calibration_enabled() -> bool:
     return os.getenv("INTENSITY_CALIBRATION_ENABLED", "false").strip().lower() == "true"
 
 
-def pick_next_question(current_topic: str, current_question: str, user_id: str) -> str:
+def pick_next_question(
+    current_topic: str,
+    current_question: str,
+    user_id: Optional[str],
+) -> str:
     """
     Pick a next question biased toward the same topic as the current one,
     excluding the question just answered. Falls back to any unrecent question.
@@ -987,18 +1138,20 @@ def pick_next_question(current_topic: str, current_question: str, user_id: str) 
         cutoff = (
             datetime.now(timezone.utc) - timedelta(days=QUESTION_EXCLUSION_DAYS)
         ).isoformat()
-        recent_resp = (
-            supabase_admin.table("practice_records")
-            .select("question")
-            .eq("user_id", user_id)
-            .gte("created_at", cutoff)
-            .execute()
-        )
-        recent_set = {
-            (row.get("question") or "").strip()
-            for row in (recent_resp.data or [])
-            if (row.get("question") or "").strip()
-        }
+        recent_set: set[str] = set()
+        if user_id:
+            recent_resp = (
+                supabase_admin.table("practice_records")
+                .select("question")
+                .eq("user_id", user_id)
+                .gte("created_at", cutoff)
+                .execute()
+            )
+            recent_set = {
+                (row.get("question") or "").strip()
+                for row in (recent_resp.data or [])
+                if (row.get("question") or "").strip()
+            }
         recent_set.add(current_question.strip())
 
         questions_resp = (
@@ -2035,14 +2188,40 @@ async def process(
     previous_transcript: str = Form(""),
     retry_of: str = Form(""),
     authorization: Optional[str] = Header(None),
+    x_blabby_visitor_id: Optional[str] = Header(None, alias="X-Blabby-Visitor-ID"),
 ):
     try:
-        user_id = verify_token(authorization)
+        is_anonymous = False
+        anonymous_visitor_hash = ""
+        anonymous_ip_hash = ""
+        if authorization:
+            # A supplied but invalid/expired token must remain a 401; never
+            # silently downgrade an authenticated request to anonymous.
+            user_id: Optional[str] = verify_token(authorization)
+        elif is_public_review_mode():
+            user_id = None
+            is_anonymous = True
+            anonymous_visitor_hash, anonymous_ip_hash = _anonymous_identity(
+                request,
+                x_blabby_visitor_id,
+            )
+            _enforce_anonymous_rate_limit(anonymous_ip_hash)
+            _check_anonymous_quota(anonymous_visitor_hash, anonymous_ip_hash)
+        else:
+            user_id = verify_token(authorization)
 
         # Fail-fast: normal / part2 必須帶題目,空題目會在後台變成「—」且破壞 progress 對比。
         # drill 模式針對弱點練習、不綁題目,故豁免。
         # 擋在 Whisper 之前 → 使用者不會白講一段話才被退回。
         _mode = (mode or "normal").strip().lower()
+        if is_anonymous and (_mode != "normal" or drill_tag or retry_of):
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "authentication_required",
+                    "message": "Anonymous trial is available for Speaking Part 1 only.",
+                },
+            )
         if _mode != "drill" and not (question or "").strip():
             raise HTTPException(
                 status_code=422,
@@ -2067,7 +2246,7 @@ async def process(
         # exceeded request never burns API credits.
         # Fail-open on count query exception: better to over-serve than
         # block a request whose monthly count we can't determine.
-        if not get_user_pro_status(user_id):
+        if not is_anonymous and not get_user_pro_status(user_id):
             try:
                 month_start = datetime.now(timezone.utc).replace(
                     day=1, hour=0, minute=0, second=0, microsecond=0
@@ -2157,7 +2336,7 @@ async def process(
                     },
                 )
 
-        recent_records = get_user_recent_records(user_id)
+        recent_records = [] if is_anonymous else get_user_recent_records(user_id)
         recent_transcripts = [
             record.get("user_transcript", "")
             for record in recent_records
@@ -2191,7 +2370,11 @@ async def process(
         total_practice_count = 0
         historical_top_tag = ""
         historical_top_tag_count = 0
-        if is_intensity_calibration_enabled() and supabase_admin is not None:
+        if (
+            not is_anonymous
+            and is_intensity_calibration_enabled()
+            and supabase_admin is not None
+        ):
             try:
                 count_resp = (
                     supabase_admin.table("practice_records")
@@ -2223,7 +2406,7 @@ async def process(
         # Only pay the (uncached) Pro-status DB round-trip when there is actually
         # repair memory to gate; users with no qualifying history skip it entirely.
         repair_block = ""
-        if repair_memory:
+        if repair_memory and not is_anonymous:
             repair_block = repair_memory if get_user_pro_status(user_id) else ""
 
         try:
@@ -2546,7 +2729,7 @@ async def process(
         # client (or test harness) to act on.
         persisted = False
         new_record_id: Optional[str] = None
-        if supabase_admin is not None:
+        if not is_anonymous and supabase_admin is not None:
             if is_drill_mode:
                 drill_score_obj = parsed.get("drill_score")
                 if not isinstance(drill_score_obj, dict):
@@ -2749,7 +2932,7 @@ async def process(
         # has been validated and unpacked, BEFORE response_payload assembly,
         # so the very next quota check reflects this drill. Failure is
         # logged but never propagated — coaching response must still ship.
-        if is_drill_mode and supabase_admin is not None:
+        if not is_anonymous and is_drill_mode and supabase_admin is not None:
             try:
                 drill_score_for_log = parsed.get("drill_score") or {}
                 raw_score = drill_score_for_log.get("score")
@@ -2774,7 +2957,7 @@ async def process(
         # Re-evaluate here so non-drill turns also have it for the
         # tag_secondary / tag_tertiary gate below. Cheap RPC; for drill
         # users the second call returns the same value as the first.
-        is_pro = get_user_pro_status(user_id)
+        is_pro = False if is_anonymous else get_user_pro_status(user_id)
         response_payload = {
             "text":                 user_text,
             "coach_response":       coach_response,
@@ -2837,7 +3020,7 @@ async def process(
             VOCAB_RETURN_COLS = "id, word, zh_meaning, common_chunk, topic"
             suggested_vocab: Optional[dict] = None
 
-            if better_phrasing_en and supabase_admin is not None:
+            if not is_anonymous and better_phrasing_en and supabase_admin is not None:
                 tokens = [
                     t.strip(".,;:!?\"'()[]").lower()
                     for t in better_phrasing_en.split()
@@ -2891,6 +3074,7 @@ async def process(
             if (
                 weakness_tag == "weak_vocab"
                 and practice_topic
+                and not is_anonymous
                 and supabase_admin is not None
             ):
                 try:
@@ -2914,6 +3098,17 @@ async def process(
                     )
         except Exception:
             logger.exception("[/process] vocab enrichment outer guard tripped")
+
+        if is_anonymous:
+            quota_state = _consume_anonymous_quota(
+                anonymous_visitor_hash,
+                anonymous_ip_hash,
+            )
+            response_payload["anonymous_trial"] = {
+                "limit": ANONYMOUS_PROCESS_LIMIT,
+                "used": int(quota_state.get("used", 0)),
+                "remaining": int(quota_state.get("remaining", 0)),
+            }
 
         return response_payload
     except HTTPException:

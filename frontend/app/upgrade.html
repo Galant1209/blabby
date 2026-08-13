@@ -314,10 +314,32 @@
     </section>
 
     <section id="checkout-section" class="section">
-        <p class="price-banner">NT$199 / 月</p>
-        <button id="checkout-btn" type="button">加入 Pro，NT$199／月 →</button>
+        <p class="price-banner">NT$199 / 30 天</p>
+        <p>單次購買 30 天使用權，不自動續訂。</p>
+        <button id="checkout-btn" type="button">購買 Blabby Pro｜NT$199 / 30 天</button>
         <div id="checkout-error" class="error" role="status" aria-live="polite"></div>
-        <p id="login-note" class="login-note" style="display:none">請先<a href="/index.html">登入</a>才能加入 Pro。</p>
+        <p id="login-note" class="login-note" style="display:none">商品資訊可免登入查看；付款前請先<a href="/?login=1">登入／建立帳號</a>，以便將 Pro 使用權歸入你的帳號。</p>
+    </section>
+
+    <section class="section" id="billing-policy">
+        <h2 class="section__title">收費標準</h2>
+        <p><strong>Blabby Pro｜NT$199 / 30 天</strong></p>
+        <ul>
+            <li>付款方式：信用卡；不另向消費者收取信用卡手續費，也不因刷卡金額限制信用卡付款。</li>
+            <li>單次購買，自付款成功並啟用 Pro 起算 30 天。</li>
+            <li>到期後不自動續訂；若要繼續使用，由使用者再次主動購買。</li>
+        </ul>
+    </section>
+
+    <section class="section" id="refund-policy">
+        <h2 class="section__title">退款申請</h2>
+        <ul>
+            <li>如需退款，請於付款後 7 日內提出申請；若法令另有保障，以法令規定為準。</li>
+            <li>退款原則上退回原付款方式；核准後將終止該筆 Pro 使用權。</li>
+            <li>信用卡退刷送交銀行後，實際入帳通常約需 14–21 個工作天，時間依發卡銀行作業為準。</li>
+            <li>若遇付款異常、重複扣款或服務未成功啟用，請透過下方信箱由人工協助。</li>
+        </ul>
+        <p>退款與客服聯絡：<a href="mailto:galant19951209@gmail.com">galant19951209@gmail.com</a></p>
     </section>
 
 </main>
@@ -429,7 +451,7 @@ async function goToCheckout() {
 
     const token = await getToken();
     if (!token) {
-        setError('請先登入才能加入 Pro。');
+        setError('請先登入／建立帳號，再購買 Blabby Pro。');
         checkoutInFlight = false;
         checkoutBtn.disabled = false;
         return;
@@ -511,11 +533,10 @@ async function goToCheckout() {
 
 checkoutBtn.addEventListener('click', goToCheckout);
 
-// ---- boot: disable checkout (with a login prompt) if not signed in ----
+// ---- boot: keep product/CTA public; clicking purchase explains login ----
 (async function boot() {
     const token = await getToken();
     if (!token) {
-        checkoutBtn.disabled = true;
         loginNote.style.display = '';
     }
 })();
