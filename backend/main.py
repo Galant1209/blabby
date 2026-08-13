@@ -3933,9 +3933,10 @@ async def last_unresolved_practice_record(
     try:
         response = (
             supabase_admin.table("practice_records")
-            .select("id, question, topic, weakness_tag, coach_response, created_at")
+            .select("id, question, topic, weakness_tag, resolved, created_at")
             .eq("user_id", user_id)
             .eq("resolved", False)
+            .in_("weakness_tag", sorted(ALLOWED_WEAKNESS_TAGS))
             .order("created_at", desc=True)
             .limit(1)
             .execute()
