@@ -241,6 +241,12 @@ async def startup_event():
         id="nightly_reading_pregen",
         replace_existing=True,
     )
+    _scheduler.add_job(
+        expire_stale_pending_subscriptions,
+        CronTrigger(hour="*/6", minute=0, timezone="UTC"),
+        id="expire_stale_pending_subscriptions",
+        replace_existing=True,
+    )
     # Startup prime (30s delay so DB connections are ready)
     _scheduler.add_job(
         pregenerate_writing_questions,
@@ -3397,6 +3403,53 @@ async def covenant_sign(
 # Named for what it is: the earlier "return_url" described the browser-facing
 # endpoint, not the callback that actually writes here.
 ECPAY_EVENT_SOURCE = "ecpay_callback"
+
+# 一筆 pending 訂單在被判定為放棄之前的存活時間。綠界的付款頁不會開這麼久，
+# 但 ATM / 超商代碼繳費的取號有效期可以跨日，所以門檻抓寬而不是抓緊 ——
+# 誤判一筆真的會付的訂單，比留下幾列孤兒昂貴得多。
+PENDING_ORDER_TTL_HOURS = 24
+
+
+def expire_stale_pending_subscriptions() -> None:
+    """把逾時未付款的 pending 訂單標記為 expired。每 6 小時由 scheduler 呼叫。
+
+    建單時寫入 status='pending'，callback 成功才轉 active。使用者放棄付款或
+    銀行拒絕時，那一列永遠停在 pending。這對權限沒有影響（is_user_pro() 只
+    認 status='active' 且 now() < expires_at），純粹是資料衛生與對帳可讀性。
+
+    WHERE 同時寫死 status='pending'，即使 created_at 條件已經足以選出目標。
+    這是刻意的冗餘：這支 job 唯一不能犯的錯是碰到一列 active，而寫死狀態讓
+    「碰到 active」需要兩個條件同時失效，不是一個。
+
+    併發前提：Render Starter 是 1 worker × 1 instance，同一時間只有一個
+    scheduler，所以不需要 advisory lock。若日後升級到多 instance，兩個
+    scheduler 會同時跑這段 —— UPDATE 本身仍然安全（冪等，第二次選不到列），
+    但回報的筆數會被瓜分，屆時要重新檢視這裡。
+    """
+    if supabase_admin is None:
+        logger.warning("[BILLING] expire_stale_pending: database not configured")
+        return
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=PENDING_ORDER_TTL_HOURS)
+
+    try:
+        resp = (
+            supabase_admin.table("subscriptions")
+            .update({"status": "expired", "updated_at": now.isoformat()})
+            .eq("status", "pending")
+            .lt("created_at", cutoff.isoformat())
+            .execute()
+        )
+    except Exception:
+        # 吞掉例外會讓這支 job 靜靜地不做事，而它本來就沒有使用者會抱怨的
+        # 症狀 —— 只會在對帳時發現。所以失敗必須留下完整 traceback。
+        logger.exception("[BILLING] expire_stale_pending failed")
+        return
+
+    # n=0 也記錄：這是唯一能確認 job 真的有在跑的訊號。
+    n = len(getattr(resp, "data", None) or [])
+    logger.info(f"[BILLING] expired {n} stale pending subscriptions")
 
 
 def _ecpay_ack() -> PlainTextResponse:
