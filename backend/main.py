@@ -133,6 +133,13 @@ ECPAY_HASH_IV                = (os.getenv("ECPAY_HASH_IV", "") or "").strip()
 # rejects relative paths, and the backend and frontend live on different hosts.
 PUBLIC_BACKEND_URL           = os.getenv("PUBLIC_BACKEND_URL", "").rstrip("/")
 PUBLIC_FRONTEND_URL          = os.getenv("PUBLIC_FRONTEND_URL", "").rstrip("/")
+# 排程預生成的總開關。預設「啟用」是刻意的：預設關閉會讓日後任何人清空這個
+# 環境變數時靜默停掉 worker，而那個失效模式沒有症狀 —— 池子只是慢慢見底，
+# 沒有錯誤、沒有 log、沒人會發現。停用必須是有人明確寫下 false 的結果。
+# 讀取方式比照 ecpay.py 的 load_config()。
+PREGEN_ENABLED = (os.getenv("PREGEN_ENABLED", "") or "").strip().lower() \
+    not in {"false", "0", "off"}
+
 ADMIN_EMAILS         = {
     email.strip().lower()
     for email in os.getenv("ADMIN_EMAILS", "").split(",")
@@ -228,41 +235,49 @@ async def startup_event():
             exc,
         )
     _scheduler.start()
-    # 6-hourly top-up
-    _scheduler.add_job(
-        pregenerate_writing_questions,
-        CronTrigger(hour="*/6", minute=0, timezone="UTC"),
-        id="nightly_writing_pregen",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        pregenerate_reading_passages,
-        CronTrigger(hour="*/6", minute=0, timezone="UTC"),
-        id="nightly_reading_pregen",
-        replace_existing=True,
-    )
     _scheduler.add_job(
         expire_stale_pending_subscriptions,
         CronTrigger(hour="*/6", minute=0, timezone="UTC"),
         id="expire_stale_pending_subscriptions",
         replace_existing=True,
     )
-    # Startup prime (30s delay so DB connections are ready)
-    _scheduler.add_job(
-        pregenerate_writing_questions,
-        "date",
-        run_date=datetime.now(timezone.utc) + timedelta(seconds=30),
-        id="startup_writing_pregen",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        pregenerate_reading_passages,
-        "date",
-        run_date=datetime.now(timezone.utc) + timedelta(seconds=30),
-        id="startup_reading_pregen",
-        replace_existing=True,
-    )
-    logger.info("APScheduler started: writing + reading pregeneration scheduled")
+    # 停用時整組 job 不註冊，而不是註冊後在 job 內 early return —— 後者會讓
+    # scheduler 每 6 小時照常喚醒並記錄一次「執行成功」，log 就開始說謊。
+    # startup prime 一併關掉：它同樣呼叫 Anthropic，留著等於每次 Render 重啟
+    # 就生成一批無人閱讀的內容。
+    if PREGEN_ENABLED:
+        # 6-hourly top-up
+        _scheduler.add_job(
+            pregenerate_writing_questions,
+            CronTrigger(hour="*/6", minute=0, timezone="UTC"),
+            id="nightly_writing_pregen",
+            replace_existing=True,
+        )
+        _scheduler.add_job(
+            pregenerate_reading_passages,
+            CronTrigger(hour="*/6", minute=0, timezone="UTC"),
+            id="nightly_reading_pregen",
+            replace_existing=True,
+        )
+        # Startup prime (30s delay so DB connections are ready)
+        _scheduler.add_job(
+            pregenerate_writing_questions,
+            "date",
+            run_date=datetime.now(timezone.utc) + timedelta(seconds=30),
+            id="startup_writing_pregen",
+            replace_existing=True,
+        )
+        _scheduler.add_job(
+            pregenerate_reading_passages,
+            "date",
+            run_date=datetime.now(timezone.utc) + timedelta(seconds=30),
+            id="startup_reading_pregen",
+            replace_existing=True,
+        )
+        logger.info("pregeneration workers: enabled")
+    else:
+        logger.warning("pregeneration workers: DISABLED by PREGEN_ENABLED")
+    logger.info("APScheduler started")
 
 @app.on_event("shutdown")
 async def shutdown_event():
