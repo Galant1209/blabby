@@ -123,8 +123,12 @@ GOOGLE_TTS_API_KEY           = os.getenv("GOOGLE_TTS_API_KEY")
 SUPABASE_URL                 = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY         = os.getenv("SUPABASE_SERVICE_KEY")
 LEMONSQUEEZY_WEBHOOK_SECRET  = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET", "")
-ECPAY_HASH_KEY               = os.getenv("ECPAY_HASH_KEY", "")
-ECPAY_HASH_IV                = os.getenv("ECPAY_HASH_IV", "")
+# strip()：這兩個值直接餵進 CheckMacValue 的雜湊輸入，從 Render 後台貼值時
+# 夾帶一個尾端換行就會產生一個對不起來的簽章，而錯誤訊息只會說簽章錯 ——
+# 從那裡回推到「環境變數尾端有 \n」極其昂貴。ecpay.py 的 load_config() 對
+# ECPAY_ENV / ECPAY_MERCHANT_ID / PUBLIC_*_URL 早就這樣處理，這裡補齊對齊。
+ECPAY_HASH_KEY               = (os.getenv("ECPAY_HASH_KEY", "") or "").strip()
+ECPAY_HASH_IV                = (os.getenv("ECPAY_HASH_IV", "") or "").strip()
 # Absolute origins for the URLs handed to ECPay. Never hardcoded: the cashier
 # rejects relative paths, and the backend and frontend live on different hosts.
 PUBLIC_BACKEND_URL           = os.getenv("PUBLIC_BACKEND_URL", "").rstrip("/")
