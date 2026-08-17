@@ -3564,6 +3564,97 @@ async def payment_create_order(
     }
 
 
+@app.get("/api/payment/_diag")
+@limiter.limit("30/minute")
+async def payment_diag(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """唯讀：回報這個 process 實際解析出來的 ECPay 設定。不打綠界。
+
+    存在的理由是 10200074（找不到商店）從外面看不出成因：商店號屬於另一個
+    環境、值尾端夾帶換行、或 ECPAY_ENV 沒解析成以為的那一邊，症狀一模一樣。
+    憑證只以 sha256 前 8 碼與長度呈現 —— 足以和手上的值比對，不足以還原。
+
+    HashKey / HashIV 讀的是 module-level 全域（第 126-127 行，import 時求值
+    一次），不是重新 getenv：簽章實際用的就是那兩個值，診斷要看的是它們。
+    MerchantID 相反，讀原始環境變數 —— config.merchant_id 已經 strip 過，
+    看它永遠看不到尾端空白。
+    """
+    verify_admin(authorization)
+
+    warnings: list[str] = []
+
+    def _fingerprint(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()[:8]
+
+    env_raw = os.getenv("ECPAY_ENV")
+
+    merchant_id_raw = os.getenv("ECPAY_MERCHANT_ID") or ""
+    merchant_id_clean = merchant_id_raw.strip()
+    if not merchant_id_clean:
+        warnings.append("ECPAY_MERCHANT_ID is empty")
+        merchant_id_masked = None
+    else:
+        merchant_id_masked = "****" + merchant_id_clean[-3:]
+
+    hash_key = ECPAY_HASH_KEY or ""
+    hash_iv = ECPAY_HASH_IV or ""
+    if not hash_key:
+        warnings.append("ECPAY_HASH_KEY is empty")
+    if not hash_iv:
+        warnings.append("ECPAY_HASH_IV is empty")
+    for name, value in (("ECPAY_MERCHANT_ID", merchant_id_raw),
+                        ("ECPAY_HASH_KEY", hash_key),
+                        ("ECPAY_HASH_IV", hash_iv)):
+        if value != value.strip():
+            warnings.append(f"{name} has leading/trailing whitespace")
+
+    try:
+        config = ecpay.get_config()
+        resolved_env = config.env
+        aio_checkout_url = config.action_url
+        return_url = config.return_url
+        client_back_url = config.client_back_url
+        order_result_url = config.order_result_url
+    except ecpay.EcpayConfigError as exc:
+        warnings.append(f"ecpay config unavailable: {exc}")
+        resolved_env = "invalid"
+        aio_checkout_url = None
+        return_url = None
+        client_back_url = None
+        order_result_url = None
+
+    return {
+        "ecpay_env_raw":                   env_raw,
+        "ecpay_env_repr":                  repr(env_raw),
+        "resolved_env":                    resolved_env,
+        "aio_checkout_url":                aio_checkout_url,
+        "merchant_id_masked":              merchant_id_masked,
+        "merchant_id_len":                 len(merchant_id_raw),
+        "merchant_id_stripped_differs":    merchant_id_raw != merchant_id_clean,
+        "hash_key_fingerprint":            _fingerprint(hash_key),
+        "hash_key_len":                    len(hash_key),
+        "hash_key_stripped_differs":       hash_key != hash_key.strip(),
+        "hash_iv_fingerprint":             _fingerprint(hash_iv),
+        "hash_iv_len":                     len(hash_iv),
+        "hash_iv_stripped_differs":        hash_iv != hash_iv.strip(),
+        "return_url":                      return_url,
+        "client_back_url":                 client_back_url,
+        "order_result_url":                order_result_url,
+        "ecpay_env_var_names_present":     sorted(
+            name for name in os.environ if name.startswith("ECPAY")
+        ),
+        # main.py:118 呼叫的是 load_dotenv() —— 沒有 override=True，所以磁碟上
+        # 的 .env 不會蓋掉 Render 注入的環境變數。這裡是那個呼叫點的鏡像，改了
+        # 上面就要改這裡。
+        "dotenv_override":                 False,
+        "server_utc_now":                  datetime.now(timezone.utc).isoformat(),
+        "merchant_trade_date_sample":      ecpay.merchant_trade_date(),
+        "warnings":                        warnings,
+    }
+
+
 @app.post("/api/payment/callback")
 @limiter.limit("30/minute")
 async def payment_callback(request: Request):
