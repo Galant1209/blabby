@@ -90,11 +90,20 @@ def test_explicit_off_removes_every_pregen_job_from_the_scheduler(value):
     assert "pregeneration workers: DISABLED by PREGEN_ENABLED" in stderr
 
 
-def test_disabling_pregen_leaves_the_billing_sweep_alone():
-    """旗標只關預生成。同一個 scheduler 上的其他 job 不受影響。"""
+def test_disabling_pregen_leaves_the_billing_sweeps_alone():
+    """旗標只關預生成。同一個 scheduler 上的其他 job 不受影響。
+
+    2026-09-03：清單從一支變兩支。lapse_expired_active_subscriptions 刻意
+    註冊在 PREGEN_ENABLED 判斷之外 —— 狀態機的正確性不該跟著內容生成的
+    成本開關一起被關掉。斷言維持完全相等而不是放寬成 issubset：這條要守
+    的是「旗標關掉時 scheduler 上只剩帳務 job」，多出任何一支都該讓它紅。
+    """
     result, _ = _startup(PREGEN_ENABLED="false")
 
-    assert result["job_ids"] == ["expire_stale_pending_subscriptions"]
+    assert result["job_ids"] == [
+        "expire_stale_pending_subscriptions",
+        "lapse_expired_active_subscriptions",
+    ]
 
 
 def test_startup_prime_is_disabled_too():
