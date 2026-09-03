@@ -772,6 +772,20 @@
             renderTabState();
         }
 
+        // Copied verbatim from success.html's isActiveSubscription(). hub.html
+        // has the same test but inlined inside resolveIsPro(), which returns
+        // true/null rather than a boolean — the wrong shape here. Three pages
+        // reading one endpoint should not each decide what "active" means, and
+        // this page was the one that got it wrong: status alone was trusted, so
+        // a subscription that had run out still unlocked Task 1.
+        function isActiveSubscription(subscription) {
+            if (!subscription || typeof subscription !== 'object') return false;
+            if (subscription.status !== 'active') return false;
+            if (!subscription.expires_at) return false;
+            const exp = new Date(subscription.expires_at);
+            return !Number.isNaN(exp.getTime()) && exp.getTime() > Date.now();
+        }
+
         async function checkProStatus() {
             try {
                 const res = await fetch(`${API_BASE}/reading/quota`, {
@@ -791,7 +805,7 @@
                 });
                 if (res2.ok) {
                     const data2 = await res2.json();
-                    isProUser = !!(data2.subscription && data2.subscription.status === 'active');
+                    isProUser = isActiveSubscription(data2.subscription);
                 }
             } catch (e) {}
             document.getElementById('pro-badge').style.display = isProUser ? 'none' : 'inline';
