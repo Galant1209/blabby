@@ -2784,13 +2784,24 @@
             z-index: 2;
         }
         .public-hero {
-            min-height: 88vh;
+            /* No min-height. Pinning the hero to the viewport made the demo's
+               peek exact but turned every pixel the content saved by moving up
+               into a hole in the middle — the container height was an input,
+               so the slack had nowhere else to go. Height now comes from the
+               content, and padding-bottom sets the distance to the demo, so
+               the peek is a result rather than a number to hit. */
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            /* flex-start, not center: min-height is fixed at 100vh - 120px to
+               hold the demo's peek, so centring inside it parks the mark near
+               the geometric middle and leaves ~380px of undirected space above
+               it on a tall window. The clamp puts the optical weight in the top
+               third and shrinks with the viewport, so a short window keeps the
+               peek instead of pushing the card off-screen. */
+            justify-content: flex-start;
             text-align: center;
-            padding: 40px 0 56px;
+            padding: clamp(80px, 9vh, 140px) 0 240px;
         }
         .public-hero__mark { display: block; margin: 0 auto 14px; opacity: .9; }
         .public-hero__wordmark {
@@ -2827,14 +2838,9 @@
         .public-hero__enter:hover { background: var(--green-dark); border-color: var(--green-dark); }
         .public-hero .anonymous-trial-note { margin-top: 14px; }
         .public-pricing {
-            padding: 104px 0 56px;
+            padding: 64px 0 56px;
             text-align: center;
             border-top: 1px solid var(--border);
-        }
-        .public-pricing__mech {
-            margin: 0 0 34px;
-            font: 500 21px/1.9 var(--serif-tc);
-            color: var(--ink-soft);
         }
         .public-pricing__price { margin: 0; font: 600 34px/1.2 var(--serif-tc); color: var(--wine); }
         .public-pricing__buy {
@@ -2858,6 +2864,54 @@
         .public-plans h2 { margin: 0 0 16px; font: 600 21px/1.4 var(--serif-tc); color: var(--ink); }
         .public-plans ul { margin: 0; padding-left: 20px; }
         .public-plans li { margin-bottom: 10px; font-size: 14px; line-height: 1.8; color: var(--ink-soft); }
+        /* Hero demo. Every class below the .hero-demo wrapper is the real
+           feedback UI's own: .question-card, .feedback-card, .feedback-item,
+           .feedback-item-primary, .feedback-label, .transcript-text,
+           .coach-text, .expression-en. Nothing here restyles them — a visitor
+           must not be shown a nicer version of what they are buying. Omissions
+           are allowed (.expression-zh, .meta, the recorder), additions are not.
+           The one exception is display: the real card is hidden until a
+           response arrives (.feedback-card { display: none }), so the demo
+           re-enables it and nothing else. */
+        .hero-demo { padding: 0 0 4px; }
+        .hero-demo__stage { display: flex; flex-direction: column; gap: 14px; }
+        .hero-demo .feedback-card { display: flex; }
+        /* The card's own frame fades with the first beat. Leaving it at
+           opacity 1 while its contents are hidden reserves the right layout
+           space but paints an empty bordered box — on a tall window the whole
+           thing sits above the fold and that box is the first thing a visitor
+           sees. The real app has no empty feedback card either: it appears
+           when the response does. */
+        .hero-demo__panel { opacity: 0; }
+        .hero-demo__panel.is-in { opacity: 1; transition: opacity .6s ease; }
+        .hero-demo__beat { opacity: 0; }
+        .hero-demo__beat.is-in { opacity: 1; transition: opacity .6s ease; }
+        /* Serif hairline, not a block: the caret is a pen resting on the page.
+           1.2s so it reads as a pause, not a terminal. Removed once the line
+           finishes — a caret left blinking says "still waiting for input". */
+        .hero-demo__caret {
+            display: inline-block;
+            width: 1px;
+            height: 1em;
+            margin-left: 2px;
+            vertical-align: -0.12em;
+            background: currentColor;
+            animation: heroDemoCaret 1.2s step-end infinite;
+        }
+        @keyframes heroDemoCaret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+        /* Was .public-pricing__mech: the sentence is this demo's caption now,
+           so it sits under the demo instead of opening the pricing block. */
+        .hero-demo__caption {
+            margin: 24px 0 0;
+            text-align: center;
+            font: 500 21px/1.9 var(--serif-tc);
+            color: var(--ink-soft);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .hero-demo__beat,
+            .hero-demo__panel { opacity: 1; transition: none; }
+            .hero-demo__caret { display: none; }
+        }
         /* One lockup, not two: #main-section's own .header carries the same mark
            roughly one screen below the hero. Hiding it for the logged-out review
            view keeps the hero the first and only lockup, and leaves the
@@ -2937,7 +2991,10 @@
         .session-closure-evidence { color: var(--green) !important; }
         .active-vocab-observed { margin: 0 0 10px; padding: 11px 13px; border-left: 2px solid var(--green); background: rgba(26,53,80,.06); color: var(--green); font: 600 14px/1.55 var(--serif-tc); }
         @media (max-width: 560px) {
-            .public-hero { min-height: 86vh; padding: 24px 0 40px; }
+            /* 210 not 240: the question wraps to two lines at this width, so
+               the card is ~31px taller and the whole line has to clear the
+               fold with the card's bottom edge still cut off. */
+            .public-hero { padding: clamp(80px, 9vh, 140px) 0 205px; }
             .public-hero__wordmark { font-size: 38px; }
             /* Scoped !important is deliberate: an existing rule
                `@media (max-width:390px){ .wordmark, h1 { font-size:36px !important } }`
@@ -2947,8 +3004,8 @@
                the rest of the app depends on. */
             .public-hero .public-hero__line { margin-top: 36px; font-size: 24px !important; max-width: 13em; }
             .public-hero__enter { margin-top: 40px; width: 100%; }
-            .public-pricing { padding: 88px 0 44px; }
-            .public-pricing__mech { font-size: 19px; }
+            .public-pricing { padding: 56px 0 44px; }
+            .hero-demo__caption { font-size: 19px; }
             .public-pricing__price { font-size: 30px; }
             .public-pricing__buy { width: 100%; }
             .anonymous-conversion-actions > * { width: 100%; text-align: center; }
@@ -3099,8 +3156,36 @@
         <p class="anonymous-trial-note">公開體驗模式可免登入試用 Speaking Part 1；成功批改最多 10 次。</p>
     </section>
 
-    <section id="public-pricing" class="public-landing__section public-pricing" aria-labelledby="public-pricing-mech">
-        <p class="public-pricing__mech" id="public-pricing-mech">說一遍。被指出一個問題。再說一遍。</p>
+    <!-- Hero demo. The top ~120px sits below the fold on purpose: half a
+         conversation card is a better reason to scroll than any arrow. -->
+    <section id="hero-demo" class="public-landing__section hero-demo" aria-label="Blabby 批改流程示範">
+        <div class="hero-demo__stage">
+            <div class="question-card">
+                <div class="label">考官問你</div>
+                <div class="question-text">Do you often listen to music?</div>
+            </div>
+            <div class="feedback-card hero-demo__panel">
+                <div class="hero-demo__beat feedback-item">
+                    <div class="feedback-label">你剛剛說：</div>
+                    <div class="transcript-text"><span class="hero-demo__typed">I very like music. I listen to it every day.</span><span class="hero-demo__caret" aria-hidden="true"></span></div>
+                </div>
+                <div class="hero-demo__beat feedback-item feedback-item-primary">
+                    <div class="feedback-label">這一題真正的問題</div>
+                    <div class="coach-text">very like 不是英文的說法</div>
+                </div>
+                <div class="hero-demo__beat feedback-item">
+                    <div class="feedback-label">你應該偷走的說法</div>
+                    <div class="expression-en">I like music a lot.</div>
+                </div>
+                <div class="hero-demo__beat feedback-item">
+                    <div class="feedback-label">趁此刻，再說一遍</div>
+                </div>
+            </div>
+        </div>
+        <p class="hero-demo__caption">說一遍。被指出一個問題。再說一遍。</p>
+    </section>
+
+    <section id="public-pricing" class="public-landing__section public-pricing" aria-label="購買 Blabby Pro">
         <p class="public-pricing__price">NT$199 / 30 天</p>
         <a class="public-pricing__buy" id="public-buy-link" href="/upgrade.html">購買 Blabby Pro</a>
         <p class="public-pricing__stance">單次 30 天，不自動續訂。&nbsp;&nbsp;<a href="/terms.html">收費與退款</a></p>
@@ -3847,6 +3932,90 @@
         if (publicBuyLink) publicBuyLink.addEventListener('click', () => {
             try { window.analytics?.track('public_buy_click', { source: 'pricing_section' }); } catch (_) {}
         });
+        // Hero demo playback. One typewriter, on the transcript only — that is
+        // the speech-to-text moment. Four typewriters would read as a terminal
+        // effect and the signal would be gone. Everything else fades.
+        const heroDemo = document.getElementById('hero-demo');
+        if (heroDemo) {
+            const demoBeats = Array.prototype.slice.call(heroDemo.querySelectorAll('.hero-demo__beat'));
+            const demoTyped = heroDemo.querySelector('.hero-demo__typed');
+            const demoCaret = heroDemo.querySelector('.hero-demo__caret');
+            const demoLine = demoTyped ? demoTyped.textContent : '';
+            const demoPanel = heroDemo.querySelector('.hero-demo__panel');
+            const demoReveal = () => {
+                if (demoPanel) demoPanel.classList.add('is-in');
+                demoBeats.forEach((b) => b.classList.add('is-in'));
+                if (demoCaret && demoCaret.parentNode) demoCaret.parentNode.removeChild(demoCaret);
+            };
+            const reduceMotion = window.matchMedia
+                && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            // Reduced motion gets the finished picture, not a faster one. Same
+            // fallback covers a browser without IntersectionObserver — beats
+            // start at opacity 0, so failing to reveal them would leave the
+            // section blank rather than un-animated.
+            if (reduceMotion || !('IntersectionObserver' in window)) {
+                demoReveal();
+            } else {
+                let demoPlayed = false;
+                const demoWait = (ms) => new Promise((r) => window.setTimeout(r, ms));
+                const demoChars = Array.from(demoLine);
+                const demoLastIndex = Math.max(demoChars.length - 1, 1);
+                const demoType = async () => {
+                    demoTyped.textContent = '';
+                    for (let i = 0; i < demoChars.length; i++) {
+                        const ch = demoChars[i];
+                        demoTyped.textContent += ch;
+                        // Fast at the head, slow at the tail: the line reads as
+                        // quicker overall but still lands like a pen finishing a
+                        // stroke. The other direction — slow then fast — reads as
+                        // a machine spinning up and the handwriting quality dies.
+                        let delay = 35 + 20 * (i / demoLastIndex);
+                        // Punctuation is breath, not speed. These two stay put
+                        // however fast the letters get.
+                        if (ch === ',') delay += 180;
+                        else if (ch === '.') delay += 320;
+                        await demoWait(delay);
+                    }
+                    if (demoCaret && demoCaret.parentNode) demoCaret.parentNode.removeChild(demoCaret);
+                };
+                const demoPlay = async () => {
+                    try { window.analytics?.track('hero_demo_view'); } catch (_) {}
+                    // The question is already on the page and is not a beat —
+                    // it has to be legible in the sliver above the fold, which
+                    // is the whole reason the demo sits where it does. Its old
+                    // 600ms fade stays as a plain lead-in: the examiner has
+                    // asked, and there is a moment before the answer starts. Trimmed
+                    // from 600 to 300 with the rest of the tempo pass.
+                    await demoWait(300);
+                    if (demoPanel) demoPanel.classList.add('is-in');
+                    demoBeats[0].classList.add('is-in');
+                    await demoType();
+                    await demoWait(400);
+                    demoBeats[1].classList.add('is-in');
+                    // 600ms fade, then 350ms of nothing. That gap is the
+                    // examiner's pen coming down between the diagnosis and the
+                    // correction; closing it makes the two read as one blob.
+                    // Trimmed from 500 but deliberately not to 300 — the pause
+                    // is the point, only the dead weight came off.
+                    await demoWait(950);
+                    demoBeats[2].classList.add('is-in');
+                    await demoWait(1000);
+                    demoBeats[3].classList.add('is-in');
+                    await demoWait(600);
+                    try { window.analytics?.track('hero_demo_complete'); } catch (_) {}
+                };
+                const demoObserver = new IntersectionObserver((entries) => {
+                    entries.forEach((entry) => {
+                        if (!entry.isIntersecting || demoPlayed) return;
+                        demoPlayed = true;
+                        demoObserver.disconnect();
+                        demoPlay();
+                    });
+                }, { rootMargin: '0px 0px -50% 0px', threshold: 0 });
+                demoObserver.observe(heroDemo);
+            }
+        }
+
         // The hero's only job is to earn a scroll. Without scroll_to_pricing
         // there is no way to tell whether it did — upgrade.html traffic alone
         // cannot separate "hero worked" from "hero was skipped".
