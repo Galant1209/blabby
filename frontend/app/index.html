@@ -2801,6 +2801,26 @@
         .public-product__buy { color: var(--surface); background: var(--green); border: 1px solid var(--green); }
         .public-product__login { color: var(--green); background: transparent; border: 1px solid var(--green); }
         .anonymous-trial-note { margin-top: 10px; font-size: 13px; color: var(--muted); }
+
+        /* Public disclosure footer. Lives OUTSIDE #main-section on purpose —
+           that element is display:none until login, so anything placed inside
+           it is invisible to logged-out visitors and to payment-processor
+           review. padding-bottom clears the fixed 60px #bottom-nav. */
+        .public-footer {
+            width: min(calc(100% - 32px), 680px);
+            margin: 32px auto 0;
+            padding: 18px 0 96px;
+            border-top: 1px solid var(--border);
+            position: relative;
+            z-index: 2;
+            font: 400 12px/1.75 var(--sans);
+            color: var(--muted);
+            text-align: center;
+        }
+        .public-footer p { margin: 0 0 4px; }
+        .public-footer a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+        .public-footer a:hover { color: var(--green); }
+        .public-footer__sep { margin: 0 8px; opacity: .5; }
         .anonymous-conversion-card {
             margin: 18px auto 4px; max-width: 520px; padding: 16px;
             border: 1px solid var(--gold); background: rgba(201,168,76,.08); text-align: left;
@@ -3003,11 +3023,11 @@
                     <li>銀行退刷入帳約需 14–21 個工作天</li>
                     <li>付款異常、重複扣款或未成功啟用，請寄信人工處理</li>
                 </ul>
-                <p>客服／退款聯絡：<a href="mailto:galant19951209@gmail.com">galant19951209@gmail.com</a>、<a href="mailto:zeta2878@gmail.com">zeta2878@gmail.com</a></p>
+                <p>客服／退款聯絡：<a href="mailto:zeta2878@gmail.com">zeta2878@gmail.com</a></p>
             </div>
         </div>
         <div class="public-product__actions">
-            <a class="public-product__buy" href="/upgrade.html">購買 Blabby Pro｜NT$199 / 30 天</a>
+            <a class="public-product__buy" id="public-buy-link" href="/upgrade.html">購買 Blabby Pro｜NT$199 / 30 天</a>
             <a class="public-product__login" id="public-login-link" href="/?login=1&amp;source=anonymous_trial">登入／建立帳號</a>
         </div>
         <p class="anonymous-trial-note">公開體驗模式可免登入試用 Speaking Part 1；成功批改最多 10 次。</p>
@@ -3450,6 +3470,21 @@
 
     </main>
 
+    <!-- Public disclosure footer. Outside #main-section by design: see the
+         .public-footer CSS note. Carries the four strings the public-pages
+         compliance test asserts (price, term, refund, bank window) so they
+         stay reachable without an account. -->
+    <footer class="public-footer">
+        <p>NT$199 / 30 天，單次購買，不自動續訂。</p>
+        <p>退款申請請於付款後 7 日內提出，銀行退刷入帳約需 14–21 個工作天。</p>
+        <p>
+            <a id="public-footer-terms" href="/terms.html">收費與退款</a>
+            <span class="public-footer__sep">｜</span>
+            <a href="mailto:zeta2878@gmail.com">zeta2878@gmail.com</a>
+        </p>
+        <p>Blabby 由 Galant（邱奕程）開發及營運。</p>
+    </footer>
+
     <script src="/anonymous-conversion.js"></script>
     <script src="/retention.js"></script>
     <script src="/progress-evidence.js"></script>
@@ -3722,6 +3757,17 @@
 
         if (publicLoginLink) publicLoginLink.addEventListener('click', () => {
             markAnonymousAuthSource('anonymous_login_cta_clicked', 'public_product');
+        });
+        // The buy link had no instrumentation at all: we could see upgrade.html
+        // traffic but not which surface sent it, so the hero could never be
+        // evaluated against the surface it replaces.
+        const publicBuyLink = document.getElementById('public-buy-link');
+        if (publicBuyLink) publicBuyLink.addEventListener('click', () => {
+            try { window.analytics?.track('public_buy_click', { source: 'public_product' }); } catch (_) {}
+        });
+        const publicFooterTerms = document.getElementById('public-footer-terms');
+        if (publicFooterTerms) publicFooterTerms.addEventListener('click', () => {
+            try { window.analytics?.track('public_footer_terms_click'); } catch (_) {}
         });
         if (anonymousSignupCta) anonymousSignupCta.addEventListener('click', () => {
             markAnonymousAuthSource('anonymous_signup_cta_clicked', anonymousTrialState.card);
