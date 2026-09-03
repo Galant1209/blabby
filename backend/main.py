@@ -11519,6 +11519,62 @@ async def writing_get_question(
     }
 
 
+# criteria 的四個鍵與 DB 欄位後綴的對應。寫成一份資料而不是四行複製貼上，
+# 是因為日後增減評分維度時，漏改一處的代價是前端靜默少一張卡。
+_WRITING_CRITERIA = (
+    ("task_achievement",   "ta"),
+    ("coherence_cohesion", "cc"),
+    ("lexical_resource",   "lr"),
+    ("grammatical_range",  "gra"),
+)
+
+
+def _writing_band(value) -> Optional[float]:
+    """把 band 收斂成 float。
+
+    同一個數字有兩條來路：交卷當下來自 LLM 解析（Python float），還原時來自
+    PostgREST（numeric 欄位序列化成字串 "4.0" 以保留精度）。不收斂的話，
+    前端的 `badge.textContent = c.band` 會讓同一份批改在交卷當下顯示 4、
+    重整後顯示 4.0 —— 使用者看到的是兩個不同的分數。
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_writing_feedback_view(row: dict) -> dict:
+    """把 writing_submissions 的一列摺成前端吃的形狀。
+
+    POST /api/writing/submit 與 GET /api/writing/submission/{id} 共用這一支。
+    在此之前 criteria 只在 POST handler 現場組裝，既沒進 DB、GET 也沒重建，
+    所以把 GET 的回應餵給 renderFeedback() 會得到四張評分卡全空的殼。一份
+    批改長什麼樣只能有一個定義，否則後端增減評分維度時前端會靜默少一張卡,
+    而那是最難查的一種 bug。
+
+    不回 user_id：那確實是呼叫者自己的，但沒有理由回給前端，POST 本來也沒回。
+    question_id / task_type / submitted_at / is_retry / previous_submission_id
+    先不加 —— 需要時再加，不要一次塞滿。
+    """
+    return {
+        "submission_id": row.get("id"),
+        "word_count":    row.get("word_count"),
+        "band_overall":  _writing_band(row.get("band_overall")),
+        "priority_fix":  row.get("priority_fix"),
+        "essay_text":    row.get("essay_text"),
+        "criteria": {
+            name: {
+                "band":     _writing_band(row.get("band_" + suffix)),
+                "feedback": row.get("feedback_" + suffix),
+                "fix":      row.get("fix_" + suffix),
+            }
+            for name, suffix in _WRITING_CRITERIA
+        },
+    }
+
+
 @app.post("/api/writing/submit")
 @limiter.limit("10/minute")
 async def writing_submit(
@@ -11685,18 +11741,10 @@ async def writing_submit(
     if not ins.data:
         raise HTTPException(status_code=500, detail="Submission could not be recorded")
 
-    return {
-        "submission_id": ins.data[0]["id"],
-        "word_count": word_count,
-        "band_overall": grading.get("band_overall"),
-        "priority_fix": grading.get("priority_fix"),
-        "criteria": {
-            "task_achievement": {"band": grading.get("band_ta"), "feedback": grading.get("feedback_ta"), "fix": grading.get("fix_ta")},
-            "coherence_cohesion": {"band": grading.get("band_cc"), "feedback": grading.get("feedback_cc"), "fix": grading.get("fix_cc")},
-            "lexical_resource": {"band": grading.get("band_lr"), "feedback": grading.get("feedback_lr"), "fix": grading.get("fix_lr")},
-            "grammatical_range": {"band": grading.get("band_gra"), "feedback": grading.get("feedback_gra"), "fix": grading.get("fix_gra")},
-        },
-    }
+    # 餵寫回來的那一列，不是餵 sub_data：兩支端點因此吃同一個形狀的輸入，
+    # 「同一份 submission 的兩種取得方式回同一份東西」才是由建構方式保證的,
+    # 不是靠兩段各自維護的組裝碰巧一致。
+    return build_writing_feedback_view(ins.data[0])
 
 
 @app.get("/api/writing/history")
@@ -11754,7 +11802,10 @@ async def writing_submission_detail(
     if not resp.data:
         raise HTTPException(status_code=404, detail="Submission not found")
 
-    return {"submission": resp.data[0]}
+    # 原本回 {"submission": <DB 原始列>}，那是扁平的 feedback_ta / fix_ta /
+    # band_ta，前端的 renderFeedback() 讀的卻是 data.criteria[key]。形狀對不上,
+    # 但零呼叫者所以從來沒人發現。改回與 POST 一致的頂層形狀。
+    return build_writing_feedback_view(resp.data[0])
 
 
 @app.post("/api/admin/writing/pregen")
