@@ -215,8 +215,15 @@ def test_public_pages_show_price_term_refund_and_real_contact():
         assert "不自動續訂" in source
         assert "退款申請" in source
         assert "14–21 個工作天" in source
+    # 2026-09-03: contact consolidated to one address. The assertion's intent is
+    # "public pages carry a real, reachable contact", not "this particular
+    # mailbox exists" — dropping galant19951209@gmail.com from every public page
+    # was a product decision (single-operator disclosure), so the assertion
+    # follows the requirement rather than the requirement following the test.
+    # The address checked here is the one users are actually told to write to.
+    # galant19951209@gmail.com still appears in the client-side ADMIN_EMAILS
+    # gates (index.html, admin.html); those are not contact surfaces.
     for source in (index, upgrade, privacy):
-        assert "galant19951209@gmail.com" in source
         assert "zeta2878@gmail.com" in source
     assert "PUBLIC_REVIEW_MODE" in index
     assert "publicReviewMode: true" in config

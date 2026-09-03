@@ -2773,34 +2773,171 @@
         }
         /* ── /Pro upsell modal ─────────────────────────────────── */
 
-        .public-product {
+        /* Public landing: hero → pricing → plans. Replaces the terms card that
+           used to sit above the Blabby lockup. Same position in the document
+           (outside #auth-section and #main-section), different job: persuade
+           first, disclose in the footer and /terms.html. */
+        .public-landing__section {
             width: min(calc(100% - 32px), 680px);
-            margin: 24px auto 8px;
-            padding: 28px;
+            margin: 0 auto;
             position: relative;
             z-index: 2;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            box-shadow: 0 14px 34px rgba(44, 36, 22, 0.08);
         }
-        .public-product__eyebrow { color: var(--green); font: 600 12px/1.4 var(--sans); letter-spacing: .12em; text-transform: uppercase; }
-        .public-product h2 { margin: 5px 0 8px; font: 600 30px/1.2 var(--serif-tc); }
-        .public-product__lead { color: var(--ink-soft); margin: 0 0 18px; }
-        .public-product__price { color: var(--wine); font: 600 28px/1.2 var(--serif-tc); margin: 0; }
-        .public-product__term { font-weight: 600; margin: 5px 0 18px; }
-        .public-product__facts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
-        .public-product__fact { border-top: 1px solid var(--border); padding-top: 12px; }
-        .public-product__fact h3 { font: 600 16px/1.4 var(--serif-tc); margin: 0 0 5px; }
-        .public-product__fact p, .public-product__fact li { font-size: 13px; color: var(--ink-soft); }
-        .public-product__fact ul { margin: 0; padding-left: 18px; }
-        .public-product__actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-        .public-product__buy, .public-product__login {
-            min-height: 44px; padding: 10px 16px; display: inline-flex; align-items: center; justify-content: center;
-            font: 600 14px/1.3 var(--sans); text-decoration: none;
+        .public-hero {
+            /* No min-height. Pinning the hero to the viewport made the demo's
+               peek exact but turned every pixel the content saved by moving up
+               into a hole in the middle — the container height was an input,
+               so the slack had nowhere else to go. Height now comes from the
+               content, and padding-bottom sets the distance to the demo, so
+               the peek is a result rather than a number to hit. */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            /* flex-start, not center: min-height is fixed at 100vh - 120px to
+               hold the demo's peek, so centring inside it parks the mark near
+               the geometric middle and leaves ~380px of undirected space above
+               it on a tall window. The clamp puts the optical weight in the top
+               third and shrinks with the viewport, so a short window keeps the
+               peek instead of pushing the card off-screen. */
+            justify-content: flex-start;
+            text-align: center;
+            padding: clamp(80px, 9vh, 140px) 0 240px;
         }
-        .public-product__buy { color: var(--surface); background: var(--green); border: 1px solid var(--green); }
-        .public-product__login { color: var(--green); background: transparent; border: 1px solid var(--green); }
+        .public-hero__mark { display: block; margin: 0 auto 14px; opacity: .9; }
+        .public-hero__wordmark {
+            margin: 0;
+            font: 500 46px/1.1 var(--serif);
+            color: var(--green);
+            letter-spacing: .01em;
+        }
+        .public-hero__rule {
+            display: flex; align-items: center; justify-content: center;
+            gap: 10px; width: 190px; margin: 14px auto 0;
+        }
+        .public-hero__rule span:first-child,
+        .public-hero__rule span:last-child { flex: 1; height: 1px; background: var(--border); }
+        .public-hero__diamond { color: var(--gold); font-size: 9px; }
+        .public-hero__line {
+            margin: 46px 0 0;
+            max-width: 15em;
+            font: 500 30px/1.55 var(--serif-tc);
+            color: var(--ink);
+            letter-spacing: .01em;
+        }
+        .public-hero__enter {
+            display: inline-block;
+            margin-top: 52px;
+            padding: 14px 34px;
+            border: 1px solid var(--green);
+            background: var(--green);
+            color: var(--surface);
+            font: 600 15px/1 var(--sans);
+            text-decoration: none;
+            letter-spacing: .02em;
+        }
+        .public-hero__enter:hover { background: var(--green-dark); border-color: var(--green-dark); }
+        .public-hero .anonymous-trial-note { margin-top: 14px; }
+        .public-pricing {
+            padding: 64px 0 56px;
+            text-align: center;
+            border-top: 1px solid var(--border);
+        }
+        .public-pricing__price { margin: 0; font: 600 34px/1.2 var(--serif-tc); color: var(--wine); }
+        .public-pricing__buy {
+            display: inline-block;
+            margin-top: 22px;
+            padding: 13px 30px;
+            border: 1px solid var(--green);
+            background: var(--green);
+            color: var(--surface);
+            font: 600 15px/1 var(--sans);
+            text-decoration: none;
+        }
+        .public-pricing__buy:hover { background: var(--green-dark); border-color: var(--green-dark); }
+        .public-pricing__stance { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
+        .public-pricing__stance a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+        .public-pricing__stance a:hover { color: var(--green); }
+        .public-plans {
+            padding: 52px 0 8px;
+            border-top: 1px solid var(--border);
+        }
+        .public-plans h2 { margin: 0 0 16px; font: 600 21px/1.4 var(--serif-tc); color: var(--ink); }
+        .public-plans ul { margin: 0; padding-left: 20px; }
+        .public-plans li { margin-bottom: 10px; font-size: 14px; line-height: 1.8; color: var(--ink-soft); }
+        /* Hero demo. Every class below the .hero-demo wrapper is the real
+           feedback UI's own: .question-card, .feedback-card, .feedback-item,
+           .feedback-item-primary, .feedback-label, .transcript-text,
+           .coach-text, .expression-en. Nothing here restyles them — a visitor
+           must not be shown a nicer version of what they are buying. Omissions
+           are allowed (.expression-zh, .meta, the recorder), additions are not.
+           The one exception is display: the real card is hidden until a
+           response arrives (.feedback-card { display: none }), so the demo
+           re-enables it and nothing else. */
+        .hero-demo { padding: 0 0 4px; }
+        .hero-demo__stage { display: flex; flex-direction: column; gap: 14px; }
+        .hero-demo .feedback-card { display: flex; }
+        /* The card's own frame fades with the first beat. Leaving it at
+           opacity 1 while its contents are hidden reserves the right layout
+           space but paints an empty bordered box — on a tall window the whole
+           thing sits above the fold and that box is the first thing a visitor
+           sees. The real app has no empty feedback card either: it appears
+           when the response does. */
+        .hero-demo__panel { opacity: 0; }
+        .hero-demo__panel.is-in { opacity: 1; transition: opacity .6s ease; }
+        .hero-demo__beat { opacity: 0; }
+        .hero-demo__beat.is-in { opacity: 1; transition: opacity .6s ease; }
+        /* Serif hairline, not a block: the caret is a pen resting on the page.
+           1.2s so it reads as a pause, not a terminal. Removed once the line
+           finishes — a caret left blinking says "still waiting for input". */
+        .hero-demo__caret {
+            display: inline-block;
+            width: 1px;
+            height: 1em;
+            margin-left: 2px;
+            vertical-align: -0.12em;
+            background: currentColor;
+            animation: heroDemoCaret 1.2s step-end infinite;
+        }
+        @keyframes heroDemoCaret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+        /* Was .public-pricing__mech: the sentence is this demo's caption now,
+           so it sits under the demo instead of opening the pricing block. */
+        .hero-demo__caption {
+            margin: 24px 0 0;
+            text-align: center;
+            font: 500 21px/1.9 var(--serif-tc);
+            color: var(--ink-soft);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .hero-demo__beat,
+            .hero-demo__panel { opacity: 1; transition: none; }
+            .hero-demo__caret { display: none; }
+        }
+        /* One lockup, not two: #main-section's own .header carries the same mark
+           roughly one screen below the hero. Hiding it for the logged-out review
+           view keeps the hero the first and only lockup, and leaves the
+           #main-section markup untouched for signed-in users. */
+        body.anonymous-review .header { display: none !important; }
         .anonymous-trial-note { margin-top: 10px; font-size: 13px; color: var(--muted); }
+
+        /* Public disclosure footer. Lives OUTSIDE #main-section on purpose —
+           that element is display:none until login, so anything placed inside
+           it is invisible to logged-out visitors and to payment-processor
+           review. padding-bottom clears the fixed 60px #bottom-nav. */
+        .public-footer {
+            width: min(calc(100% - 32px), 680px);
+            margin: 32px auto 0;
+            padding: 18px 0 96px;
+            border-top: 1px solid var(--border);
+            position: relative;
+            z-index: 2;
+            font: 400 12px/1.75 var(--sans);
+            color: var(--muted);
+            text-align: center;
+        }
+        .public-footer p { margin: 0 0 4px; }
+        .public-footer a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+        .public-footer a:hover { color: var(--green); }
+        .public-footer__sep { margin: 0 8px; opacity: .5; }
         .anonymous-conversion-card {
             margin: 18px auto 4px; max-width: 520px; padding: 16px;
             border: 1px solid var(--gold); background: rgba(201,168,76,.08); text-align: left;
@@ -2854,10 +2991,23 @@
         .session-closure-evidence { color: var(--green) !important; }
         .active-vocab-observed { margin: 0 0 10px; padding: 11px 13px; border-left: 2px solid var(--green); background: rgba(26,53,80,.06); color: var(--green); font: 600 14px/1.55 var(--serif-tc); }
         @media (max-width: 560px) {
-            .public-product { margin-top: 16px; padding: 22px 18px; }
-            .public-product h2 { font-size: 25px; }
-            .public-product__facts { grid-template-columns: 1fr; }
-            .public-product__actions a { width: 100%; }
+            /* 210 not 240: the question wraps to two lines at this width, so
+               the card is ~31px taller and the whole line has to clear the
+               fold with the card's bottom edge still cut off. */
+            .public-hero { padding: clamp(80px, 9vh, 140px) 0 205px; }
+            .public-hero__wordmark { font-size: 38px; }
+            /* Scoped !important is deliberate: an existing rule
+               `@media (max-width:390px){ .wordmark, h1 { font-size:36px !important } }`
+               also matches this <h1>, and without matching its priority the line
+               grows from 24px to 36px as the viewport gets NARROWER. Raising the
+               specificity here beats it in both directions without editing a rule
+               the rest of the app depends on. */
+            .public-hero .public-hero__line { margin-top: 36px; font-size: 24px !important; max-width: 13em; }
+            .public-hero__enter { margin-top: 40px; width: 100%; }
+            .public-pricing { padding: 56px 0 44px; }
+            .hero-demo__caption { font-size: 19px; }
+            .public-pricing__price { font-size: 30px; }
+            .public-pricing__buy { width: 100%; }
             .anonymous-conversion-actions > * { width: 100%; text-align: center; }
             .prescription-card { padding: 18px; }
             .retention-actions > * { width: 100%; }
@@ -2973,45 +3123,82 @@
     <span class="bg-diamond" style="bottom:24%;right:5%">◆</span>
     <span class="bg-diamond" style="bottom:8%;left:11%">◆</span>
     <span class="bg-diamond" style="bottom:38%;left:48%">◆</span>
-    <section id="public-product-section" class="public-product" aria-labelledby="public-product-title">
-        <p class="public-product__eyebrow">AI IELTS 口說練習服務</p>
-        <h2 id="public-product-title">Blabby Pro</h2>
-        <p class="public-product__lead">錄音回答 IELTS 題目，由 AI 提供口說批改、弱點訓練與現有會員功能的 Pro 使用權。</p>
-        <p class="public-product__price">NT$199 / 30 天</p>
-        <p class="public-product__term">單次購買 30 天使用權，不自動續訂。</p>
-        <div class="public-product__facts">
-            <div class="public-product__fact">
-                <h3>Free 與 Pro</h3>
-                <ul>
-                    <li>Free：Speaking 一般批改每月 20 次、Drill 每週 20 次、Part 2 每月 10 次；Reading 每日 1 篇、Writing 每日 3 篇</li>
-                    <li>Pro：上述練習不限次數，開放 Writing Task 1，並提供跨場次弱點修正記憶</li>
-                </ul>
-            </div>
-            <div class="public-product__fact">
-                <h3>收費標準</h3>
-                <ul>
-                    <li>付款成功並啟用 Pro 起算 30 天</li>
-                    <li>到期後不自動續訂；需要時再主動購買</li>
-                    <li>信用卡付款，不另收信用卡手續費</li>
-                </ul>
-            </div>
-            <div class="public-product__fact" id="refund-policy">
-                <h3>退款申請</h3>
-                <ul>
-                    <li>如需退款，請於付款後 7 日內提出申請；法令另有保障時從其規定</li>
-                    <li>核准後終止該筆 Pro 使用權，原則上退回原付款方式</li>
-                    <li>銀行退刷入帳約需 14–21 個工作天</li>
-                    <li>付款異常、重複扣款或未成功啟用，請寄信人工處理</li>
-                </ul>
-                <p>客服／退款聯絡：<a href="mailto:galant19951209@gmail.com">galant19951209@gmail.com</a>、<a href="mailto:zeta2878@gmail.com">zeta2878@gmail.com</a></p>
-            </div>
+    <!-- Public landing. Order is deliberate: the mark and the line earn the
+         scroll, the price answers it, the plan table justifies it. Charging
+         terms, refund terms and the contact address moved to the public footer
+         and /terms.html — a visitor should not meet the refund policy before
+         the brand. -->
+    <section id="public-hero" class="public-landing__section public-hero" aria-labelledby="public-hero-line">
+        <svg class="public-hero__mark" width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="32" cy="32" r="30" fill="none" stroke="#C9A84C" stroke-width="1.5"/>
+            <circle cx="32" cy="32" r="26" fill="none" stroke="#C9A84C" stroke-width="0.5"/>
+            <path d="M18 38 L18 28 L24 33 L32 22 L40 33 L46 28 L46 38 Z"
+                  fill="none" stroke="#C9A84C" stroke-width="1.5"
+                  stroke-linejoin="round" stroke-linecap="round"/>
+            <line x1="18" y1="38" x2="46" y2="38" stroke="#C9A84C" stroke-width="1.5"/>
+            <circle cx="32" cy="21" r="1.5" fill="#C9A84C"/>
+            <circle cx="18" cy="27" r="1.5" fill="#C9A84C"/>
+            <circle cx="46" cy="27" r="1.5" fill="#C9A84C"/>
+            <text x="32" y="50"
+                  font-family="Playfair Display, Georgia, serif"
+                  font-size="7"
+                  font-style="italic"
+                  fill="#C9A84C"
+                  text-anchor="middle"
+                  letter-spacing="0.15em">BLABBY</text>
+        </svg>
+        <p class="public-hero__wordmark">Blabby</p>
+        <div class="public-hero__rule" aria-hidden="true">
+            <span></span><span class="public-hero__diamond">◆</span><span></span>
         </div>
-        <div class="public-product__actions">
-            <a class="public-product__buy" href="/upgrade.html">購買 Blabby Pro｜NT$199 / 30 天</a>
-            <a class="public-product__login" id="public-login-link" href="/?login=1&amp;source=anonymous_trial">登入／建立帳號</a>
-        </div>
+        <h1 class="public-hero__line" id="public-hero-line">走進去會緊張，走出來會更強。</h1>
+        <a class="public-hero__enter" id="public-login-link" href="/?login=1&amp;source=anonymous_trial">登入／建立帳號</a>
         <p class="anonymous-trial-note">公開體驗模式可免登入試用 Speaking Part 1；成功批改最多 10 次。</p>
     </section>
+
+    <!-- Hero demo. The top ~120px sits below the fold on purpose: half a
+         conversation card is a better reason to scroll than any arrow. -->
+    <section id="hero-demo" class="public-landing__section hero-demo" aria-label="Blabby 批改流程示範">
+        <div class="hero-demo__stage">
+            <div class="question-card">
+                <div class="label">考官問你</div>
+                <div class="question-text">Do you often listen to music?</div>
+            </div>
+            <div class="feedback-card hero-demo__panel">
+                <div class="hero-demo__beat feedback-item">
+                    <div class="feedback-label">你剛剛說：</div>
+                    <div class="transcript-text"><span class="hero-demo__typed">I very like music. I listen to it every day.</span><span class="hero-demo__caret" aria-hidden="true"></span></div>
+                </div>
+                <div class="hero-demo__beat feedback-item feedback-item-primary">
+                    <div class="feedback-label">這一題真正的問題</div>
+                    <div class="coach-text">very like 不是英文的說法</div>
+                </div>
+                <div class="hero-demo__beat feedback-item">
+                    <div class="feedback-label">你應該偷走的說法</div>
+                    <div class="expression-en">I like music a lot.</div>
+                </div>
+                <div class="hero-demo__beat feedback-item">
+                    <div class="feedback-label">趁此刻，再說一遍</div>
+                </div>
+            </div>
+        </div>
+        <p class="hero-demo__caption">說一遍。被指出一個問題。再說一遍。</p>
+    </section>
+
+    <section id="public-pricing" class="public-landing__section public-pricing" aria-label="購買 Blabby Pro">
+        <p class="public-pricing__price">NT$199 / 30 天</p>
+        <a class="public-pricing__buy" id="public-buy-link" href="/upgrade.html">購買 Blabby Pro</a>
+        <p class="public-pricing__stance">單次 30 天，不自動續訂。&nbsp;&nbsp;<a href="/terms.html">收費與退款</a></p>
+    </section>
+
+    <section id="public-plans" class="public-landing__section public-plans" aria-labelledby="public-plans-title">
+        <h2 id="public-plans-title">Free 與 Pro</h2>
+        <ul>
+            <li>Free：Speaking 一般批改每月 20 次、Drill 每週 20 次、Part 2 每月 10 次；Reading 每日 1 篇、Writing 每日 3 篇</li>
+            <li>Pro：上述練習不限次數，開放 Writing Task 1，並提供跨場次弱點修正記憶</li>
+        </ul>
+    </section>
+
     <div id="auth-section">
         <div class="auth-card">
             <svg class="logo-svg" width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -3033,7 +3220,6 @@
                       letter-spacing="0.15em">BLABBY</text>
             </svg>
             <h2>Blabby</h2>
-            <p>每天開口，讓單字從腦袋跑到嘴巴</p>
             <input id="auth-email" type="email" placeholder="你的 Email" autocomplete="email">
             <input id="auth-password" type="password" placeholder="密碼" autocomplete="current-password">
             <button id="auth-google-btn">
@@ -3450,6 +3636,21 @@
 
     </main>
 
+    <!-- Public disclosure footer. Outside #main-section by design: see the
+         .public-footer CSS note. Carries the four strings the public-pages
+         compliance test asserts (price, term, refund, bank window) so they
+         stay reachable without an account. -->
+    <footer class="public-footer">
+        <p>NT$199 / 30 天，單次購買，不自動續訂。</p>
+        <p>退款申請請於付款後 7 日內提出，銀行退刷入帳約需 14–21 個工作天。</p>
+        <p>
+            <a id="public-footer-terms" href="/terms.html">收費與退款</a>
+            <span class="public-footer__sep">｜</span>
+            <a href="mailto:zeta2878@gmail.com">zeta2878@gmail.com</a>
+        </p>
+        <p>Blabby 由 Galant（邱奕程）開發及營運。</p>
+    </footer>
+
     <script src="/anonymous-conversion.js"></script>
     <script src="/retention.js"></script>
     <script src="/progress-evidence.js"></script>
@@ -3722,6 +3923,128 @@
 
         if (publicLoginLink) publicLoginLink.addEventListener('click', () => {
             markAnonymousAuthSource('anonymous_login_cta_clicked', 'public_product');
+            try { window.analytics?.track('hero_cta_click'); } catch (_) {}
+        });
+        // The buy link had no instrumentation at all: we could see upgrade.html
+        // traffic but not which surface sent it, so the hero could never be
+        // evaluated against the surface it replaces.
+        const publicBuyLink = document.getElementById('public-buy-link');
+        if (publicBuyLink) publicBuyLink.addEventListener('click', () => {
+            try { window.analytics?.track('public_buy_click', { source: 'pricing_section' }); } catch (_) {}
+        });
+        // Hero demo playback. One typewriter, on the transcript only — that is
+        // the speech-to-text moment. Four typewriters would read as a terminal
+        // effect and the signal would be gone. Everything else fades.
+        const heroDemo = document.getElementById('hero-demo');
+        if (heroDemo) {
+            const demoBeats = Array.prototype.slice.call(heroDemo.querySelectorAll('.hero-demo__beat'));
+            const demoTyped = heroDemo.querySelector('.hero-demo__typed');
+            const demoCaret = heroDemo.querySelector('.hero-demo__caret');
+            const demoLine = demoTyped ? demoTyped.textContent : '';
+            const demoPanel = heroDemo.querySelector('.hero-demo__panel');
+            const demoReveal = () => {
+                if (demoPanel) demoPanel.classList.add('is-in');
+                demoBeats.forEach((b) => b.classList.add('is-in'));
+                if (demoCaret && demoCaret.parentNode) demoCaret.parentNode.removeChild(demoCaret);
+            };
+            const reduceMotion = window.matchMedia
+                && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            // Reduced motion gets the finished picture, not a faster one. Same
+            // fallback covers a browser without IntersectionObserver — beats
+            // start at opacity 0, so failing to reveal them would leave the
+            // section blank rather than un-animated.
+            if (reduceMotion || !('IntersectionObserver' in window)) {
+                demoReveal();
+            } else {
+                let demoPlayed = false;
+                const demoWait = (ms) => new Promise((r) => window.setTimeout(r, ms));
+                const demoChars = Array.from(demoLine);
+                const demoLastIndex = Math.max(demoChars.length - 1, 1);
+                const demoType = async () => {
+                    demoTyped.textContent = '';
+                    for (let i = 0; i < demoChars.length; i++) {
+                        const ch = demoChars[i];
+                        demoTyped.textContent += ch;
+                        // Fast at the head, slow at the tail: the line reads as
+                        // quicker overall but still lands like a pen finishing a
+                        // stroke. The other direction — slow then fast — reads as
+                        // a machine spinning up and the handwriting quality dies.
+                        let delay = 35 + 20 * (i / demoLastIndex);
+                        // Punctuation is breath, not speed. These two stay put
+                        // however fast the letters get.
+                        if (ch === ',') delay += 180;
+                        else if (ch === '.') delay += 320;
+                        await demoWait(delay);
+                    }
+                    if (demoCaret && demoCaret.parentNode) demoCaret.parentNode.removeChild(demoCaret);
+                };
+                const demoPlay = async () => {
+                    try { window.analytics?.track('hero_demo_view'); } catch (_) {}
+                    // The question is already on the page and is not a beat —
+                    // it has to be legible in the sliver above the fold, which
+                    // is the whole reason the demo sits where it does. Its old
+                    // 600ms fade stays as a plain lead-in: the examiner has
+                    // asked, and there is a moment before the answer starts. Trimmed
+                    // from 600 to 300 with the rest of the tempo pass.
+                    await demoWait(300);
+                    if (demoPanel) demoPanel.classList.add('is-in');
+                    demoBeats[0].classList.add('is-in');
+                    await demoType();
+                    await demoWait(400);
+                    demoBeats[1].classList.add('is-in');
+                    // 600ms fade, then 350ms of nothing. That gap is the
+                    // examiner's pen coming down between the diagnosis and the
+                    // correction; closing it makes the two read as one blob.
+                    // Trimmed from 500 but deliberately not to 300 — the pause
+                    // is the point, only the dead weight came off.
+                    await demoWait(950);
+                    demoBeats[2].classList.add('is-in');
+                    await demoWait(1000);
+                    demoBeats[3].classList.add('is-in');
+                    await demoWait(600);
+                    try { window.analytics?.track('hero_demo_complete'); } catch (_) {}
+                };
+                const demoObserver = new IntersectionObserver((entries) => {
+                    entries.forEach((entry) => {
+                        if (!entry.isIntersecting || demoPlayed) return;
+                        demoPlayed = true;
+                        demoObserver.disconnect();
+                        demoPlay();
+                    });
+                }, { rootMargin: '0px 0px -50% 0px', threshold: 0 });
+                demoObserver.observe(heroDemo);
+            }
+        }
+
+        // The hero's only job is to earn a scroll. Without scroll_to_pricing
+        // there is no way to tell whether it did — upgrade.html traffic alone
+        // cannot separate "hero worked" from "hero was skipped".
+        //
+        // rootMargin shrinks the root to the top half of the viewport, so this
+        // fires when the pricing section's top edge rises past the midline.
+        // A plain threshold does not work here: the hero is 88vh, so on a tall
+        // window the section is ALREADY intersecting at scroll 0 — the observer
+        // would fire on load, the metric would read 100% forever, and it would
+        // answer the opposite of the question it exists for. Since it is
+        // already intersecting, no later threshold crossing occurs either, so
+        // guarding the callback on scrollY silently kills the event instead.
+        // Moving the boundary is what makes the scroll itself the crossing.
+        const publicPricingSection = document.getElementById('public-pricing');
+        if (publicPricingSection && 'IntersectionObserver' in window) {
+            let pricingSeen = false;
+            const pricingObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting || pricingSeen) return;
+                    pricingSeen = true;
+                    pricingObserver.disconnect();
+                    try { window.analytics?.track('scroll_to_pricing'); } catch (_) {}
+                });
+            }, { rootMargin: '0px 0px -50% 0px', threshold: 0 });
+            pricingObserver.observe(publicPricingSection);
+        }
+        const publicFooterTerms = document.getElementById('public-footer-terms');
+        if (publicFooterTerms) publicFooterTerms.addEventListener('click', () => {
+            try { window.analytics?.track('public_footer_terms_click'); } catch (_) {}
         });
         if (anonymousSignupCta) anonymousSignupCta.addEventListener('click', () => {
             markAnonymousAuthSource('anonymous_signup_cta_clicked', anonymousTrialState.card);
