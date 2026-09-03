@@ -414,6 +414,34 @@
         #word-count-warning { color: #c0392b; }
 
         /* ── The Examiner's Minute (考官批註) ───────────────────────────────── */
+        /* 還原時顯示使用者自己的作文。形狀沿用 #priority-fix-callout ——
+           本頁既有的「引用一段文字」處理，與 Speaking 的 .transcript-text
+           同一個語彙（金色左邊線 + 紙色底），沒有新設計。
+
+           限高 + 內部捲軸而不是收合或漸層淡出：Task 2 常上千字，整篇攤開會
+           把批改推到三個螢幕以下，而收合／展開要多一個控制項與一個狀態，
+           漸層要多一個 pseudo-element 與「展開全文」的邀請 —— 兩者都是這頁
+           目前沒有的 UI 語彙。捲軸是既有的、零新增互動的答案。 */
+        #essay-recall {
+            border-left: 3px solid var(--gold);
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            background: var(--paper);
+        }
+        #essay-recall .kicker {
+            color: var(--gold);
+            margin-bottom: 10px;
+        }
+        #essay-recall-text {
+            max-height: 240px;
+            overflow-y: auto;
+            font-family: var(--serif);
+            font-size: 16px;
+            line-height: 1.7;
+            color: var(--ink);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
         #feedback-panel {
             padding: 26px 30px;
             background: var(--surface);
@@ -673,6 +701,13 @@
                 </div>
             </div>
 
+            <!-- Restored essay. Only rendered when arriving via ?submission= —
+                 straight after submitting, the writer has just written it. -->
+            <div id="essay-recall" style="display:none">
+                <p class="kicker">What Thou Wrote</p>
+                <div id="essay-recall-text"></div>
+            </div>
+
             <!-- Feedback panel -->
             <div id="feedback-panel" style="display:none">
                 <p class="kicker feedback-kicker">The Examiner's Minute</p>
@@ -770,6 +805,8 @@
         async function initPage() {
             await checkProStatus();
             renderTabState();
+            // 在 renderTabState 之後：還原要能蓋掉它剛擺好的題目／作答區。
+            await restoreSubmissionFromUrl();
         }
 
         // Copied verbatim from success.html's isActiveSubscription(). hub.html
@@ -839,6 +876,7 @@
         }
 
         async function getQuestion() {
+            leaveRestoredView();
             resetWritingPanel();
             showElement('question-loading');
             hideElement('question-display');
@@ -1058,6 +1096,9 @@
                 renderFeedback(data);
                 hideElement('writing-panel');
                 showElement('feedback-panel');
+                // replaceState 不是 pushState：交卷不是導覽動作，在歷史裡多一格
+                // 會讓「上一頁」回到一個已經交出去的作答畫面。
+                history.replaceState(null, '', `?submission=${data.submission_id}`);
 
                 try { window.analytics?.track('writing_submitted', { task_type: currentTaskType, word_count: data.word_count, band_overall: data.band_overall }); } catch (e) {}
             } catch (e) {
@@ -1106,7 +1147,59 @@
             }
         }
 
+        // renderFeedback() 的職責是畫批改，不該擴張。原文是獨立區塊、獨立函式。
+        function renderEssayRecall(text) {
+            const body = document.getElementById('essay-recall-text');
+            body.textContent = text || '';
+            if (text) showElement('essay-recall');
+        }
+
+        function clearSubmissionParam() {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('submission');
+            history.replaceState(null, '', url.pathname + url.search + url.hash);
+        }
+
+        // URL 現在是狀態，所以每一條離開還原畫面的路都要把它清掉 —— 否則
+        // 使用者按了「Write Again」再重整，會跳回上一篇的批改。
+        function leaveRestoredView() {
+            hideElement('essay-recall');
+            clearSubmissionParam();
+        }
+
+        async function restoreSubmissionFromUrl() {
+            const submissionId = new URLSearchParams(window.location.search).get('submission');
+            if (!submissionId) return;
+
+            let data;
+            try {
+                const res = await fetch(
+                    `${API_BASE}/api/writing/submission/${encodeURIComponent(submissionId)}`,
+                    { headers: { Authorization: `Bearer ${currentSession.access_token}` } }
+                );
+                // 連結過期、換帳號、手動改網址、submission 屬於別人（後端回 404）
+                // —— 沒有一種是使用者的錯，所以靜默回到正常練習流程。看到紅色
+                // 錯誤訊息只會讓人以為自己弄壞了什麼。
+                if (!res.ok) { clearSubmissionParam(); return; }
+                data = await res.json();
+            } catch (e) {
+                clearSubmissionParam();
+                return;
+            }
+
+            // Commit 1 之後兩支端點回完全相同的形狀，所以這裡直接餵，沒有轉換層。
+            renderEssayRecall(data.essay_text);
+            renderFeedback(data);
+            hideElement('question-panel');
+            hideElement('writing-panel');
+            hideElement('task1-lock');
+            hideElement('error-display');
+            showElement('feedback-panel');
+            try { window.analytics?.track('writing_submission_restored'); } catch (e) {}
+        }
+
         function writeAgain() {
+            leaveRestoredView();
             document.getElementById('essay-input').value = '';
             document.getElementById('word-count').textContent = '0';
             document.getElementById('btn-submit').disabled = true;
