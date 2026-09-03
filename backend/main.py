@@ -241,6 +241,14 @@ async def startup_event():
         id="expire_stale_pending_subscriptions",
         replace_existing=True,
     )
+    # minute=30：與上面那支錯開半小時。兩支都改 subscriptions，同一分鐘啟動
+    # 只是徒增互相等待的機會，而它們之間沒有任何順序需求。
+    _scheduler.add_job(
+        lapse_expired_active_subscriptions,
+        CronTrigger(hour="*/6", minute=30, timezone="UTC"),
+        id="lapse_expired_active_subscriptions",
+        replace_existing=True,
+    )
     # 停用時整組 job 不註冊，而不是註冊後在 job 內 early return —— 後者會讓
     # scheduler 每 6 小時照常喚醒並記錄一次「執行成功」，log 就開始說謊。
     # startup prime 一併關掉：它同樣呼叫 Anthropic，留著等於每次 Render 重啟
@@ -3465,6 +3473,77 @@ def expire_stale_pending_subscriptions() -> None:
     # n=0 也記錄：這是唯一能確認 job 真的有在跑的訊號。
     n = len(getattr(resp, "data", None) or [])
     logger.info(f"[BILLING] expired {n} stale pending subscriptions")
+
+
+def lapse_expired_active_subscriptions() -> None:
+    """把已到期的 active 訂閱標記為 lapsed。每 6 小時由 scheduler 呼叫。
+
+    對稱於 expire_stale_pending_subscriptions：那支只碰 pending、永遠不碰
+    active；這支只碰 active、永遠不碰 pending。兩支都把狀態寫死在 WHERE 裡，
+    所以要越界必須兩個條件同時失效，不是一個。
+
+    lapsed 不是 expired。expired 的意思是「訂單沒付成功而作廢」——那些列的
+    expires_at 是 NULL，因為它們從來沒被啟用過。lapsed 是「付了、用完了」。
+    兩者的生命週期不同，而且 lapsed 是日後召回名單的唯一來源：混進 expired
+    就再也撈不出來，那是把一份可用的名單丟進垃圾桶。
+
+    對權限沒有影響。is_user_pro() 本來就是 status='active' AND
+    expires_at > now() 雙條件，一列到期的訂閱在被轉走之前就已經不給權限了。
+    這支 job 補的是狀態機的完整性與對帳可讀性，不是安全漏洞。
+
+    expires_at IS NULL 的列不會被選中：Postgres 的 NULL <= now() 是 NULL
+    而不是 true，PostgREST 的 lte 直接映射到那個語義。現有 10 列 expired
+    正是這種，但它們的 status 也不是 active —— 兩層保護，測試把兩層都釘住。
+
+    併發前提與另一支相同：Render Starter 是 1 worker x 1 instance，同一時間
+    只有一個 scheduler。UPDATE 本身冪等（第二次選不到列，因為狀態已非
+    active），但回報的筆數會在多 instance 下被瓜分，屆時要重新檢視這裡。
+    """
+    if supabase_admin is None:
+        logger.warning("[BILLING] lapse_expired_active: database not configured")
+        return
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    try:
+        # 先數一次 active 的總量。單看「轉了幾列」分不出「沒有到期的」與
+        # 「job 根本沒跑」——兩者都是 0。
+        scanned = (
+            supabase_admin.table("subscriptions")
+            .select("id")
+            .eq("status", "active")
+            .execute()
+        )
+        scanned_n = len(getattr(scanned, "data", None) or [])
+    except Exception:
+        logger.exception("[BILLING] lapse_expired_active scan failed")
+        return
+
+    try:
+        resp = (
+            supabase_admin.table("subscriptions")
+            .update({"status": "lapsed", "updated_at": now_iso})
+            .eq("status", "active")
+            .lte("expires_at", now_iso)
+            .execute()
+        )
+    except Exception:
+        # 與另一支同理：這支沒有使用者會抱怨的症狀，只會在對帳時發現，
+        # 所以失敗必須留下完整 traceback 而不是靜靜地不做事。
+        logger.exception("[BILLING] lapse_expired_active failed")
+        return
+
+    moved = getattr(resp, "data", None) or []
+    for row in moved:
+        logger.info(
+            "[BILLING] lapsed subscription id=%s user_id=%s expires_at=%s",
+            row.get("id"), row.get("user_id"), row.get("expires_at"),
+        )
+    # n=0 也記錄：這是唯一能確認 job 真的有在跑的訊號。
+    logger.info(
+        "[BILLING] lapse sweep: scanned %d active, lapsed %d", scanned_n, len(moved)
+    )
 
 
 def _ecpay_ack() -> PlainTextResponse:
