@@ -28,6 +28,13 @@ jobs:
           # Pinned deliberately — see the "Python version" note in README.md.
           python-version: '3.11'
 
+      # Two pytest files shell out to `node` to run the .mjs harnesses. Without
+      # this the suite depends on the runner image happening to ship Node, and
+      # the failure surfaces as FileNotFoundError instead of a missing runtime.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install dependencies
         run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 
