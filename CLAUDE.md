@@ -60,12 +60,12 @@ IELTS 練習平台。五個練習模組 —— Speaking、Reading、Writing、Vo
 
 四支獨立 `.js`：
 
-| 檔案 | 內容 |
-|---|---|
-| `config.js` | `supabaseUrl` / `supabaseAnonKey` / `publicReviewMode`。已進版控，anon key 為公開金鑰 |
-| `anonymous-conversion.js` | 本輪未逐支確認內容 |
-| `progress-evidence.js` | 本輪未逐支確認內容 |
-| `retention.js` | 本輪未逐支確認內容 |
+| 檔案 | 大小 | 內容 |
+|---|---|---|
+| `config.js` | 349 B | `supabaseUrl` / `supabaseAnonKey` / `publicReviewMode`。已進版控，anon key 為公開金鑰 |
+| `anonymous-conversion.js` | 2376 B | **待查** —— 內容未逐支讀，需要時自行 grep |
+| `progress-evidence.js` | 2259 B | **待查** —— 內容未逐支讀，需要時自行 grep |
+| `retention.js` | 15183 B | **待查** —— 內容未逐支讀，需要時自行 grep |
 
 後三支的檔名與 `backend/tests/` 裡三支孤兒 `.mjs` harness 同名。
 
@@ -81,8 +81,10 @@ provider client 在 **import 時**建構，不是 lazily —— 缺 key 會讓�
 
 ### 部署
 
-`backend/main.py` 的 scheduler 註解提到「每次 Render 重啟」。
-部署平台本輪未獨立驗證，列為**待查**。
+後端 **Render**：auto-deploy on commit to `main`，Starter plan，無 idle sleep。
+
+前端 **Vercel**：dashboard-only 設定，**無 `vercel.json`**，root 為 `frontend/app`。
+檔案服務在根 URL —— `admin.html` → `/admin.html`。
 
 ### 分析
 
@@ -382,87 +384,74 @@ ledger 裡的 `create_npc_relations` / `harden_npc_relations` 屬其他專案，
 
 ---
 
-## 6. 紅線
+## 6. 紅線（不可跨）
 
-### 禁止新增
+- 不新增 streak / XP / level / gamification / 勵志型推播
+- 不重構 `backend/main.py`
+- 不為了抽象而抽象。`frontend/app/*.js` 是既有的共用模組位置，
+  新的共用邏輯可以放那裡；但既有的重複實作不主動合併
+  （舊版寫「單檔架構、不要拆 module」是錯的，且已造成過實際損害 ——
+  見 §4 Pro 判定節）
+- 不做視覺造假 —— 首頁 demo 的每個元素都必須存在於真實介面。
+  省略允許，新增不允許
+- 不動穩定的 Part 1，除非有具體 regression
+- 不做大型 UI redesign
+- 不做多期 pie renderer（11 題已軟退池，可逆、有文件：
+  `docs/PIE_RETIRED_MULTIPERIOD_20260714.md`）
+- 不補 Admin 批改佇列 —— 後端交卷即批改完，無 pending 狀態可掛，
+  需先改 schema
+- 面向使用者文字一律古老英式風格 —— 每一句都要值得被印在羊皮紙上
+- 法務文字例外：條款內文要冷、清楚、可執行。
+  「銀行退刷入帳約需 14–21 個工作天」不要改成文言。
+  標題典雅、內文冷硬，兩種語域不混在同一段落
+- Claude Code **永不 `git push`** —— Galant 自己執行
+- 不會咬的測試等於沒有測試 —— 新增斷言要驗證它真的會紅
 
-- streak
-- XP
-- level
-- gamification
-- 勵志型推播文案
-
-本輪掃描確認未被違反：`streak` / `\bXP\b` / `level-up` / `gamif` 全部零命中。
-`achievement` 的兩處命中是 IELTS 官方評分項 Task Achievement，
+本輪掃描確認遊戲化紅線未被違反：`streak` / `\bXP\b` / `level-up` / `gamif`
+全部零命中。`achievement` 的兩處命中是 IELTS 官方評分項 Task Achievement，
 `badge` 的命中全是 UI 狀態標記（`pro-badge`、`upgrade-badge`…）。
 
-### 不為了抽象而抽象
+決策規則：所有實作至少必須改善 conversion / retention / perceived progress
+其中一項。三者都沒有就不要做。
 
-四支 `.js` 是**既有的**共用模組位置，新的共用邏輯可以放那裡 ——
-「沒有地方放」不再是理由。
-
-但**既有的重複實作不主動合併**。前端三份客戶端 Pro 判定留著，
-除非有一個具體的 bug 要修。順手統一等於在沒有測試的地方做無來由的改動。
-
-### Surgical changes only
-
-不做大型 refactor。不重寫架構。沒有被要求時不修改既有 copy。
-看到無關的死碼，提一下，不要刪。
-
-### 文案調性
-
-物理治療師：描述可觀察的行為、可量化的弱點、修正路徑。
+文案調性 —— 物理治療師：描述可觀察的行為、可量化的弱點、修正路徑。
 不要情緒性鼓勵、泛用稱讚、教練式說話。
-
-### 面向使用者的文字用古老英式
-
-例：`account.html` 的 `Thy full practice is observed and corrected.`
-
-**法務文字例外。** `terms.html` / `privacy.html` 這類頁面，
-標題可以典雅，內文必須冷硬準確。
-兩種語域不混在同一段落 —— 條款寫成古英文會變成不可執行的條款。
-
-**這份 CLAUDE.md 本身不適用古英式。** 它面向 agent，要準確不要典雅。
-
-### 決策規則
-
-所有實作至少必須改善 conversion / retention / perceived progress 其中一項。
-三者都沒有就不要做。
-
-### 未涵蓋
-
-09-03 handoff §11 的完整條目不在本輪勘查報告範圍內。
-以上只寫已驗證或本輪明確指定的部分，其餘**待補**。
+（**這份 CLAUDE.md 本身不適用古英式。** 它面向 agent，要準確不要典雅。）
 
 ---
 
 ## 7. 環境陷阱
 
-- **Supabase project 是共用的。** 33 張表裡 13 張不屬於 Blabby：
-  `gmail_accounts` / `email_messages` / `email_analyses` / `memories` /
-  `daily_reports` / `omg_*`（5 張）/ `npc_state` / `world_state` / `npc_relations`。
+**檔案系統病態緩慢。** `.git/index` 曾讀出 0 bytes（metadata 說 14746 bytes，
+`dd` 讀出 0，`git fsck` 卡住逾時）。修復是 `rm .git/index && git reset` ——
+index 是純快取，可從 HEAD + 工作區重建。但重建花了 20 秒，正常是毫秒級。
+2028 個 loose object，從未 `git gc`。pytest 也會卡在 import 階段的檔案 `read()`
+（CPU 幾乎不動）。repo 待搬出 `~/Desktop` 並跑一次 `git gc`。
+**非 iCloud dataless placeholder** —— 2026-09-03 已驗證未重現。
 
-  兩個後果：
-  1. **migration ledger 不只有 Blabby 在寫。** 看到 `create_npc_relations`
-     這類不認識的項目是正常的，不是 Blabby 出事
-  2. **環境隔離 guard（`EXPECTED_SUPABASE_PROJECT_REF`）保護的是 app→DB 方向，
-     擋不住別的 app 寫進同一個 DB**
+**git 指令一律加 `--no-pager`。** 本 repo 的 pager 會 hang。
 
-- **git 一律加 `--no-pager`。** 本 repo 的 pager 會 hang
-- **`git merge` 一律加 `--no-edit`。** 否則開 vim 卡死，
-  上一輪因此留下 `.MERGE_MSG.swp`（`*.swp` 已在 `.gitignore`）
-- **Claude Code browser pane 的 `document.hidden`** 行為與一般瀏覽器不同，
-  依賴它的邏輯在 pane 裡驗不準
-- **本機 `python3 -m http.server` 會被 CORS 擋**，前端打後端的請求在本機起不來
-- **adblock 會擋 PostHog**，前端埋點在本機測時可能整批不發
-- **檔案系統病態緩慢。** `.git/index` 曾讀出 0 bytes、索引重建 20 秒；
-  pytest 跑 20+ 分鐘卡在 import 階段的 `read()` 系統呼叫
-  （wall 7 分鐘 / CPU 1.7 秒）。同一個 import 冷時 >40 秒、暖後 0.3 秒。
-  任何「指令沒反應」先懷疑這個，再懷疑程式碼。
-  **待處置：repo 搬出 `~/Desktop` + `git gc`。Galant 本機執行，agent 不要碰**
+**`git merge` 一律加 `--no-edit`。** `--no-ff` 會開 vim，在 Claude Code 的環境
+會卡死，並留下 `.MERGE_MSG.swp` 要手動 `D` 掉。空的 merge message 會終止 merge；
+若不慎中止，用 `git merge --abort` 或 `git commit --no-edit` 收尾，變更不會遺失。
 
-已被推翻、不要再寫進來的：iCloud dataless placeholder ——
-2026-09-03 已驗證未重現。
+**分類器過載會讓 Bash 與 Supabase MCP 同時不可用。** 發生時改做不需要
+工具的部分，並明確註記哪幾項未完成，不要用推測填空。
+
+**Claude Code 的 browser pane 是 `document.hidden === true`。**
+`IntersectionObserver` 完全不回呼，`setTimeout` 被節流到約 1 秒/次。
+任何涉及 `IntersectionObserver` 或牆鐘時間的驗證都要人工在真實瀏覽器做。
+
+**本機 `http.server` 打 production backend 會被 CORS 擋** ——
+`ALLOWED_ORIGINS` 只有 Vercel 域名。登入相關的驗證必須在 preview
+或 production 上做。
+
+**adblock 會擋 PostHog 與 `/health`。** 驗 tracking 時要關掉。
+
+**Supabase project 是共用的。** 33 張表裡 13 張不屬於 Blabby。
+migration ledger 不只有 Blabby 在寫；看到 `create_npc_relations`
+這類項目是正常的。`EXPECTED_SUPABASE_PROJECT_REF` 保護的是 app→DB 方向，
+擋不住別的 app 寫進同一個 DB。
 
 ---
 
