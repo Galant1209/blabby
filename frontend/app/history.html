@@ -141,7 +141,14 @@ header.brand .subtitle {
 .btn-primary:active { transform: scale(0.97); opacity: 0.88; }
 
 /* History list */
-#history-list {
+.history-section {
+    margin-top: 28px;
+}
+.history-section__title {
+    font-family: var(--serif); font-size: 20px; font-weight: 500;
+    color: var(--green); margin-bottom: 12px;
+}
+#history-list, .history-list {
     display: flex; flex-direction: column; gap: 12px;
     position: relative;
 }
@@ -225,6 +232,16 @@ header.brand .subtitle {
     background: var(--green); color: var(--gold);
     font-family: var(--serif); font-size: 13px;
     letter-spacing: 0.04em;
+}
+.history-card--compact .history-card__head { cursor: default; }
+.history-card--compact .history-card__body { max-height: none; }
+.history-card--compact .history-card__question--link {
+    color: var(--ink); text-decoration: none;
+}
+.history-card--compact .history-card__question--link:hover {
+    color: var(--green);
+    text-decoration: underline;
+    text-decoration-color: var(--gold);
 }
 
 /* Pro lock overlay — HTML-only stub per spec, not wired yet */
@@ -328,17 +345,34 @@ header.brand .subtitle {
         <a href="/progress.html" class="btn-primary">View Progress</a>
     </div>
 
-    <div class="history-filter-tabs" role="tablist" aria-label="Filter by IELTS part">
-        <button class="history-filter-tab active" type="button" role="tab" data-filter="all" aria-selected="true">All</button>
-        <button class="history-filter-tab" type="button" role="tab" data-filter="part1" aria-selected="false">Part 1</button>
-        <button class="history-filter-tab" type="button" role="tab" data-filter="part2" aria-selected="false">Part 2</button>
-    </div>
+    <section class="history-section" aria-labelledby="speaking-history-title">
+        <h2 class="history-section__title" id="speaking-history-title">Speaking</h2>
+        <div class="history-filter-tabs" role="tablist" aria-label="Filter by IELTS part">
+            <button class="history-filter-tab active" type="button" role="tab" data-filter="all" aria-selected="true">All</button>
+            <button class="history-filter-tab" type="button" role="tab" data-filter="part1" aria-selected="false">Part 1</button>
+            <button class="history-filter-tab" type="button" role="tab" data-filter="part2" aria-selected="false">Part 2</button>
+        </div>
 
-    <div id="history-list">
-        <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
-        <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
-        <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
-    </div>
+        <div id="history-list">
+            <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
+        </div>
+    </section>
+
+    <section class="history-section" aria-labelledby="writing-history-title">
+        <h2 class="history-section__title" id="writing-history-title">Writing</h2>
+        <div id="writing-history-list" class="history-list" aria-live="polite">
+            <div class="loading-state">Loading writing history…</div>
+        </div>
+    </section>
+
+    <section class="history-section" aria-labelledby="reading-history-title">
+        <h2 class="history-section__title" id="reading-history-title">Reading</h2>
+        <div id="reading-history-list" class="history-list" aria-live="polite">
+            <div class="loading-state">Loading reading history…</div>
+        </div>
+    </section>
 </main>
 
 <nav id="bottom-nav" aria-label="Main navigation">
@@ -425,6 +459,170 @@ header.brand .subtitle {
             const { data: { session } } = await sb.auth.getSession();
             return (session && session.access_token) || null;
         } catch (_) { return null; }
+    }
+
+    function redirectToLogin() {
+        window.location.href = '/?login=1';
+    }
+
+    class HistoryRequestError extends Error {
+        constructor(status, message) {
+            super(message);
+            this.name = 'HistoryRequestError';
+            this.status = status;
+        }
+    }
+
+    function setHistoryState(containerId, className, message) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const state = document.createElement('div');
+        state.className = className;
+        state.textContent = message;
+        container.replaceChildren(state);
+    }
+
+    function hasHistoryValue(value) {
+        return value !== null && value !== undefined && value !== '';
+    }
+
+    function appendHistoryField(parent, label, value, className = 'history-card__transcript') {
+        if (!hasHistoryValue(value)) return;
+        const field = document.createElement('div');
+        field.className = 'history-card__field';
+        const labelEl = document.createElement('div');
+        labelEl.className = 'history-card__label';
+        labelEl.textContent = label;
+        const valueEl = document.createElement('div');
+        valueEl.className = className;
+        valueEl.textContent = String(value);
+        field.append(labelEl, valueEl);
+        parent.append(field);
+    }
+
+    function historyErrorMessage(section, error) {
+        if (error && error.status === 401) {
+            redirectToLogin();
+            return '登入已過期，請重新登入。';
+        }
+        if (error && error.status === 403) return `${section} history is not available for this account.`;
+        if (error && error.status === 404) return `${section} history is temporarily unavailable.`;
+        if (error && error.status >= 500) return `Failed to load ${section.toLowerCase()} history.`;
+        if (error && error.name === 'TypeError') return 'Network error. Please try again.';
+        return `Failed to load ${section.toLowerCase()} history.`;
+    }
+
+    function renderHistoryError(containerId, section, error) {
+        setHistoryState(containerId, 'error-state', historyErrorMessage(section, error));
+    }
+
+    function renderWritingHistory(body) {
+        const container = document.getElementById('writing-history-list');
+        if (!container) return;
+        const submissions = Array.isArray(body && body.submissions) ? body.submissions : [];
+        if (submissions.length === 0) {
+            setHistoryState('writing-history-list', 'empty-state', 'No writing submissions yet.');
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        submissions.forEach((submission) => {
+            const card = document.createElement('article');
+            card.className = 'history-card history-card--compact';
+
+            const head = document.createElement('div');
+            head.className = 'history-card__head';
+            const date = document.createElement('span');
+            date.className = 'history-card__date';
+            date.textContent = fmtDate(submission && submission.submitted_at);
+            const title = document.createElement('a');
+            title.className = 'history-card__question history-card__question--link';
+            title.href = `/writing.html?submission=${encodeURIComponent(String((submission && submission.id) || ''))}`;
+            title.textContent = (submission && submission.task_type) || 'Writing submission';
+            head.append(date, title);
+            card.append(head);
+
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'history-card__body';
+            const inner = document.createElement('div');
+            inner.className = 'history-card__body-inner';
+            appendHistoryField(inner, 'Overall band', submission && submission.band_overall, 'history-card__better');
+            appendHistoryField(inner, 'Priority fix', submission && submission.priority_fix);
+            appendHistoryField(inner, 'Word count', submission && submission.word_count);
+            bodyEl.append(inner);
+            card.append(bodyEl);
+            fragment.append(card);
+        });
+        container.replaceChildren(fragment);
+    }
+
+    function renderReadingHistory(body) {
+        const container = document.getElementById('reading-history-list');
+        if (!container) return;
+        const attempts = Array.isArray(body && body.attempts) ? body.attempts : [];
+        if (attempts.length === 0) {
+            setHistoryState('reading-history-list', 'empty-state', 'No reading attempts yet.');
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        attempts.forEach((attempt) => {
+            const card = document.createElement('article');
+            card.className = 'history-card history-card--compact';
+            const head = document.createElement('div');
+            head.className = 'history-card__head';
+            const date = document.createElement('span');
+            date.className = 'history-card__date';
+            date.textContent = fmtDate(attempt && attempt.submitted_at);
+            const title = document.createElement('span');
+            title.className = 'history-card__question';
+            title.textContent = (attempt && attempt.passage_title) || 'Reading passage';
+            head.append(date, title);
+            card.append(head);
+
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'history-card__body';
+            const inner = document.createElement('div');
+            inner.className = 'history-card__body-inner';
+            const score = attempt && attempt.score;
+            const total = attempt && attempt.total;
+            if (hasHistoryValue(score) || hasHistoryValue(total)) {
+                const scoreText = hasHistoryValue(score) && hasHistoryValue(total)
+                    ? `${String(score)} / ${String(total)}`
+                    : String(hasHistoryValue(score) ? score : total);
+                appendHistoryField(inner, 'Score', scoreText, 'history-card__better');
+            }
+            appendHistoryField(inner, 'Band estimate', attempt && attempt.band_estimate, 'history-card__better');
+            bodyEl.append(inner);
+            card.append(bodyEl);
+            fragment.append(card);
+        });
+        container.replaceChildren(fragment);
+    }
+
+    async function requestHistory(path, token) {
+        const response = await fetch(`${API_BASE}${path}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) throw new HistoryRequestError(response.status, `History request failed: ${response.status}`);
+        return response.json();
+    }
+
+    async function loadExtendedHistory(token, requester = requestHistory) {
+        const [writingResult, readingResult] = await Promise.allSettled([
+            requester('/api/writing/history?limit=10', token),
+            requester('/reading/history?limit=20', token),
+        ]);
+        if (writingResult.status === 'fulfilled') {
+            renderWritingHistory(writingResult.value);
+        } else {
+            renderHistoryError('writing-history-list', 'Writing', writingResult.reason);
+        }
+        if (readingResult.status === 'fulfilled') {
+            renderReadingHistory(readingResult.value);
+        } else {
+            renderHistoryError('reading-history-list', 'Reading', readingResult.reason);
+        }
     }
 
     function renderEmpty() {
@@ -574,7 +772,7 @@ header.brand .subtitle {
     async function loadHistory() {
         const token = await getToken();
         if (!token) {
-            renderError('請先登入後查看你的練習紀錄。');
+            redirectToLogin();
             return;
         }
         let body;
@@ -582,12 +780,20 @@ header.brand .subtitle {
             const r = await fetch(`${API_BASE}/api/history`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            if (r.status === 401 || r.status === 403) {
-                renderError('登入已過期，請重新登入。');
+            if (r.status === 401) {
+                redirectToLogin();
+                return;
+            }
+            if (r.status === 403) {
+                renderError('你沒有權限查看練習紀錄。');
+                return;
+            }
+            if (r.status === 404) {
+                renderError('練習紀錄服務暫時無法使用。');
                 return;
             }
             if (!r.ok) {
-                renderError('Failed to load history.');
+                renderError(r.status >= 500 ? 'Failed to load speaking history.' : 'Failed to load history.');
                 return;
             }
             body = await r.json();
@@ -610,7 +816,14 @@ header.brand .subtitle {
     }
 
     wireFilterTabs();
-    loadHistory();
+    (async () => {
+        const token = await getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        await Promise.all([loadHistory(), loadExtendedHistory(token)]);
+    })();
 })();
 </script>
 </body>
