@@ -277,6 +277,49 @@ header.brand .subtitle {
     font-family: var(--sans); font-size: 13px;
 }
 .review-close:hover { color: var(--green); border-color: var(--green); }
+
+/* Pro upsell modal — shared vocabulary quota surface */
+.pro-modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(28,16,8,0.55);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 999; padding: 20px;
+}
+.pro-modal-overlay[hidden] { display: none; }
+.pro-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    max-width: 480px; width: 100%;
+    max-height: 90vh; overflow-y: auto;
+    padding: 28px 24px;
+}
+.pro-modal-kicker {
+    font-family: var(--sans);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--gold); margin: 0 0 12px;
+}
+.pro-modal-title {
+    font-family: var(--serif);
+    font-size: 21px; font-weight: 700; font-style: italic;
+    color: var(--ink); line-height: 1.35; margin: 0 0 10px;
+}
+.pro-modal-sub { font-size: 14px; color: var(--muted); line-height: 1.6; margin: 0 0 18px; }
+.pro-modal-actions { display: flex; gap: 10px; }
+.pro-modal-cta {
+    flex: 1; min-height: 44px; border: 1px solid var(--green); background: var(--green); color: var(--surface);
+    font-family: var(--sans); font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.pro-modal-cta:hover { opacity: 0.88; }
+.pro-modal-dismiss {
+    flex: 0 0 auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--border); background: transparent; color: var(--muted);
+    font-family: var(--sans); font-size: 13px; cursor: pointer;
+}
+@media (max-width: 390px) {
+    .pro-modal-actions { flex-direction: column; }
+    .pro-modal-dismiss { width: 100%; }
+}
+
 /* Bottom tab nav — fixed across all pages */
 #bottom-nav {
     position: fixed; bottom: 0; left: 0; right: 0;
@@ -857,6 +900,19 @@ header.brand .subtitle {
     <div id="review-stage"><!-- review-card or review-summary inserted here --></div>
 </div>
 
+<!-- Pro upsell modal (vocabulary quota) -->
+<div class="pro-modal-overlay" id="vocab-pro-modal-overlay" hidden>
+    <div class="pro-modal" role="dialog" aria-modal="true" aria-labelledby="vocab-pro-modal-title" aria-describedby="vocab-pro-modal-sub">
+        <p class="pro-modal-kicker" id="vocab-pro-modal-kicker">單字收藏已滿</p>
+        <h2 class="pro-modal-title" id="vocab-pro-modal-title">Thy vocabulary shelf is full.</h2>
+        <p class="pro-modal-sub" id="vocab-pro-modal-sub"></p>
+        <div class="pro-modal-actions">
+            <a class="pro-modal-cta" id="vocab-pro-modal-cta" href="/upgrade.html?source=vocab_limit">加入 Pro，解鎖無限單字 →</a>
+            <button class="pro-modal-dismiss" id="vocab-pro-modal-dismiss" type="button">知道了</button>
+        </div>
+    </div>
+</div>
+
 <script>
 (() => {
     const cfg = window.BLABBY_CONFIG || {};
@@ -908,6 +964,17 @@ header.brand .subtitle {
             return (session && session.access_token) || null;
         } catch (_) { return null; }
     }
+
+    class ApiResponseError extends Error {
+        constructor(message, status, code, detail) {
+            super(message);
+            this.name = 'ApiResponseError';
+            this.status = status;
+            this.code = code || null;
+            this.detail = detail;
+        }
+    }
+
     async function authJson(method, path, body) {
         const token = await getToken();
         if (!token) throw new Error('not_signed_in');
@@ -919,13 +986,33 @@ header.brand .subtitle {
             },
             body: body !== undefined ? JSON.stringify(body) : undefined,
         });
-        if (r.status === 401 || r.status === 403) throw new Error('auth_failed');
+        if (r.status === 401) throw new ApiResponseError('auth_failed', 401, 'auth_failed');
         if (!r.ok) {
-            let detail = `Request failed (${r.status})`;
-            try { const j = await r.json(); if (j?.detail) detail = j.detail; } catch (_) {}
-            throw new Error(detail);
+            let payload = {};
+            try { payload = await r.json(); } catch (_) {}
+            const detail = payload && payload.detail;
+            const detailObject = detail && typeof detail === 'object' ? detail : null;
+            const code = detailObject?.error || (typeof payload?.error === 'string' ? payload.error : null);
+            const message = detailObject?.message
+                || (typeof detail === 'string' ? detail : null)
+                || `Request failed (${r.status})`;
+            throw new ApiResponseError(message, r.status, code, detailObject || detail);
         }
         return r.json();
+    }
+
+    function isVocabularyQuotaError(error) {
+        return !!error && error.status === 403 && error.code === 'vocab_limit_reached';
+    }
+
+    function vocabularyAddErrorMessage(error) {
+        if (!error || error.message === 'not_signed_in') return '請先登入';
+        if (error.status === 401 || error.code === 'auth_failed') return '登入已過期，請重新登入。';
+        if (error.status === 403) return '目前無法加入這個單字，請稍後再試。';
+        if (error.status === 404) return '這個單字已不存在，請重新整理後再試。';
+        if (error.status >= 500) return '單字服務暫時無法使用，請稍後再試。';
+        if (error.name === 'TypeError') return '無法連線，請檢查網路後再試。';
+        return error.message || 'Failed to add';
     }
 
     // Identify on auth ready (one-shot per page load)
@@ -1142,6 +1229,39 @@ header.brand .subtitle {
         }
     }
 
+    let vocabPaywallReturnFocus = null;
+    function showVocabProModal(limit) {
+        const overlay = document.getElementById('vocab-pro-modal-overlay');
+        const sub = document.getElementById('vocab-pro-modal-sub');
+        const dismiss = document.getElementById('vocab-pro-modal-dismiss');
+        if (!overlay || !sub || !dismiss) return;
+        const limitText = limit !== null && limit !== undefined && limit !== ''
+            ? `免費版最多收藏 ${String(limit)} 個單字。`
+            : '免費版單字收藏已達上限。';
+        sub.textContent = `${limitText}升級 Pro，解鎖無限單字收藏。`;
+        vocabPaywallReturnFocus = document.activeElement;
+        overlay.hidden = false;
+        dismiss.focus();
+    }
+
+    function hideVocabProModal() {
+        const overlay = document.getElementById('vocab-pro-modal-overlay');
+        if (overlay) overlay.hidden = true;
+        if (vocabPaywallReturnFocus && typeof vocabPaywallReturnFocus.focus === 'function') {
+            vocabPaywallReturnFocus.focus();
+        }
+        vocabPaywallReturnFocus = null;
+    }
+
+    document.getElementById('vocab-pro-modal-dismiss')?.addEventListener('click', hideVocabProModal);
+    document.getElementById('vocab-pro-modal-overlay')?.addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) hideVocabProModal();
+    });
+    document.addEventListener('keydown', (event) => {
+        const overlay = document.getElementById('vocab-pro-modal-overlay');
+        if (event.key === 'Escape' && overlay && !overlay.hidden) hideVocabProModal();
+    });
+
     async function onAddClick(ev) {
         const btn = ev.currentTarget;
         if (btn.disabled) return;
@@ -1219,7 +1339,11 @@ header.brand .subtitle {
         } catch (e) {
             btn.disabled = false;
             btn.textContent = '＋ 加入口說單字';
-            alert(e.message === 'not_signed_in' ? '請先登入' : (e.message || 'Failed to add'));
+            if (isVocabularyQuotaError(e)) {
+                showVocabProModal(e.detail && e.detail.limit);
+                return;
+            }
+            alert(vocabularyAddErrorMessage(e));
         }
     }
 
