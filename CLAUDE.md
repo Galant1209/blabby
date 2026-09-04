@@ -235,6 +235,11 @@ PostHog，`api_host: https://us.i.posthog.com`。
 `reading_questions` 的兩層是 RLS 單獨做不到的（RLS 過濾 row，column 授權是另一維度），
 三個答案欄位從未授予任何人。它與 `_client_reading_questions()` 互為備援，不是重複。
 
+anon/client 直接讀受保護答案欄位時，DB 必須拒絕而不是回傳可用資料；PostgreSQL
+permission denial 的 SQLSTATE 是 `42501`（`insufficient_privilege`）。
+`test_content_lockdown_contract.py` 與 replay harness 以這個拒絕結果驗證 fail-closed，
+不得刪除或弱化這條 contract。
+
 `vocabulary_items` **未決** —— 刻意公開還是遺漏。
 收掉前必須先查前端有無 anon 直讀，猜錯會弄壞線上功能。
 無答案類欄位，風險是題庫被整包抓走，不是答案外洩。
@@ -422,12 +427,15 @@ ledger 裡的 `create_npc_relations` / `harden_npc_relations` 屬其他專案，
 
 ## 7. 環境陷阱
 
-**檔案系統病態緩慢。** `.git/index` 曾讀出 0 bytes（metadata 說 14746 bytes，
-`dd` 讀出 0，`git fsck` 卡住逾時）。修復是 `rm .git/index && git reset` ——
-index 是純快取，可從 HEAD + 工作區重建。但重建花了 20 秒，正常是毫秒級。
-2028 個 loose object，從未 `git gc`。pytest 也會卡在 import 階段的檔案 `read()`
-（CPU 幾乎不動）。repo 待搬出 `~/Desktop` 並跑一次 `git gc`。
-**非 iCloud dataless placeholder** —— 2026-09-03 已驗證未重現。
+**`~/Desktop` 由 macOS iCloud Desktop & Documents / CloudDocs 管理，不是可靠的
+canonical repo 路徑。** 問題不一定表現為 iCloud 的 `.icloud` 缺檔 placeholder；一般程式碼
+檔案可能完全正常，但 Git 高頻改寫的 `.git/index`、`packed-refs`、reflog 可能在
+同步協調期間 timeout、讀回 0 bytes，或造成 metadata corruption / unusable repo state。
+跨 provider rename 也可能回 `ETIMEDOUT`。
+
+Blabby canonical repo 固定在 `~/dev/Blabby/blabby`（`/Users/yichengchiu/dev/Blabby/blabby`）。
+舊 `~/Desktop/Blabby` 只能當 read-only rescue source；CloudDocs-managed repo 禁止執行
+`git gc` 或 `git repack`。
 
 **git 指令一律加 `--no-pager`。** 本 repo 的 pager 會 hang。
 
