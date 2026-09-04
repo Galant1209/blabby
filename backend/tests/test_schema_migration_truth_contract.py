@@ -27,11 +27,11 @@ def test_manifest_covers_every_repo_migration_with_the_right_kind():
     listed_files = sorted(item["name"] for item in inventory)
 
     assert listed_files == repo_files
-    assert len(inventory) == 35
-    assert sum(item["kind"] == "forward" for item in inventory) == 28
+    assert len(inventory) == 36
+    assert sum(item["kind"] == "forward" for item in inventory) == 29
     assert sum(item["kind"] == "rollback" for item in inventory) == 5
     assert sum(item["kind"] == "baseline" for item in inventory) == 2
-    assert sum(item["kind"] in {"forward", "baseline"} for item in inventory) == 30
+    assert sum(item["kind"] in {"forward", "baseline"} for item in inventory) == 31
 
     forward_names = {
         item["name"] for item in inventory if item["kind"] in {"forward", "baseline"}
@@ -47,6 +47,7 @@ def test_manifest_covers_every_repo_migration_with_the_right_kind():
         "20260618045448_writing_questions_add_svg_pregen.sql",
         "20260630033125_add_retry_of_to_practice_records.sql",
         "20260714_p1_rls_and_reading_answers.sql",
+        "20260803111937_reading_pool_columns_and_backfill.sql",
     }
 
     allowed_domains = {
@@ -96,6 +97,7 @@ def test_known_drift_is_classified_and_unknown_drift_is_not_silently_ignored():
         "20260726_billing_identity_containment",
         "20260813_anonymous_process_quota",
         "20260904_retire_obsolete_waitlist_exposure",
+        "20260508_quality_grade_index",
     }
     assert required <= matrix.keys()
     assert manifest["reconciliation_contract"]["unknown_drift_causes_failure"] is True
@@ -112,7 +114,7 @@ def test_known_drift_is_classified_and_unknown_drift_is_not_silently_ignored():
     } <= allowed_ledger_classes
 
     assert matrix["20260803111937_reading_pool_columns_and_backfill"]["classification"] == (
-        "BLABBY_SOURCE_UNRECOVERED_BLOCKER"
+        "BLABBY_RECONSTRUCTED_SOURCE"
     )
     assert matrix["p1_rls_and_reading_answers_idempotency_recheck"]["classification"] == (
         "BLABBY_RECONCILED_NO_UNIQUE_SCHEMA_DELTA"
@@ -122,6 +124,25 @@ def test_known_drift_is_classified_and_unknown_drift_is_not_silently_ignored():
     assert matrix["20260904_retire_obsolete_waitlist_exposure"]["classification"] == (
         "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED"
     )
+    assert matrix["20260508_quality_grade_index"]["classification"] == (
+        "REPO_SCHEMA_DELTA_NOT_IN_PRODUCTION"
+    )
+
+
+def test_recovered_reading_pool_source_is_recorded_and_complete():
+    manifest = _manifest()
+    source = (MIGRATIONS_DIR / "20260803111937_reading_pool_columns_and_backfill.sql").read_text()
+    recovered = {
+        item["name"]: item for item in manifest["ledger_reconstructed_sources"]
+    }["20260803111937_reading_pool_columns_and_backfill"]
+
+    assert recovered["version"] == "20260803111937"
+    assert recovered["statement_count"] == 1
+    assert "ADD COLUMN is_pregenerated boolean NOT NULL DEFAULT false" in source
+    assert "ADD COLUMN questions_ready boolean NOT NULL DEFAULT false" in source
+    assert "ADD COLUMN used_count integer NOT NULL DEFAULT 0" in source
+    assert "CREATE INDEX idx_reading_passages_pool" in source
+    assert "WHERE EXISTS" in source and "reading_questions q" in source
 
 
 def test_anonymous_quota_billing_and_reading_security_sources_remain_present():
@@ -155,6 +176,9 @@ def test_replay_and_production_status_are_explicitly_separate():
     manifest = _manifest()
     assert manifest["replay"]["forward_migration_replay"] == "PASS"
     assert manifest["replay"]["rollback_files_in_forward_replay"] is False
-    assert manifest["replay"]["production_parity"] == "UNAVAILABLE_NO_READ_ONLY_CONNECTION"
+    assert manifest["replay"]["production_parity"] == "READ_ONLY_SNAPSHOT_WITH_CLASSIFIED_DIFFS"
     assert manifest["replay"]["production_parity_must_not_be_inferred"] is True
-    assert manifest["production_inspection"]["available"] is False
+    assert manifest["production_inspection"]["available"] is True
+    assert manifest["production_inspection"]["transaction_read_only"] == "on"
+    assert manifest["production_inspection"]["catalog_snapshot"]["record_count"] == 887
+    assert manifest["replay"]["classified_diff_summary"]["unexplained_differences"] == 0

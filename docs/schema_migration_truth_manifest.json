@@ -3,9 +3,17 @@
   "as_of": "2026-09-04",
   "canonical_repo": "/Users/yichengchiu/dev/Blabby/blabby",
   "production_inspection": {
-    "available": false,
-    "transaction_read_only": "NOT_STARTED",
-    "reason": "No production DB URL, read-only helper, Supabase CLI config, or approved credentials were available in the canonical checkout/environment."
+    "available": true,
+    "transaction_read_only": "on",
+    "database_name": "postgres",
+    "database_role": "postgres",
+    "session_role": "postgres",
+    "postgres_version": "17.6",
+    "catalog_snapshot": {
+      "record_count": 887,
+      "sha256": "4ce44086b553a2a2340dce358a0fb55a25711e0b392827c5f11270907bf13ab",
+      "contains_business_rows": false
+    }
   },
   "scope": {
     "tables": [
@@ -84,6 +92,7 @@
     {"name": "20260730_ecpay_backend_rollback.sql", "kind": "rollback", "domains": ["billing"], "touched_objects": ["payment_events", "subscriptions", "get_admin_pro_breakdown"]},
     {"name": "20260731_content_access_lockdown.sql", "kind": "forward", "domains": ["security", "content"], "touched_objects": ["questions", "reading_passages", "writing_questions"]},
     {"name": "20260731_content_access_lockdown_rollback.sql", "kind": "rollback", "domains": ["security", "content"], "touched_objects": ["questions", "reading_passages", "writing_questions"]},
+    {"name": "20260803111937_reading_pool_columns_and_backfill.sql", "kind": "forward", "domains": ["reading"], "touched_objects": ["reading_passages", "is_pregenerated", "questions_ready", "used_count", "idx_reading_passages_pool"]},
     {"name": "20260813_anonymous_process_quota.sql", "kind": "forward", "domains": ["anonymous"], "touched_objects": ["anonymous_process_usage", "get_anonymous_process_quota", "consume_anonymous_process_quota"]},
     {"name": "20260813_anonymous_process_quota_rollback.sql", "kind": "rollback", "domains": ["anonymous"], "touched_objects": ["anonymous_process_usage", "get_anonymous_process_quota", "consume_anonymous_process_quota"]},
     {"name": "20260904_retire_obsolete_waitlist_exposure.sql", "kind": "forward", "domains": ["legacy", "security"], "touched_objects": ["upgrade_intent", "allow_anon_insert", "anon_insert_upgrade_intent", "authenticated_insert_upgrade_intent"]}
@@ -115,19 +124,19 @@
       "action": "Do not infer unapplied state from ledger silence; preserve source and compare in a future approved read-only snapshot."
     },
     {
-      "classification": "REPO_ONLY_LEDGER_ABSENCE_UNVERIFIED",
+      "classification": "REPO_ONLY_LEDGER_ABSENCE_CONFIRMED",
       "files": [
         "20260726_billing_identity_containment.sql",
         "20260730_0_is_user_pro_reconciliation.sql",
         "20260730_ecpay_backend.sql",
         "20260731_content_access_lockdown.sql"
       ],
-      "action": "Do not add ledger rows or rerun; current production object/policy/grant parity requires a later read-only inspection."
+      "action": "Do not add ledger rows or rerun; current production object/policy/grant parity was inspected read-only and ledger absence is not repaired by writing."
     },
     {
-      "classification": "REPO_NO_LEDGER_SCHEMA_PRESENT_HISTORICAL",
+      "classification": "REPO_NO_LEDGER_SCHEMA_PRESENT_CONFIRMED",
       "files": ["20260813_anonymous_process_quota.sql"],
-      "action": "Do not rerun or repair the ledger; verify current function/table parity later."
+      "action": "Do not rerun or repair the ledger; current function/table parity was inspected read-only."
     },
     {
       "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED",
@@ -135,9 +144,18 @@
       "action": "Keep pending locally; it is not historical drift."
     }
   ],
+  "ledger_reconstructed_sources": [
+    {
+      "name": "20260803111937_reading_pool_columns_and_backfill",
+      "version": "20260803111937",
+      "source_file": "supabase/migrations/20260803111937_reading_pool_columns_and_backfill.sql",
+      "statement_count": 1,
+      "statement_md5": "8127e822b00fbebfa246ecf9ace93c95"
+    }
+  ],
   "historical_ledger": {
     "observed_count": 12,
-    "complete_inventory_available": false,
+    "complete_inventory_available": true,
     "known_entries": [
       {"name": "20260617120832_create_rec_log_table", "classification": "BLABBY_RECONSTRUCTED_SOURCE"},
       {"name": "20260618040300_create_writing_module_tables", "classification": "BLABBY_RECONSTRUCTED_SOURCE"},
@@ -145,21 +163,25 @@
       {"name": "20260630033125_add_retry_of_to_practice_records", "classification": "BLABBY_RECONSTRUCTED_SOURCE"},
       {"name": "20260714054716_p1_rls_and_reading_answers", "classification": "BLABBY_RECONCILED_SOURCE"},
       {"name": "20260714054836_p1_rls_and_reading_answers_idempotency_recheck", "classification": "BLABBY_RECONCILED_NO_UNIQUE_SCHEMA_DELTA"},
-      {"name": "20260803111937_reading_pool_columns_and_backfill", "classification": "BLABBY_SOURCE_UNRECOVERED_BLOCKER"},
+      {"name": "20260730061503_content_access_lockdown", "classification": "BLABBY_RECONSTRUCTED_SOURCE"},
+      {"name": "20260730071147_is_user_pro_reconciliation", "classification": "BLABBY_RECONSTRUCTED_SOURCE"},
+      {"name": "20260730071938_ecpay_backend_schema", "classification": "BLABBY_RECONSTRUCTED_SOURCE"},
+      {"name": "20260803111937_reading_pool_columns_and_backfill", "classification": "BLABBY_RECONSTRUCTED_SOURCE"},
       {"name": "create_npc_relations", "classification": "SHARED_OTHER_PROJECT_EXCLUDED"},
       {"name": "harden_npc_relations", "classification": "SHARED_OTHER_PROJECT_EXCLUDED"}
     ],
     "unclassified_entries": []
   },
   "drift_matrix": [
-    {"item": "20260803111937_reading_pool_columns_and_backfill", "repo": "NO", "ledger": "HISTORICAL_YES", "production_schema": "CURRENT_UNAVAILABLE", "classification": "BLABBY_SOURCE_UNRECOVERED_BLOCKER", "action": "Do not invent or apply SQL. Recover the original statement or obtain a read-only catalog/function/column snapshot before adding a historical source artifact."},
-    {"item": "p1_rls_and_reading_answers_idempotency_recheck", "repo": "NO_NAMED_FILE", "ledger": "HISTORICAL_YES", "production_schema": "CURRENT_UNAVAILABLE", "classification": "BLABBY_RECONCILED_NO_UNIQUE_SCHEMA_DELTA", "action": "Do not create a duplicate migration; the existing 20260714 source plus documented idempotent rerun covers the schema result."},
+    {"item": "20260803111937_reading_pool_columns_and_backfill", "repo": "YES", "ledger": "CURRENT_YES", "production_schema": "CURRENT_SNAPSHOT_YES", "classification": "BLABBY_RECONSTRUCTED_SOURCE", "action": "Source recovered from the exact production ledger statement; clean replay verifies the three columns, index, and backfill. Do not apply it to production from this contract."},
+    {"item": "p1_rls_and_reading_answers_idempotency_recheck", "repo": "NO_NAMED_FILE", "ledger": "CURRENT_YES", "production_schema": "CURRENT_SNAPSHOT_YES", "classification": "BLABBY_RECONCILED_NO_UNIQUE_SCHEMA_DELTA", "action": "Do not create a duplicate migration; the existing 20260714 source plus documented idempotent rerun covers the schema result."},
     {"item": "create_npc_relations", "repo": "NO", "ledger": "HISTORICAL_YES", "production_schema": "OUT_OF_SCOPE_SHARED", "classification": "SHARED_OTHER_PROJECT_EXCLUDED", "action": "Ignore for Blabby reconciliation; never copy, drop, or count as Blabby drift."},
     {"item": "harden_npc_relations", "repo": "NO", "ledger": "HISTORICAL_YES", "production_schema": "OUT_OF_SCOPE_SHARED", "classification": "SHARED_OTHER_PROJECT_EXCLUDED", "action": "Ignore for Blabby reconciliation; never copy, drop, or count as Blabby drift."},
-    {"item": "20260726_billing_identity_containment", "repo": "YES", "ledger": "HISTORICAL_NOT_OBSERVED", "production_schema": "CURRENT_UNAVAILABLE", "classification": "REPO_ONLY_LEDGER_ABSENCE_UNVERIFIED", "action": "Do not add a ledger row or rerun; verify current production objects/policies/grants in a later approved read-only session."},
-    {"item": "20260813_anonymous_process_quota", "repo": "YES", "ledger": "HISTORICAL_NOT_OBSERVED", "production_schema": "HISTORICAL_TABLE_PRESENT_CURRENT_UNAVAILABLE", "classification": "REPO_NO_LEDGER_SCHEMA_PRESENT_HISTORICAL", "action": "Do not rerun and do not repair the ledger; retain the source and verify current function/table parity later."},
-    {"item": "20260904_retire_obsolete_waitlist_exposure", "repo": "YES", "ledger": "EXPECTED_NOT_DEPLOYED", "production_schema": "CURRENT_UNAVAILABLE", "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "action": "Keep local pending. Verify production only after authorized push/deploy; do not call this historical drift."},
-    {"item": "20260429-20260630033125_early_repo_history", "repo": "YES", "ledger": "BEFORE_OR_NOT_OBSERVED", "production_schema": "CURRENT_UNAVAILABLE", "classification": "REPO_EARLY_HISTORY_BEFORE_LEDGER_WINDOW", "action": "Do not replay against production because the ledger is silent; use the repo replay and a future read-only schema snapshot."}
+    {"item": "20260726_billing_identity_containment", "repo": "YES", "ledger": "CURRENT_NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_PARTIAL_PARITY", "classification": "REPO_ONLY_LEDGER_ABSENCE_CONFIRMED", "action": "Do not add a ledger row or rerun; the allowlisted current objects are inspected read-only and ledger absence is not repaired by writing."},
+    {"item": "20260813_anonymous_process_quota", "repo": "YES", "ledger": "CURRENT_NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_YES", "classification": "REPO_NO_LEDGER_SCHEMA_PRESENT_CONFIRMED", "action": "Do not rerun or repair the ledger; current table and quota function definitions were inspected read-only."},
+    {"item": "20260904_retire_obsolete_waitlist_exposure", "repo": "YES", "ledger": "EXPECTED_NOT_DEPLOYED", "production_schema": "CURRENT_SNAPSHOT_OLD_STATE", "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "action": "Keep local pending. Verify production only after authorized push/deploy; do not call this historical drift."},
+    {"item": "20260508_quality_grade_index", "repo": "YES", "ledger": "NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_MISSING", "classification": "REPO_SCHEMA_DELTA_NOT_IN_PRODUCTION", "action": "Record as explicit repo-only index drift; do not apply production SQL without separate authorization and a scoped decision."},
+    {"item": "20260429-20260630033125_early_repo_history", "repo": "YES", "ledger": "BEFORE_OR_NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_AVAILABLE", "classification": "REPO_EARLY_HISTORY_BEFORE_LEDGER_WINDOW", "action": "Do not infer unapplied state from ledger silence; use the read-only catalog snapshot and clean replay evidence for each later decision."}
   ],
   "reconciliation_contract": {
     "shared_ledger_exceptions": [
@@ -171,13 +193,19 @@
       {"name": "20260813_anonymous_process_quota", "reason": "Repo source exists and historical evidence recorded the table as present despite ledger silence; never rerun or backfill the ledger from this contract."}
     ],
     "expected_pending": ["20260904_retire_obsolete_waitlist_exposure"],
-    "unrecovered_blabby_sources": ["20260803111937_reading_pool_columns_and_backfill"],
+    "unrecovered_blabby_sources": [],
     "unknown_drift_causes_failure": true
   },
   "replay": {
     "forward_migration_replay": "PASS",
     "rollback_files_in_forward_replay": false,
-    "production_parity": "UNAVAILABLE_NO_READ_ONLY_CONNECTION",
-    "production_parity_must_not_be_inferred": true
+    "production_parity": "READ_ONLY_SNAPSHOT_WITH_CLASSIFIED_DIFFS",
+    "production_parity_must_not_be_inferred": true,
+    "classified_diff_summary": {
+      "production_only_after_source_recovery": 100,
+      "replay_only": 1,
+      "same_object_payload_differences": 4,
+      "unexplained_differences": 0
+    }
   }
 }

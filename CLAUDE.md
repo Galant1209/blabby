@@ -360,16 +360,18 @@ free 使用者存到第 31 個字時會撞到一個前端沒準備接的錯誤�
 
 ### schema migration truth
 
-Round E 的工程 contract 在 `docs/SCHEMA_MIGRATION_TRUTH.md`，機械化 manifest
-在 `docs/schema_migration_truth_manifest.json`。目前 repo 有 **35 支 `.sql`**：
-30 支 forward（含 2 支 baseline）與 5 支 rollback；rollback 不進 forward replay。
-歷史上曾觀察到 production ledger 12 筆，但本輪沒有 production read-only access，
-所以不把那個數字當成 current truth。
+Round E-R Phase 2 的工程 contract 在 `docs/SCHEMA_MIGRATION_TRUTH.md`，機械化
+manifest 在 `docs/schema_migration_truth_manifest.json`。目前 repo 有 **36 支 `.sql`**：
+31 支 forward（含 2 支 baseline）與 5 支 rollback；rollback 不進 forward replay。
+本輪已在明確 `READ ONLY` transaction 內重新取得 production ledger 與 allowlist
+catalog snapshot，且以 `ROLLBACK` 收尾。
 
-`20260803111937_reading_pool_columns_and_backfill` 仍是未恢復的 Blabby source
-blocker；`p1_rls_and_reading_answers_idempotency_recheck` 是既有 P1 source 的
-冪等重跑，不另造 duplicate。`create_npc_relations` / `harden_npc_relations`
-是 shared Supabase 的其他專案 migration，明確排除，不算 Blabby drift。
+`20260803111937_reading_pool_columns_and_backfill` 已從 production ledger 的 exact
+statement 恢復到 repo，並由 clean replay 驗證；`p1_rls_and_reading_answers_idempotency_recheck`
+仍是既有 P1 source 的冪等重跑，不另造 duplicate。`create_npc_relations` /
+`harden_npc_relations` 是 shared Supabase 的其他專案 migration，明確排除，不算
+Blabby drift。Production 明確查到 repo-only 的 `practice_records_quality_grade_idx`
+尚不存在；不得因此直接 apply production SQL。
 
 ### 其他
 
