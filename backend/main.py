@@ -146,6 +146,38 @@ ADMIN_EMAILS         = {
     if email.strip()
 }
 
+# Task 1 chart review is an engineering-review record, not a serving switch.
+# Keep the allowlists in Python as well as in the migration so the admin API
+# fails closed before it reaches PostgREST.
+TASK1_REVIEW_STATUSES = ("pending", "approved", "needs_fix", "retired")
+TASK1_REVIEW_ISSUES = (
+    "renderer_unsupported",
+    "data_shape_invalid",
+    "misleading_visual",
+    "label_collision",
+    "unreadable",
+    "content_issue",
+    "other",
+)
+
+
+class Task1ReviewPatch(BaseModel):
+    """The only fields the admin human-review endpoint may update."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    review_status: Optional[Literal["pending", "approved", "needs_fix", "retired"]] = None
+    review_issue: Optional[Literal[
+        "renderer_unsupported",
+        "data_shape_invalid",
+        "misleading_visual",
+        "label_collision",
+        "unreadable",
+        "content_issue",
+        "other",
+    ]] = None
+    review_note: Optional[str] = Field(default=None, max_length=2000)
+
 ANONYMOUS_PROCESS_LIMIT = 10
 ANONYMOUS_PROCESS_RATE_LIMIT = 3
 ANONYMOUS_PROCESS_RATE_WINDOW_SECONDS = 60
@@ -6563,6 +6595,174 @@ async def admin_writing_submissions(
     except Exception as exc:
         logger.exception("admin writing submissions endpoint failed")
         raise HTTPException(status_code=500, detail="Failed to load writing submissions") from exc
+
+
+def _task1_review_row(row: dict) -> dict:
+    """Expose chart source safely while keeping review state separate.
+
+    Pie rows are parsed through the same legacy adapter used by the student
+    serving endpoint. A multi-period row therefore has ``chart_data=None``;
+    the admin UI must show that limitation instead of inventing a preview.
+    Non-pie SVG is sanitized before it is returned to the browser.
+    """
+    subtype = row.get("task1_subtype")
+    prompt = row.get("prompt") or ""
+    chart_data = None
+    chart_svg = None
+    preview_kind = "none"
+    if subtype == "pie_chart":
+        parsed = parse_legacy_chart_description(
+            row.get("chart_description") or "",
+            _derive_chart_title(prompt),
+        )
+        if parsed is not None:
+            chart_data = parsed.model_dump()
+            preview_kind = "pie"
+        else:
+            preview_kind = "renderer_unsupported"
+    elif row.get("chart_svg"):
+        try:
+            chart_svg = sanitize_chart_svg(row.get("chart_svg") or "")
+            preview_kind = "legacy_svg"
+        except ValueError:
+            # Do not put untrusted SVG into an admin page. Keep the source
+            # description visible so a reviewer can classify the row.
+            preview_kind = "unsafe_svg"
+
+    return {
+        "question_id": row.get("id"),
+        "task_type": row.get("task_type"),
+        "task1_subtype": subtype,
+        "prompt": prompt,
+        "chart_description": row.get("chart_description"),
+        "chart_data": chart_data,
+        "chart_svg": chart_svg,
+        "preview_kind": preview_kind,
+        "is_pregenerated": bool(row.get("is_pregenerated")),
+        "serving_state": "pool_eligible" if row.get("is_pregenerated") else "not_pool_eligible",
+        "used_count": row.get("used_count") or 0,
+        "created_at": row.get("created_at"),
+        "review_status": row.get("review_status") or "pending",
+        "review_issue": row.get("review_issue"),
+        "review_note": row.get("review_note"),
+        "reviewed_at": row.get("reviewed_at"),
+        "reviewed_by": row.get("reviewed_by"),
+    }
+
+
+@app.get("/admin/writing/task1-review")
+@limiter.limit("30/minute")
+async def admin_task1_review_queue(
+    request: Request,
+    review_status: str = Query("all"),
+    authorization: Optional[str] = Header(None),
+):
+    """List Task 1 chart questions for authenticated admin human review.
+
+    This endpoint is read-only. It never changes ``is_pregenerated`` and does
+    not return writing submissions or any user-generated answer data.
+    """
+    verify_admin(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    requested_status = (review_status or "all").strip().lower()
+    if requested_status != "all" and requested_status not in TASK1_REVIEW_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid_review_status",
+                "allowed": ["all", *TASK1_REVIEW_STATUSES],
+            },
+        )
+
+    try:
+        query = (
+            supabase_admin.table("writing_questions")
+            .select(
+                "id, task_type, task1_subtype, prompt, chart_description, chart_svg, "
+                "is_pregenerated, used_count, created_at, review_status, review_issue, "
+                "review_note, reviewed_at, reviewed_by"
+            )
+            .eq("task_type", "task1")
+        )
+        if requested_status != "all":
+            query = query.eq("review_status", requested_status)
+        response = query.order("created_at", desc=False).limit(500).execute()
+        if response.data is None:
+            raise HTTPException(status_code=503, detail="Failed to load Task 1 review queue")
+        questions = [_task1_review_row(row) for row in response.data]
+        return {
+            "total": len(questions),
+            "review_status": requested_status,
+            "questions": questions,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin Task 1 review queue failed")
+        raise HTTPException(status_code=503, detail="Failed to load Task 1 review queue") from exc
+
+
+@app.patch("/admin/writing/task1-review/{question_id}")
+@limiter.limit("30/minute")
+async def admin_task1_review_update(
+    question_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Save review metadata only; serving and chart source are immutable here."""
+    admin_id = verify_admin(authorization)
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        uuid.UUID(question_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid question_id format")
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Review body must be an object")
+    try:
+        payload = Task1ReviewPatch.model_validate(body)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Invalid Task 1 review fields") from exc
+
+    fields = payload.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=422, detail="At least one review field is required")
+    if "review_note" in fields and fields["review_note"] is not None:
+        fields["review_note"] = fields["review_note"].strip() or None
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    update_data = {
+        **fields,
+        # Both audit fields are always server-derived. A client cannot spoof
+        # either value because they are forbidden by Task1ReviewPatch.
+        "reviewed_at": now_iso,
+        "reviewed_by": admin_id,
+    }
+    try:
+        response = (
+            supabase_admin.table("writing_questions")
+            .update(update_data)
+            .eq("id", question_id)
+            .eq("task_type", "task1")
+            .execute()
+        )
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Task 1 question not found")
+        return {
+            "status": "ok",
+            "question": _task1_review_row(response.data[0]),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("admin Task 1 review update failed")
+        raise HTTPException(status_code=503, detail="Failed to save Task 1 review") from exc
 
 
 @app.get("/admin/reading/attempts")

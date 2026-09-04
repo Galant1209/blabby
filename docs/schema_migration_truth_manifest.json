@@ -95,7 +95,8 @@
     {"name": "20260803111937_reading_pool_columns_and_backfill.sql", "kind": "forward", "domains": ["reading"], "touched_objects": ["reading_passages", "is_pregenerated", "questions_ready", "used_count", "idx_reading_passages_pool"]},
     {"name": "20260813_anonymous_process_quota.sql", "kind": "forward", "domains": ["anonymous"], "touched_objects": ["anonymous_process_usage", "get_anonymous_process_quota", "consume_anonymous_process_quota"]},
     {"name": "20260813_anonymous_process_quota_rollback.sql", "kind": "rollback", "domains": ["anonymous"], "touched_objects": ["anonymous_process_usage", "get_anonymous_process_quota", "consume_anonymous_process_quota"]},
-    {"name": "20260904_retire_obsolete_waitlist_exposure.sql", "kind": "forward", "domains": ["legacy", "security"], "touched_objects": ["upgrade_intent", "allow_anon_insert", "anon_insert_upgrade_intent", "authenticated_insert_upgrade_intent"]}
+    {"name": "20260904_retire_obsolete_waitlist_exposure.sql", "kind": "forward", "domains": ["legacy", "security"], "touched_objects": ["upgrade_intent", "allow_anon_insert", "anon_insert_upgrade_intent", "authenticated_insert_upgrade_intent"]},
+    {"name": "20260904123000_task1_chart_human_review.sql", "kind": "forward", "domains": ["writing", "admin"], "touched_objects": ["writing_questions", "writing_questions_review_status_check", "writing_questions_review_issue_check", "idx_writing_questions_review_status"]}
   ],
   "repo_only_reconciliation": [
     {
@@ -140,7 +141,7 @@
     },
     {
       "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED",
-      "files": ["20260904_retire_obsolete_waitlist_exposure.sql"],
+      "files": ["20260904_retire_obsolete_waitlist_exposure.sql", "20260904123000_task1_chart_human_review.sql"],
       "action": "Keep pending locally; it is not historical drift."
     }
   ],
@@ -192,7 +193,7 @@
       {"name": "p1_rls_and_reading_answers_idempotency_recheck", "reason": "Documented idempotent rerun of the existing 20260714 P1 source; no unique schema delta or missing source blocker."},
       {"name": "20260813_anonymous_process_quota", "reason": "Repo source exists and historical evidence recorded the table as present despite ledger silence; never rerun or backfill the ledger from this contract."}
     ],
-    "expected_pending": ["20260904_retire_obsolete_waitlist_exposure"],
+    "expected_pending": ["20260904_retire_obsolete_waitlist_exposure", "20260904123000_task1_chart_human_review"],
     "unrecovered_blabby_sources": [],
     "unknown_drift_causes_failure": true
   },

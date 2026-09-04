@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="./config.js"></script>
+<script src="./task1-chart-renderer.js"></script>
 <style>
   :root {
     --cream:    #F5F0E8;
@@ -736,6 +737,48 @@
     margin-bottom: 3px;
   }
 
+  /* === Task 1 chart human review === */
+  .writing-view-tabs, .review-filter-tabs {
+    display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 14px;
+    border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  .writing-view-tab, .review-filter-tab {
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: 3px;
+    background: transparent; color: var(--muted); cursor: pointer; font-size: 12px;
+  }
+  .writing-view-tab.active, .review-filter-tab.active {
+    background: var(--navy); color: #fff; border-color: var(--navy);
+  }
+  .task1-review-layout { display: grid; grid-template-columns: minmax(250px, 0.8fr) minmax(320px, 1.2fr); min-height: 560px; }
+  .task1-review-list { border-right: 1px solid var(--border); }
+  .task1-review-row { cursor: pointer; }
+  .task1-review-row.selected { background: rgba(201,168,76,0.12); border-left: 3px solid var(--gold); padding-left: 11px; }
+  .task1-review-detail { padding: 18px; background: var(--surface); min-width: 0; }
+  .task1-review-detail h2 { font-family: var(--serif); font-size: 19px; color: var(--navy); margin-bottom: 12px; }
+  .task1-review-prompt { font-family: var(--serif); font-size: 15px; line-height: 1.6; margin-bottom: 16px; }
+  .task1-review-preview { min-height: 120px; padding: 12px; margin: 8px 0 16px; border: 1px solid var(--border); background: var(--cream); }
+  .task1-review-preview .pie-chart-canvas { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
+  .task1-review-preview .pie-chart-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 8px 16px; width: 100%; margin-top: 12px; }
+  .task1-review-preview .pie-chart-legend-item { display: flex; align-items: flex-start; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+  .task1-review-preview .pie-chart-swatch { flex: 0 0 12px; width: 12px; height: 12px; margin-top: 3px; border-radius: 2px; }
+  .task1-review-preview .pie-chart-label { min-width: 0; line-height: 1.35; }
+  .task1-review-preview-empty { color: var(--muted); font-style: italic; font-family: var(--serif); }
+  .task1-review-source { width: 100%; max-height: 180px; overflow: auto; padding: 10px; background: var(--cream); border: 1px solid var(--border); white-space: pre-wrap; word-break: break-word; font: 12px/1.5 var(--mono); }
+  .task1-review-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+  .task1-review-form label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .task1-review-form select, .task1-review-form textarea { padding: 8px; border: 1px solid var(--border); background: #fff; color: var(--ink); font: 13px var(--sans); }
+  .task1-review-form textarea { grid-column: 1 / -1; min-height: 76px; resize: vertical; }
+  .task1-review-save { grid-column: 1 / -1; justify-self: start; padding: 8px 16px; border: 1px solid var(--green); background: var(--green); color: var(--gold); cursor: pointer; font-family: var(--serif); font-size: 14px; }
+  .task1-review-save:disabled { opacity: 0.5; cursor: not-allowed; }
+  .task1-review-result { grid-column: 1 / -1; min-height: 18px; font-size: 12px; }
+  .task1-review-result.ok { color: var(--green); }
+  .task1-review-result.err { color: var(--red); }
+  @media (max-width: 800px) {
+    .task1-review-layout { grid-template-columns: 1fr; }
+    .task1-review-list { border-right: none; border-bottom: 1px solid var(--border); max-height: 42vh; overflow-y: auto; }
+    .task1-review-detail { padding: 14px; }
+  }
+
   /* === 總覽 Dashboard (handoff §3.1) === */
   #dashboard-tab.active { display: block; overflow-y: auto; }
   .dash { max-width: 1500px; margin: 0 auto; padding: 22px 24px; }
@@ -938,6 +981,10 @@
 </div>
 
 <div class="tab-panel" id="writing-tab">
+  <div class="writing-view-tabs" role="tablist" aria-label="Writing views">
+    <button class="writing-view-tab active" id="writing-submissions-view" type="button">Submissions</button>
+    <button class="writing-view-tab" id="writing-review-view" type="button">Task 1 chart review</button>
+  </div>
   <div id="writing-content"><div class="col__empty">Loading…</div></div>
 </div>
 
@@ -950,8 +997,9 @@
   const cfg = window.BLABBY_CONFIG || {};
   const SUPABASE_URL = cfg.supabaseUrl;
   const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
-  const API_BASE = 'https://blabby-backend.onrender.com';
+  const API_BASE = window.BLABBY_API_BASE || 'https://blabby-backend.onrender.com';
   const ADMIN_EMAILS = ['galant.chiu@kumo-edu.com', 'galant19951209@gmail.com'];
+
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     document.body.innerHTML = '<div style="padding:40px;font-family:serif;">Configuration missing.</div>';
@@ -973,6 +1021,10 @@
     userSort: 'recent',   // 'recent' | 'count' | 'az'
     userFilter: 'all',    // 'all' | 'pro' | 'free' | 'practiced'
     writingTask: 'all',   // Writing tab filter: 'all' | 'task1' | 'task2'
+    writingView: 'submissions',
+    task1ReviewFilter: 'pending',
+    task1ReviewRows: [],
+    selectedTask1ReviewId: null,
   };
 
   // === Helpers ===
@@ -1626,7 +1678,7 @@
       renderChangelog();
     }
     if (name === 'writing') {
-      loadWritingSubmissions();
+      loadWritingView();
     }
     if (name === 'reading') {
       loadReadingAttempts();
@@ -1635,6 +1687,9 @@
   document.querySelectorAll('.tab').forEach(t => {
     t.addEventListener('click', () => activateTab(t.dataset.tab));
   });
+
+  $('writing-submissions-view').addEventListener('click', () => activateWritingView('submissions'));
+  $('writing-review-view').addEventListener('click', () => activateWritingView('review'));
 
   // === Writing / Reading admin tabs (B pattern: flat list + inline detail) ===
   // Lazy: fetched only when the tab is opened (wired in activateTab). Each row
@@ -1682,6 +1737,201 @@
     } catch (err) {
       console.error('loadWritingSubmissions error', err);
       host.innerHTML = '<div class="col__empty">Network error</div>';
+    }
+  }
+
+  function activateWritingView(view) {
+    state.writingView = view;
+    $('writing-submissions-view').classList.toggle('active', view === 'submissions');
+    $('writing-review-view').classList.toggle('active', view === 'review');
+    if (view === 'review') loadTask1Review();
+    else loadWritingSubmissions();
+  }
+
+  function loadWritingView() {
+    activateWritingView(state.writingView || 'submissions');
+  }
+
+  const TASK1_REVIEW_STATUSES = [
+    ['pending', 'Pending'],
+    ['needs_fix', 'Needs fix'],
+    ['approved', 'Approved for engineering reactivation'],
+    ['retired', 'Retired'],
+    ['all', 'All'],
+  ];
+  const TASK1_REVIEW_ISSUES = [
+    ['', 'No category'],
+    ['renderer_unsupported', 'Renderer unsupported'],
+    ['data_shape_invalid', 'Data shape invalid'],
+    ['misleading_visual', 'Misleading visual'],
+    ['label_collision', 'Label collision'],
+    ['unreadable', 'Unreadable'],
+    ['content_issue', 'Content issue'],
+    ['other', 'Other'],
+  ];
+
+  function reviewStatusClass(status) {
+    if (status === 'approved') return 'valid';
+    if (status === 'needs_fix') return 'partial';
+    if (status === 'retired') return 'invalid';
+    return 'tag';
+  }
+
+  function reviewStatusLabel(status) {
+    const match = TASK1_REVIEW_STATUSES.find(([value]) => value === status);
+    return match ? match[1] : status || 'Pending';
+  }
+
+  async function loadTask1Review() {
+    const host = $('writing-content');
+    host.innerHTML = '<div class="col__empty">Loading Task 1 review queue…</div>';
+    try {
+      const filter = state.task1ReviewFilter || 'pending';
+      const res = await fetch(`${API_BASE}/admin/writing/task1-review?review_status=${encodeURIComponent(filter)}`, {
+        headers: { 'Authorization': `Bearer ${state.token}` },
+      });
+      if (!res.ok) {
+        host.innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`;
+        return;
+      }
+      const data = await res.json();
+      state.task1ReviewRows = data.questions || [];
+      state.selectedTask1ReviewId = state.task1ReviewRows.some(q => q.question_id === state.selectedTask1ReviewId)
+        ? state.selectedTask1ReviewId
+        : (state.task1ReviewRows[0]?.question_id || null);
+      renderTask1ReviewQueue();
+    } catch (err) {
+      console.error('loadTask1Review error', err);
+      host.innerHTML = '<div class="col__empty">Network error</div>';
+    }
+  }
+
+  function renderTask1ReviewQueue() {
+    const host = $('writing-content');
+    const rows = state.task1ReviewRows || [];
+    const selectedId = state.selectedTask1ReviewId;
+    const filterTabs = '<div class="review-filter-tabs" role="tablist" aria-label="Review status filter">' +
+      TASK1_REVIEW_STATUSES.map(([value, label]) =>
+        `<button class="review-filter-tab ${state.task1ReviewFilter === value ? 'active' : ''}" data-review-filter="${value}" type="button">${escapeHtml(label)}</button>`
+      ).join('') + '</div>';
+    const summary = `<div class="ltab-summary">${rows.length} chart question${rows.length === 1 ? '' : 's'} · review state only; serving state is unchanged</div>`;
+    if (!rows.length) {
+      host.innerHTML = filterTabs + summary + '<div class="col__empty">No questions in this review filter.</div>';
+      wireTask1ReviewFilters(host);
+      return;
+    }
+
+    const list = rows.map(row => `
+      <div class="lrow task1-review-row ${row.question_id === selectedId ? 'selected' : ''}" data-review-id="${escapeHtml(row.question_id)}" role="button" tabindex="0">
+        <div class="lrow__time">${escapeHtml(row.task1_subtype || 'task1')}</div>
+        <div class="lrow__main">
+          <div class="lrow__title">${escapeHtml(truncate(row.prompt, 74))}</div>
+          <div class="lrow__meta">${escapeHtml(row.question_id || '—')} · ${escapeHtml(row.preview_kind || 'none')} · ${escapeHtml(row.serving_state || 'unknown')}</div>
+        </div>
+        <div><span class="badge ${reviewStatusClass(row.review_status)}">${escapeHtml(reviewStatusLabel(row.review_status))}</span></div>
+      </div>`).join('');
+
+    host.innerHTML = filterTabs + summary + `<div class="task1-review-layout"><div class="task1-review-list">${list}</div><div class="task1-review-detail" id="task1-review-detail"></div></div>`;
+    wireTask1ReviewFilters(host);
+    host.querySelectorAll('[data-review-id]').forEach(row => {
+      row.addEventListener('click', () => {
+        state.selectedTask1ReviewId = row.dataset.reviewId;
+        renderTask1ReviewQueue();
+      });
+      row.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          state.selectedTask1ReviewId = row.dataset.reviewId;
+          renderTask1ReviewQueue();
+        }
+      });
+    });
+    renderTask1ReviewDetail(rows.find(row => row.question_id === selectedId) || rows[0]);
+  }
+
+  function wireTask1ReviewFilters(host) {
+    host.querySelectorAll('[data-review-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.task1ReviewFilter = btn.dataset.reviewFilter;
+        loadTask1Review();
+      });
+    });
+  }
+
+  function renderTask1ReviewDetail(row) {
+    const detail = $('task1-review-detail');
+    if (!detail || !row) return;
+    const statusOptions = TASK1_REVIEW_STATUSES
+      .filter(([value]) => value !== 'all')
+      .map(([value, label]) => `<option value="${value}" ${row.review_status === value ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+    const issueOptions = TASK1_REVIEW_ISSUES
+      .map(([value, label]) => `<option value="${value}" ${String(row.review_issue || '') === value ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+    const reviewAudit = row.reviewed_at
+      ? `${escapeHtml(fmtDateTime(row.reviewed_at))} · ${escapeHtml(row.reviewed_by || 'server admin')}`
+      : 'Not reviewed yet';
+    detail.innerHTML = `
+      <h2>${escapeHtml(row.task1_subtype || 'Task 1 chart')} · ${escapeHtml(row.question_id || '')}</h2>
+      <div class="task1-review-prompt">${escapeHtml(row.prompt || '(no prompt)')}</div>
+      <div class="detail-field"><div class="detail-field__label">Serving state</div><div class="detail-field__value">${escapeHtml(row.serving_state || 'unknown')} · unchanged by this review</div></div>
+      <div class="detail-field"><div class="detail-field__label">Renderer preview</div><div class="task1-review-preview" id="task1-review-preview"></div></div>
+      <div class="detail-field"><div class="detail-field__label">Stored chart source</div><pre class="task1-review-source">${escapeHtml(row.chart_description || '(no chart description)')}</pre></div>
+      <div class="detail-field"><div class="detail-field__label">Review audit</div><div class="detail-field__value">${reviewAudit}</div></div>
+      <div class="task1-review-form">
+        <label>Status<select id="task1-review-status">${statusOptions}</select></label>
+        <label>Issue category<select id="task1-review-issue">${issueOptions}</select></label>
+        <label>Reviewer note<textarea id="task1-review-note" maxlength="2000">${escapeHtml(row.review_note || '')}</textarea></label>
+        <button class="task1-review-save" id="task1-review-save" type="button">Save review</button>
+        <div class="task1-review-result" id="task1-review-result" aria-live="polite"></div>
+      </div>`;
+
+    const preview = $('task1-review-preview');
+    const renderer = window.BlabbyTask1ChartRenderer;
+    let rendered = false;
+    if (renderer && row.chart_data) rendered = renderer.renderPieChart(row.chart_data, preview);
+    if (!rendered && renderer && row.chart_svg) rendered = renderer.renderLegacyChartImage(row.chart_svg, preview);
+    if (!rendered) {
+      const message = document.createElement('p');
+      message.className = 'task1-review-preview-empty';
+      message.textContent = row.preview_kind === 'renderer_unsupported'
+        ? 'No deterministic preview: the stored multi-period shape is outside the current single-pie renderer contract.'
+        : 'No safe renderer preview is available for this source.';
+      preview.appendChild(message);
+    }
+    $('task1-review-save').addEventListener('click', () => saveTask1Review(row.question_id));
+  }
+
+  async function saveTask1Review(questionId) {
+    const result = $('task1-review-result');
+    const button = $('task1-review-save');
+    const status = $('task1-review-status').value;
+    const issue = $('task1-review-issue').value || null;
+    const note = $('task1-review-note').value.trim() || null;
+    if (status === 'needs_fix' && !issue) {
+      result.textContent = 'Choose an issue category before marking Needs fix.';
+      result.className = 'task1-review-result err';
+      return;
+    }
+    button.disabled = true;
+    result.textContent = 'Saving…';
+    result.className = 'task1-review-result';
+    try {
+      const res = await fetch(`${API_BASE}/admin/writing/task1-review/${encodeURIComponent(questionId)}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${state.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ review_status: status, review_issue: issue, review_note: note }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      result.textContent = 'Saved. Serving state was not changed.';
+      result.className = 'task1-review-result ok';
+      await loadTask1Review();
+    } catch (err) {
+      result.textContent = `Failed: ${err.message}`;
+      result.className = 'task1-review-result err';
+      button.disabled = false;
     }
   }
 

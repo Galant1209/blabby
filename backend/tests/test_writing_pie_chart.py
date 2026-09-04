@@ -115,7 +115,7 @@ def test_missing_word_boundary_is_rejected_instead_of_served():
 
 
 def test_pure_js_geometry_is_contiguous_and_finite():
-    source = (Path(__file__).parents[2] / "frontend/app/writing.html").read_text()
+    source = (Path(__file__).parents[2] / "frontend/app/task1-chart-renderer.js").read_text()
     geometry = source.split("// PURE_GEOMETRY_START", 1)[1].split(
         "// PURE_GEOMETRY_END", 1
     )[0]

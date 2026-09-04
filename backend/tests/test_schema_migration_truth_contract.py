@@ -27,11 +27,11 @@ def test_manifest_covers_every_repo_migration_with_the_right_kind():
     listed_files = sorted(item["name"] for item in inventory)
 
     assert listed_files == repo_files
-    assert len(inventory) == 36
-    assert sum(item["kind"] == "forward" for item in inventory) == 29
+    assert len(inventory) == 37
+    assert sum(item["kind"] == "forward" for item in inventory) == 30
     assert sum(item["kind"] == "rollback" for item in inventory) == 5
     assert sum(item["kind"] == "baseline" for item in inventory) == 2
-    assert sum(item["kind"] in {"forward", "baseline"} for item in inventory) == 31
+    assert sum(item["kind"] in {"forward", "baseline"} for item in inventory) == 32
 
     forward_names = {
         item["name"] for item in inventory if item["kind"] in {"forward", "baseline"}
@@ -182,3 +182,17 @@ def test_replay_and_production_status_are_explicitly_separate():
     assert manifest["production_inspection"]["transaction_read_only"] == "on"
     assert manifest["production_inspection"]["catalog_snapshot"]["record_count"] == 887
     assert manifest["replay"]["classified_diff_summary"]["unexplained_differences"] == 0
+
+
+def test_task1_review_migration_is_safe_and_serving_separate():
+    source = (MIGRATIONS_DIR / "20260904123000_task1_chart_human_review.sql").read_text()
+    assert "ADD COLUMN IF NOT EXISTS review_status text NOT NULL DEFAULT 'pending'" in source
+    assert "ADD COLUMN IF NOT EXISTS review_issue text" in source
+    assert "ADD COLUMN IF NOT EXISTS review_note text" in source
+    assert "ADD COLUMN IF NOT EXISTS reviewed_at timestamptz" in source
+    assert "ADD COLUMN IF NOT EXISTS reviewed_by uuid" in source
+    assert "review_status IN ('pending', 'approved', 'needs_fix', 'retired')" in source
+    assert "renderer_unsupported" in source
+    assert "idx_writing_questions_review_status" in source
+    assert "UPDATE writing_questions" not in source
+    assert "SET is_pregenerated" not in source

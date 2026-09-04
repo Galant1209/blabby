@@ -28,9 +28,9 @@ def test_part2_renderer_uses_text_nodes_not_html_templates():
 
 
 def test_writing_pie_chart_uses_canvas_and_text_only_legend():
-    source = (APP_DIR / "writing.html").read_text(encoding="utf-8")
-    renderer = source.split("function renderPieChart(raw)", 1)[1].split(
-        "window.addEventListener('resize'", 1
+    source = (APP_DIR / "task1-chart-renderer.js").read_text(encoding="utf-8")
+    renderer = source.split("function renderPieChart(raw, container)", 1)[1].split(
+        "function renderLegacyChartImage", 1
     )[0]
     assert "createElement('canvas')" in renderer
     assert "calculatePieSlices" in renderer
@@ -54,7 +54,10 @@ def test_writing_legacy_svg_is_not_used_for_pie_or_injected_into_live_dom():
 
 def test_writing_legend_is_responsive_without_fixed_chart_width():
     source = (APP_DIR / "writing.html").read_text(encoding="utf-8")
+    renderer = (APP_DIR / "admin.html").read_text(encoding="utf-8")
     assert ".pie-chart-legend { display: grid" in source
+    assert "task1-chart-renderer.js" in source
+    assert "task1-chart-renderer.js" in renderer
     assert "auto-fit" in source
     assert "overflow-wrap: anywhere" in source
     assert "#chart-container { width: 100%; max-width: 100%; overflow: hidden" in source
