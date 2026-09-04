@@ -9,22 +9,32 @@ and no review action reactivates a question. No production migration was
 applied, no production data was written, and no writing submission data is
 returned by the review API.
 
-## Historical truth
+## Historical provenance
 
-The exact six design issues named in the 2026-09-03 handoff could not be
-recovered from the canonical repository, Git history, checked-in docs, visible
-handoff attachments, or available rollout summaries. They are intentionally
-not reconstructed from inference. This remains a Round G evidence blocker.
+The 2026-09-03 handoff named an additional set of “six design issues”, but the
+original list was not found after exhaustive recovery across the canonical
+repository, Git history, checked-in docs, visible handoff attachments, and
+available rollout summaries. The exact six are therefore **UNRECOVERABLE
+HISTORICAL PROVENANCE**. No inference or fabricated replacement taxonomy was
+made, and this provenance gap is non-blocking for the current review system.
 
-The following facts are independently recoverable from
-`docs/PIE_RETIRED_MULTIPERIOD_20260714.md` and the current code:
+The recoverable July evidence is independently consistent with the current
+repository behavior. These are **verifiable historical facts**, not the lost
+09-03 six issues:
 
-- Eleven valid multi-period pie questions still exist.
-- The only historical serving-field change was `is_pregenerated=false`.
-- The current `PieChartData` contract contains one `labels`/`values` set.
-- `parse_legacy_chart_description()` returns `None` for the multi-period pipe
-  shape, so the student path falls back to text rather than drawing a false
-  single pie.
+1. The in-pool pie set contained 16 questions.
+2. Five questions rendered as actual deterministic pies.
+3. Eleven questions fell back to text.
+4. The fallback coverage was approximately 69% of in-pool pies.
+5. `parse_legacy_chart_description()` supports a single pie with two columns;
+   multi-period shapes such as `Energy Source | 2000 | 2010 | 2020` are not
+   supported and consequently fall back to text.
+6. Those 11 questions were soft-retired by changing only
+   `is_pregenerated=false`; the action was reversible, and no multi-period pie
+   renderer was shipped.
+
+The exact 11 IDs, their source descriptions, and the serving-field truth are
+independently recoverable from `docs/PIE_RETIRED_MULTIPERIOD_20260714.md`.
 
 ## Renderer truth
 
@@ -87,10 +97,20 @@ are outside the update contract.
   preserving `not_pool_eligible`.
 - Responsive contract: PASS by source (`@media (max-width: 800px)` stacks the
   review list/detail) and narrow-width interaction smoke. The connected Chrome
-  driver did not expose a true device viewport override, so this is not claimed
-  as a device-emulation pass.
+  driver did not expose a true device viewport override; true mobile device
+  review was unavailable and is non-blocking under the reconciled gate.
 - Production migration apply: NOT DONE by design.
 - Production review write: NOT DONE by design.
-- Exact 09-03 six-issue recovery: BLOCKED; authoritative source unavailable.
+- Exact 09-03 six-issue recovery: UNRECOVERABLE PROVENANCE GAP; not fabricated
+  and non-blocking.
 - Production-backed browser review: NOT DONE; requires the schema to be
   separately deployed and authorized.
+
+## Round G gate
+
+**ROUND G GATE: PASS — HISTORICAL PROVENANCE GAP DOCUMENTED, NOT FABRICATED**
+
+The current taxonomy is grounded in renderer capability and the 11/11 local
+reproduction, not attributed to the unrecoverable 09-03 list. No question was
+reactivated, no production migration or write was performed, and the change
+remains local pending Galant review/push.

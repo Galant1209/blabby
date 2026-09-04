@@ -361,8 +361,8 @@ free 使用者存到第 31 個字時會撞到一個前端沒準備接的錯誤�
 ### schema migration truth
 
 Round E-R Phase 2 的工程 contract 在 `docs/SCHEMA_MIGRATION_TRUTH.md`，機械化
-manifest 在 `docs/schema_migration_truth_manifest.json`。目前 repo 有 **36 支 `.sql`**：
-31 支 forward（含 2 支 baseline）與 5 支 rollback；rollback 不進 forward replay。
+manifest 在 `docs/schema_migration_truth_manifest.json`。目前 repo 有 **37 支 `.sql`**：
+32 支 forward（含 2 支 baseline）與 5 支 rollback；rollback 不進 forward replay。
 本輪已在明確 `READ ONLY` transaction 內重新取得 production ledger 與 allowlist
 catalog snapshot，且以 `ROLLBACK` 收尾。
 
@@ -396,8 +396,8 @@ Blabby drift。Production 明確查到 repo-only 的 `practice_records_quality_g
 - 不做大型 UI redesign
 - 不做多期 pie renderer（11 題已軟退池，可逆、有文件：
   `docs/PIE_RETIRED_MULTIPERIOD_20260714.md`）
-- 不補 Admin 批改佇列 —— 後端交卷即批改完，無 pending 狀態可掛，
-  需先改 schema
+- Admin 批改佇列只可在明確授權的人審 scope 下新增；Round G 已先新增
+  review schema，且 review state 必須與 serving state 分離
 - 面向使用者文字一律古老英式風格 —— 每一句都要值得被印在羊皮紙上
 - 法務文字例外：條款內文要冷、清楚、可執行。
   「銀行退刷入帳約需 14–21 個工作天」不要改成文言。
