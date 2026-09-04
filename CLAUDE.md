@@ -162,30 +162,27 @@ token、raw callback 與其他 PII/secret。
 
 ### Admin
 
-- 端點 17 條：`/admin/recent`、`/admin/pro_breakdown`、`/admin/user/{id}/pro`（deprecated）、
-  `/admin/user/{id}/pro_grant`、`DELETE /admin/user/{id}`、`/admin/waitlist`、
-  `/admin/dashboard`、`/admin/activity`、`/admin/users`、`/api/admin/reclassify`、
-  `/api/admin/student_brief/{id}`、`/admin/user/{id}`、`/admin/writing/submissions`、
-  `/admin/reading/attempts`、`/admin/practice-volume`、`/admin/user/{id}/diagnosis`、
-  `/api/admin/subscriptions`（+ extend / cancel）
+- 端點 13 條：`/admin/recent`、`/admin/user/{id}/pro`（deprecated）、
+  `/admin/user/{id}/pro_grant`、`DELETE /admin/user/{id}`、`/admin/users`、
+  `/api/admin/reclassify`、`/api/admin/student_brief/{id}`、`/admin/user/{id}`、
+  `/admin/writing/submissions`、`/admin/reading/attempts`、`/admin/practice-volume`、
+  `/admin/user/{id}/diagnosis`、`/api/admin/subscriptions`（+ extend / cancel）
 - 前端：`admin.html`
 - 授權分界：`verify_admin()`，email 白名單常數 `ADMIN_EMAILS`
-- 孤兒端點 4 條：`/admin/pro_breakdown`、`/admin/waitlist`、`/admin/dashboard`、
-  `/admin/activity` —— 半成品殘骸，見 §5
+- Round D 已移除無 consumer、無維運角色的四支半成品端點：
+  `/admin/pro_breakdown`、`/admin/waitlist`、`/admin/dashboard`、`/admin/activity`
 
 ### 金流（ECPay）
 
 - 端點：`POST /api/payment/create-order`、`GET /api/payment/_diag`、
   `POST /api/payment/callback`、`GET /api/user/subscription`、
-  `POST /api/webhooks/lemonsqueezy`（LemonSqueezy 遺留）、
-  `POST /api/track/upgrade_page_view`、`POST /api/track/upgrade_interest`
+  `POST /api/webhooks/lemonsqueezy`（LemonSqueezy 遺留）
 - 前端：`upgrade.html`（唯一呼叫 `create-order`）、`success.html`、
   `account.html`、`hub.html`、`writing.html`（讀訂閱狀態）
 - 設定：`ecpay.load_config()` 於 startup；失敗記 CRITICAL 但不阻斷服務
 - 背景 job：`expire_stale_pending_subscriptions`（每 6h :00）、
   `lapse_expired_active_subscriptions`（每 6h :30，刻意錯開）
-- 孤兒端點 2 條：`/api/track/upgrade_page_view`、`/api/track/upgrade_interest`
-  —— 半成品殘骸，見 §5
+- Round D 已移除無 consumer 的舊 upgrade tracking routes；正式轉換事件走 PostHog。
 
 ### Auth / Profile / 入室契約
 
@@ -339,25 +336,16 @@ CheckMacValue 參數集。未來整合時必須重跑 `test_ecpay.py` 與
 `GET /api/writing/history`、`GET /reading/history`。
 兩支同型，代表不是單次疏漏。**已排定，下一輪處理。**
 
-**半成品殘骸 —— 三處互相錯開**
+**Round D cleanup（2026-09-04）**
 
-- `/admin/pro_breakdown`、`/admin/waitlist`、`/admin/dashboard`、`/admin/activity`
-- `/api/track/upgrade_page_view`、`/api/track/upgrade_interest`
-- `pro_waitlist` 表：0 列、零 policy、後端零寫入者
-- `admin.html`（搜 `pro_waitlist`）用 anon key 直查那張零 policy 的表，
-  **永遠回空陣列**
-- 後端 `/admin/waitlist` 讀的其實是 `upgrade_intent`，不是 `pro_waitlist`，
-  而前端不呼叫它 —— 兩邊讀不同的表，都讀不到
-- `POST /api/track/upgrade_interest` 的 docstring 自承
-  「Logs only — no persistence yet」，實作只有一行 `logger.info`，
-  **且該行把 email 寫進 log**
-- `upgrade_intent` 有 6 列，全部來自 2026-04-30，之後零新增
-- `upgrade_intent` 掛著三條重複的 INSERT policy（`allow_anon_insert`、
-  `anon_insert_upgrade_intent`、`authenticated_insert_upgrade_intent`），
-  `with_check` 全為 `true`，**anon 可無限制寫入**
-
-**等候名單是金流上線前的替代品。ECPay 已經活著、`upgrade.html` 走
-`create-order`，這條路徑已無存在理由。處置方向是清除而非修復，獨立一輪。**
+- obsolete waitlist frontend、四支無 consumer 的 admin routes，以及兩支只記 log
+  的 upgrade tracking routes 已移除；`upgrade_interest` 的 email logging path 也一併消失。
+- `pro_waitlist` application path 已移除，但 production 未重新取得 read-only truth，
+  因此本輪不 drop table；後續 drop 需重新證明 rows / FK / trigger / view / function。
+- `upgrade_intent` 歷史資料保留；新 migration 移除三條 INSERT policies 並 revoke
+  `anon` INSERT。既有 admin user cleanup 與 legacy RPC 的歷史依賴保留。
+- ECPay 是正式 conversion path：`upgrade.html` → `create-order` → callback →
+  active subscription。除非產品決策改變，不重新建立 waitlist。
 
 ### Vocabulary 的 gate 只有後端
 

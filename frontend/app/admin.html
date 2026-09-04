@@ -2335,16 +2335,6 @@ Admin 觀測儀表板
     const container = $('subs-content');
     container.innerHTML = '';
 
-    // Pro waitlist section
-    const waitlistSection = document.createElement('div');
-    waitlistSection.style.cssText = 'margin-bottom:32px;';
-    waitlistSection.innerHTML = `
-        <h3 style="font-family:var(--serif);font-size:18px;margin-bottom:12px;color:var(--ink)">Pro Waitlist</h3>
-        <div id="waitlist-content" style="font-size:13px;color:var(--muted);font-style:italic">Loading…</div>
-    `;
-    container.appendChild(waitlistSection);
-    loadWaitlist();
-
     // Manual Pro toggle section
     const proSection = document.createElement('div');
     proSection.style.cssText = 'margin-bottom:32px;';
@@ -2417,26 +2407,6 @@ Admin 觀測儀表板
         else if (act === 'cancel') cancelSub(subId, btn);
       });
     });
-  }
-
-  async function loadWaitlist() {
-    const el = document.getElementById('waitlist-content');
-    if (!el) return;
-    try {
-      const { data, error } = await sb.from('pro_waitlist').select('email,created_at').order('created_at', { ascending: false });
-      if (error || !data || data.length === 0) {
-        el.textContent = 'No signups yet.';
-        return;
-      }
-      el.innerHTML = data.map(r => `
-        <div style="padding:6px 0;border-bottom:1px dashed var(--border);display:flex;justify-content:space-between;">
-            <span>${escapeHtml(r.email)}</span>
-            <span style="color:var(--muted);font-size:11px;">${new Date(r.created_at).toLocaleDateString()}</span>
-        </div>
-      `).join('');
-    } catch(e) {
-      el.textContent = 'Failed to load waitlist.';
-    }
   }
 
   let _selectedProUserId = null;

@@ -152,29 +152,6 @@ def main():
                     return 1
             print("  PASS - quota gate triggered, 403 + redirect=/upgrade")
 
-    print("\n[Test 6] POST /api/track/upgrade_page_view")
-    status, body = make_json_request(
-        "/api/track/upgrade_page_view", method="POST", data={}, token=token
-    )
-    print(f"  HTTP: {status}")
-    if status == 200:
-        print("  PASS")
-    else:
-        print(f"  FAIL: should return 200, got {status}")
-
-    print("\n[Test 7] POST /api/track/upgrade_interest")
-    status, body = make_json_request(
-        "/api/track/upgrade_interest", method="POST",
-        data={"email": "verify_test@example.com",
-              "timestamp": "2026-04-29T11:00:00Z"},
-        token=token,
-    )
-    print(f"  HTTP: {status}")
-    if status == 200:
-        print("  PASS")
-    else:
-        print(f"  FAIL: should return 200, got {status}")
-
     print("\n" + "=" * 60)
     print("Sprint 2B Verify - DONE")
     print("=" * 60)
