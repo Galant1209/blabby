@@ -67,7 +67,7 @@ IELTS 練習平台。五個練習模組 —— Speaking、Reading、Writing、Vo
 | `progress-evidence.js` | 2259 B | **待查** —— 內容未逐支讀，需要時自行 grep |
 | `retention.js` | 15183 B | **待查** —— 內容未逐支讀，需要時自行 grep |
 
-後三支的檔名與 `backend/tests/` 裡三支孤兒 `.mjs` harness 同名。
+後三支的檔名與 `backend/tests/` 裡各自的 behavior harness 同名。
 
 ### DB
 
@@ -468,21 +468,13 @@ migration ledger 不只有 Blabby 在寫；看到 `create_npc_relations`
 `SUPABASE_SERVICE_KEY`，並對三個 provider key `setdefault('test-key')` ——
 因為 `main.py` 在 import 時建構 client，缺 key 會讓整個模組 collect 失敗。
 
-測試檔 41 支。**2026-09-04 未取得 passed/skipped 數字**：本機檔案系統病態緩慢
-（見 §7），多次嘗試皆卡在 import 階段。當輪 diff 不含 Python 改動，故不阻擋。
+測試檔 44 支。Round F full gate：625 passed、10 skipped、5 warnings。
 
 ### `.mjs` harness
 
-8 支，全在 `backend/tests/`。
+10 支，全在 `backend/tests/`。
 
-接進 CI 的 2 支：
-
-```
-frontend_billing_behavior.mjs          ← test_frontend_billing_contracts.py
-frontend_writing_restore_behavior.mjs  ← test_writing_restore_contracts.py
-```
-
-孤兒 6 支（無 pytest 包裝，CI 不跑）：
+直接接進 CI 的 6 支（各自有明確的 Node step 命令）：
 
 ```
 frontend_active_vocabulary_behavior.mjs
@@ -493,16 +485,26 @@ frontend_resolution_cycle_behavior.mjs
 frontend_retention_behavior.mjs
 ```
 
-接進 CI 是獨立一輪，接進去很可能直接紅。
+另 4 支透過 pytest wrapper 接進 CI，避免再直接重跑：
+
+```
+frontend_billing_behavior.mjs          ← test_frontend_billing_contracts.py
+frontend_history_behavior.mjs          ← test_frontend_history_contracts.py
+frontend_vocabulary_paywall_behavior.mjs ← test_frontend_vocabulary_paywall_contracts.py
+frontend_writing_restore_behavior.mjs  ← test_writing_restore_contracts.py
+```
+
+Round F 本機逐支執行 10/10 PASS；CI 的直接 step 維持每支獨立命令，失敗時可直接定位 harness。
 
 ### Node
 
-三處 `subprocess` 硬呼叫 `node`，無 `shutil.which` 保護、無 skip：
+五處測試路徑硬呼叫 `node`，無 `shutil.which` 保護、無 skip：
 `test_writing_restore_contracts.py`、`test_frontend_billing_contracts.py`、
+`test_frontend_history_contracts.py`、`test_frontend_vocabulary_paywall_contracts.py`、
 `test_writing_pie_chart.py`。
 
 **2026-09-03 已拍板：Node 不可用時照既有 harness 的 fail，不改 skip。**
-理由是兩支對同一件事有兩種反應，比兩支都紅更難查。
+理由是既有 wrapper 對同一件事有兩種反應，比讓不同 wrapper 各自處理更難查。
 **不要重開這個討論，不要順手加 guard。**
 
 CI 已顯式安裝 Node 20（`actions/setup-node@v4`），就是為了讓這個 fail 不再發生。
@@ -512,7 +514,7 @@ CI 已顯式安裝 Node 20（`actions/setup-node@v4`），就是為了讓這個 
 `.github/workflows/` 只有一支 `test.yml`，兩個獨立 job：
 
 - `backend-tests`：checkout → setup-python 3.11 → setup-node 20 →
-  `pip install` → `pytest tests -q`
+  `pip install` → 6 支 orphan `.mjs` → `pytest tests -q`
 - `migration-replay`：postgres:17 service container → `./supabase/replay/replay.sh`
 
 兩個 job 互不依賴 —— 紅的 replay 不該遮住紅的測試套件，反之亦然。

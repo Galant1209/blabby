@@ -28,7 +28,7 @@ jobs:
           # Pinned deliberately — see the "Python version" note in README.md.
           python-version: '3.11'
 
-      # Two pytest files shell out to `node` to run the .mjs harnesses. Without
+      # Four pytest files shell out to `node` to run the .mjs harnesses. Without
       # this the suite depends on the runner image happening to ship Node, and
       # the failure surfaces as FileNotFoundError instead of a missing runtime.
       - uses: actions/setup-node@v4
@@ -37,6 +37,15 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Run orphan frontend Node contract harnesses
+        run: |
+          node backend/tests/frontend_active_vocabulary_behavior.mjs
+          node backend/tests/frontend_anonymous_conversion_behavior.mjs
+          node backend/tests/frontend_prescription_behavior.mjs
+          node backend/tests/frontend_progress_evidence_behavior.mjs
+          node backend/tests/frontend_resolution_cycle_behavior.mjs
+          node backend/tests/frontend_retention_behavior.mjs
 
       - name: Run backend tests
         working-directory: backend
