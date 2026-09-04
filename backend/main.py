@@ -165,6 +165,7 @@ from reading_validator import validate_passage, validate_questions
 # ECPay signing / order-naming helpers. Pure functions, no DB and no FastAPI —
 # see backend/ecpay.py. Kept out of this file because it is already 10k lines.
 import ecpay
+from telemetry import capture_event
 
 app = FastAPI()
 
@@ -3705,6 +3706,22 @@ async def payment_create_order(
         user_id=user_id,
     )
 
+    # This is the first point where auth, the pending DB row, and a valid
+    # signed ECPay payload all exist.  The optional capture is fail-open and
+    # deliberately carries only a safe technical order identifier.
+    capture_event(
+        "checkout_order_created",
+        distinct_id=str(user_id),
+        properties={
+            "order_id": merchant_trade_no,
+            "plan": "monthly",
+            "amount_twd": ecpay.PRO_MONTHLY_TWD,
+            "currency": "TWD",
+            "payment_provider": "ecpay",
+            "subscription_status": "pending",
+        },
+    )
+
     logger.info("[BILLING] order created mtn=%s user_id=%s amount=%s env=%s",
                 merchant_trade_no, user_id, ecpay.PRO_MONTHLY_TWD, config.env)
     return {
@@ -3951,6 +3968,19 @@ async def payment_callback(request: Request):
 
     logger.info("[BILLING] activated mtn=%s user_id=%s expires=%s",
                 merchant_trade_no, uid, expires_iso)
+    # accept_ecpay_payment returns "activated" only after the signed callback
+    # has crossed the atomic ledger + entitlement transaction boundary.
+    capture_event(
+        "subscription_activated",
+        distinct_id=str(uid),
+        properties={
+            "order_id": merchant_trade_no,
+            "amount_twd": stored_amount,
+            "currency": "TWD",
+            "payment_provider": "ecpay",
+            "subscription_status": "active",
+        },
+    )
     return _ecpay_ack()
 
 

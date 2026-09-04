@@ -91,6 +91,12 @@ provider client 在 **import 時**建構，不是 lazily —— 缺 key 會讓�
 PostHog，`api_host: https://us.i.posthog.com`。
 `index.html` 與 `upgrade.html` 各自初始化一份 `window.analytics` shim（`posthog.capture`）。
 
+付款漏斗的 `paywall_viewed` / `paywall_cta_clicked` 是前端觀察事件；
+`checkout_order_created` 與 `subscription_activated` 只由後端真實付款狀態點送出，
+`checkout_success_viewed` 只代表瀏覽器抵達結果頁。後端 capture 使用可選的
+`POSTHOG_CAPTURE_API_KEY`，缺少或失敗時必須 fail-open；事件 properties 禁止 email、
+token、raw callback 與其他 PII/secret。
+
 ---
 
 ## 3. 模組全景

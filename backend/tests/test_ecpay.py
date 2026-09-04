@@ -1235,6 +1235,66 @@ def test_repeat_clicks_mint_distinct_trade_numbers():
     assert len(fake.rows("subscriptions", "insert")) == 2
 
 
+def test_create_order_telemetry_is_after_signed_payload_success():
+    fake = _FakeSupabase()
+    with patch.object(main, "capture_event") as capture:
+        result, _ = _create_order(fake)
+
+    capture.assert_called_once_with(
+        "checkout_order_created",
+        distinct_id=USER_ID,
+        properties={
+            "order_id": result["merchant_trade_no"],
+            "plan": "monthly",
+            "amount_twd": ecpay.PRO_MONTHLY_TWD,
+            "currency": "TWD",
+            "payment_provider": "ecpay",
+            "subscription_status": "pending",
+        },
+    )
+
+
+def test_create_order_telemetry_is_not_emitted_when_form_build_fails():
+    fake = _FakeSupabase()
+    with patch.object(
+        ecpay,
+        "build_aio_checkout_params",
+        side_effect=ValueError("invalid checkout payload"),
+    ), patch.object(main, "capture_event") as capture:
+        with pytest.raises(ValueError):
+            _create_order(fake)
+
+    capture.assert_not_called()
+
+
+def test_callback_telemetry_is_after_atomic_activation_only():
+    fake = _FakeSupabase()
+    with patch.object(main, "capture_event") as capture:
+        response = _callback(_signed_form(), fake)
+
+    _assert_exact_ack(response)
+    capture.assert_called_once_with(
+        "subscription_activated",
+        distinct_id=USER_ID,
+        properties={
+            "order_id": "BLB2607301405ABCDEFG",
+            "amount_twd": ecpay.PRO_MONTHLY_TWD,
+            "currency": "TWD",
+            "payment_provider": "ecpay",
+            "subscription_status": "active",
+        },
+    )
+
+
+def test_duplicate_callback_does_not_duplicate_activation_telemetry():
+    fake = _FakeSupabase()
+    with patch.object(main, "capture_event") as capture:
+        _callback(_signed_form(), fake)
+        _callback(_signed_form(), fake)
+
+    capture.assert_called_once()
+
+
 # ── /api/payment/return ──────────────────────────────────────────────────
 def _payment_return(method, form=None, query=None):
     request = MagicMock()

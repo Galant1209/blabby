@@ -355,7 +355,12 @@ const API_BASE = 'https://blabby-backend.onrender.com';
 //      sub copy adapts; the comparison table and checkout flow are the same
 //      regardless of source.
 const params = new URLSearchParams(window.location.search);
-const source = params.get('source') || 'direct';
+const requestedSource = params.get('source') || 'direct';
+// Only known-shaped source labels may enter analytics. Unknown values already
+// fall back to the direct headline; keeping the same fallback here prevents a
+// caller-controlled query string from becoming an analytics property.
+const source = /^[A-Za-z0-9_:-]{1,64}$/.test(requestedSource)
+    ? requestedSource : 'direct';
 
 const HEADLINES = {
     direct: {
@@ -426,6 +431,7 @@ async function getToken() {
     if (!sb) return null;
     try {
         const { data: { session } } = await sb.auth.getSession();
+        if (session?.user?.id) window.analytics?.identify(session.user.id);
         return (session && session.access_token) || null;
     } catch (_) {
         return null;

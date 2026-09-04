@@ -178,6 +178,19 @@ def test_success_page_has_no_server_secrets_or_profile_writes():
     assert "profiles" not in src
 
 
+def test_payment_funnel_event_contract_keeps_truth_levels_separate():
+    upgrade = _read("upgrade.html")
+    success = _read("success.html")
+    assert "paywall_viewed" in upgrade
+    assert "paywall_cta_clicked" in upgrade
+    assert "checkout_success_viewed" in success
+    assert "sessionStorage" in success
+    assert "subscription_activated" not in success
+    assert "payment_success" not in success
+    assert "checkout_order_created" not in upgrade
+    assert "email" not in success.split("<script", 1)[-1]
+
+
 # ── Behavioral (Node DOM stubs) ──────────────────────────────────────────────
 
 

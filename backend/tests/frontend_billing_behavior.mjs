@@ -31,7 +31,12 @@ function extractScript(html) {
   const parts = [];
   const re = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
   let m;
-  while ((m = re.exec(html))) parts.push(m[1]);
+  while ((m = re.exec(html))) {
+    // Third-party analytics bootstrap is not the behavior under test.  Skip
+    // it so the VM only needs the page's own script and DOM contract.
+    if (/posthog\.init\(/.test(m[1])) continue;
+    parts.push(m[1]);
+  }
   return parts.join("\n");
 }
 
@@ -444,6 +449,8 @@ function loadSuccessPage(opts = {}) {
     }));
 
   const sessionToken = opts.token === undefined ? "test-jwt" : opts.token;
+  const tracked = [];
+  const storage = new Map();
   const ctx = {
     console,
     setTimeout(fn, ms) {
@@ -472,6 +479,14 @@ function loadSuccessPage(opts = {}) {
       BLABBY_CONFIG: { supabaseUrl: "https://example.supabase.co", supabaseAnonKey: "anon" },
       __BLABBY_SUCCESS_NO_BOOT__: true,
       location: { search: opts.search || "" },
+      analytics: {
+        track(event, props) { tracked.push({ event, props }); },
+        identify() {},
+      },
+      sessionStorage: {
+        getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+        setItem(key, value) { storage.set(key, String(value)); },
+      },
       addEventListener() {},
       supabase: {
         createClient() {
@@ -516,6 +531,7 @@ function loadSuccessPage(opts = {}) {
     els: { title, subtitle, spinner, expiry, order, ctaHub, btnRetry, ctaLogin },
     timers,
     flushTimers,
+    tracked,
     setFetch(fn) {
       ctx.fetch = fn;
       ctx.window.fetch = fn;
@@ -673,7 +689,21 @@ async function testSuccessPageTruthfulness() {
     ok("expiry rendered safely via textContent");
   }
 
-  // 11–12. no session → login, no authorized API call
+  // 11. arrival is observational and one-shot per order in one tab
+  {
+    const page = loadSuccessPage({ search: "?order=20260904ABC" });
+    assert.equal(page.api.trackSuccessView("?order=20260904ABC"), true);
+    assert.equal(page.api.trackSuccessView("?order=20260904ABC"), false);
+    assert.equal(
+      JSON.stringify(page.tracked),
+      JSON.stringify([
+        { event: "checkout_success_viewed", props: { order_id: "20260904ABC" } },
+      ]),
+    );
+    ok("success arrival emits once per order without claiming payment truth");
+  }
+
+  // 12–13. no session → login, no authorized API call
   {
     let calls = 0;
     const { api, els } = loadSuccessPage({
