@@ -358,21 +358,18 @@ free 使用者存到第 31 個字時會撞到一個前端沒準備接的錯誤�
 2026-07-25 的紀錄顯示這個 gate 當時在 `main.py:4228-4238`，位置已變、gate 還在。
 搬遷的時點與原因**待查**。
 
-### schema 有兩套事實
+### schema migration truth
 
-repo `supabase/migrations/` **34 支 `.sql`**（29 前進 + 5 rollback）。
-production ledger `supabase_migrations.schema_migrations` **12 筆**。
+Round E 的工程 contract 在 `docs/SCHEMA_MIGRATION_TRUTH.md`，機械化 manifest
+在 `docs/schema_migration_truth_manifest.json`。目前 repo 有 **35 支 `.sql`**：
+30 支 forward（含 2 支 baseline）與 5 支 rollback；rollback 不進 forward replay。
+歷史上曾觀察到 production ledger 12 筆，但本輪沒有 production read-only access，
+所以不把那個數字當成 current truth。
 
-兩筆 Blabby migration 的變更在 production 生效，repo 無對應檔案或無 ledger 記錄：
-
-- `20260803111937_reading_pool_columns_and_backfill` — 在 ledger，repo 無檔
-- `20260813_anonymous_process_quota` — 在 repo，ledger 無記錄，但
-  `anonymous_process_usage` 表確實存在（代表被直接執行）
-
-14 支 `202604`–`202605` 的舊檔早於 ledger 起點（`20260617`）。
-ledger 裡的 `create_npc_relations` / `harden_npc_relations` 屬其他專案，見 §7。
-
-修補 schema 漂移是獨立一輪。
+`20260803111937_reading_pool_columns_and_backfill` 仍是未恢復的 Blabby source
+blocker；`p1_rls_and_reading_answers_idempotency_recheck` 是既有 P1 source 的
+冪等重跑，不另造 duplicate。`create_npc_relations` / `harden_npc_relations`
+是 shared Supabase 的其他專案 migration，明確排除，不算 Blabby drift。
 
 ### 其他
 
