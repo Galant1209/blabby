@@ -5547,24 +5547,32 @@ async def vocabulary_items_list(
 FREE_VOCABULARY_LIMIT = 30
 
 
-def _check_vocabulary_save_allowed(user_id: str) -> None:
-    """Gate a new owned save, after idempotency checks and before any insert.
-
-    This count-and-insert contract is not atomic across workers. Both save
-    routes share it; database serialization would be needed to close that race.
-    """
-    if get_user_pro_status(user_id):
-        return
-    count_resp = (
-        supabase_admin.table("user_vocabulary")
-        .select("id", count="exact")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
-    if count_resp.count is None:
-        raise HTTPException(status_code=503, detail="Failed to check vocabulary quota")
-    if count_resp.count >= FREE_VOCABULARY_LIMIT:
+def _save_vocabulary_atomic(
+    user_id: str,
+    *,
+    item_id: Optional[str] = None,
+    word: Optional[str] = None,
+    zh_meaning: str = "",
+    source: str = "manual_added",
+    source_practice_record_id: Optional[str] = None,
+) -> dict:
+    """Use the DB transaction as the only authority; never fall back to inserts."""
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    result = supabase_admin.rpc("save_vocabulary_atomic", {
+        "p_user_id": user_id,
+        "p_vocabulary_item_id": item_id,
+        "p_word": word,
+        "p_zh_meaning": zh_meaning,
+        "p_source": source,
+        "p_source_practice_record_id": source_practice_record_id,
+    }).execute().data
+    if not isinstance(result, dict):
+        raise ValueError("Invalid atomic vocabulary response")
+    status = result.get("status")
+    if status == "quota_reached":
+        if result.get("limit") != FREE_VOCABULARY_LIMIT:
+            raise ValueError("Unexpected atomic vocabulary limit")
         raise HTTPException(
             status_code=403,
             detail={
@@ -5576,6 +5584,15 @@ def _check_vocabulary_save_allowed(user_id: str) -> None:
                 ),
             },
         )
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail="Vocabulary item not found")
+    if status not in ("inserted", "existing"):
+        raise ValueError("Unknown atomic vocabulary status")
+    for key in ("user_vocabulary_id", "vocabulary_item_id"):
+        uuid.UUID(str(result.get(key)))
+    if not isinstance(result.get("word"), str):
+        raise ValueError("Missing atomic vocabulary word")
+    return result
 
 
 @app.post("/api/vocabulary/my")
@@ -5609,55 +5626,25 @@ async def vocabulary_my_add(
 
     select_cols = f"*, vocabulary_items({_vocab_item_select()})"
 
+    if source_practice_record_id:
+        try:
+            source_practice_record_id = str(uuid.UUID(str(source_practice_record_id)))
+        except ValueError:
+            source_practice_record_id = None
+    else:
+        source_practice_record_id = None
+
     try:
-        # Existence check before insert — supabase-py upsert helpers don't
-        # round-trip the joined item cleanly, so we do explicit check+insert.
-        existing = (
-            supabase_admin.table("user_vocabulary")
-            .select(select_cols)
-            .eq("user_id", user_id)
-            .eq("vocabulary_item_id", item_id)
-            .maybe_single()
-            .execute()
+        result = _save_vocabulary_atomic(
+            user_id, item_id=item_id, source=source,
+            source_practice_record_id=source_practice_record_id,
         )
-        if existing and existing.data:
-            return existing.data
-
-        _check_vocabulary_save_allowed(user_id)
-
-        # Verify the catalog item actually exists — fk would catch this on
-        # insert, but a 404 is more useful than a Postgres error string.
-        item_check = (
-            supabase_admin.table("vocabulary_items")
-            .select("id")
-            .eq("id", item_id)
-            .maybe_single()
-            .execute()
-        )
-        if not (item_check and item_check.data):
-            raise HTTPException(status_code=404, detail="Vocabulary item not found")
-
-        payload: dict = {
-            "user_id": user_id,
-            "vocabulary_item_id": item_id,
-            "source": source,
-        }
-        if source_practice_record_id:
-            try:
-                uuid.UUID(str(source_practice_record_id))
-                payload["source_practice_record_id"] = str(source_practice_record_id)
-            except ValueError:
-                pass  # silently drop bad practice id rather than 400
-
-        inserted = supabase_admin.table("user_vocabulary").insert(payload).execute()
-        if not inserted.data:
-            raise HTTPException(status_code=500, detail="Failed to add vocabulary item")
-        new_id = inserted.data[0]["id"]
-        # Re-fetch with the join for a consistent return shape.
+        # Keep the existing joined response, scoped to the verified owner.
         full = (
             supabase_admin.table("user_vocabulary")
             .select(select_cols)
-            .eq("id", new_id)
+            .eq("id", result["user_vocabulary_id"])
+            .eq("user_id", user_id)
             .single()
             .execute()
         )
@@ -8846,10 +8833,9 @@ async def vocabulary_save_word(
     The existing /api/vocabulary/my endpoint requires a vocabulary_item_id
     (UUID into the curated catalog). Reading users click arbitrary words that
     may not be in the catalog, so we resolve the word lazily here:
-      1. Find vocabulary_items row WHERE word = <lowercased input>
-      2. Return an existing owned link without consuming quota
-      3. Check the shared Free quota before creating either row
-      4. If needed, create a sparse catalog row, then insert the owned link
+      The atomic RPC serializes this owner's saves, resolves the word,
+      returns an existing owned link or checks the canonical DB entitlement
+      and quota, then creates any needed corpus row and owned link together.
 
     The Reading frontend supplies zh_meaning via /vocab/translate_zh before
     calling this endpoint, so newly-inserted catalog rows now ship with a
@@ -8894,65 +8880,18 @@ async def vocabulary_save_word(
         zh_meaning = ""
 
     try:
-        existing_item = (
-            supabase_admin.table("vocabulary_items")
-            .select("id")
-            .eq("word", word)
-            .limit(1)
-            .execute()
+        result = _save_vocabulary_atomic(
+            user_id, word=word, zh_meaning=zh_meaning, source=source,
         )
-        item_id = existing_item.data[0]["id"] if existing_item.data else None
-        if item_id:
-            existing_uv = (
-                supabase_admin.table("user_vocabulary")
-                .select("id")
-                .eq("user_id", user_id)
-                .eq("vocabulary_item_id", item_id)
-                .limit(1)
-                .execute()
-            )
-            if existing_uv.data:
-                logger.info(
-                    "[VOCAB_SAVE_WORD_DUP] user_id=%s word=%r source=%s",
-                    user_id, word, source,
-                )
-                return {
-                    "status": "exists",
-                    "vocabulary_item_id": item_id,
-                    "word": word,
-                }
-
-        _check_vocabulary_save_allowed(user_id)
-
-        if item_id is None:
-            inserted_item = (
-                supabase_admin.table("vocabulary_items")
-                .insert({"word": word, "zh_meaning": zh_meaning})
-                .execute()
-            )
-            if not inserted_item.data:
-                raise HTTPException(status_code=500, detail="Failed to create catalog entry")
-            item_id = inserted_item.data[0]["id"]
-
-        inserted_uv = (
-            supabase_admin.table("user_vocabulary")
-            .insert({
-                "user_id": user_id,
-                "vocabulary_item_id": item_id,
-                "source": source,
-            })
-            .execute()
-        )
-        if not inserted_uv.data:
-            raise HTTPException(status_code=500, detail="Failed to save word")
+        status = "added" if result["status"] == "inserted" else "exists"
         logger.info(
-            "[VOCAB_SAVE_WORD] user_id=%s word=%r source=%s item_id=%s",
-            user_id, word, source, item_id,
+            "[VOCAB_SAVE_WORD] user_id=%s word=%r source=%s item_id=%s status=%s",
+            user_id, word, source, result["vocabulary_item_id"], status,
         )
         return {
-            "status": "added",
-            "vocabulary_item_id": item_id,
-            "word": word,
+            "status": status,
+            "vocabulary_item_id": result["vocabulary_item_id"],
+            "word": result["word"],
         }
     except HTTPException:
         raise

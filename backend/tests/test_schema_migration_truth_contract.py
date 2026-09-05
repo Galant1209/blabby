@@ -27,11 +27,11 @@ def test_manifest_covers_every_repo_migration_with_the_right_kind():
     listed_files = sorted(item["name"] for item in inventory)
 
     assert listed_files == repo_files
-    assert len(inventory) == 37
-    assert sum(item["kind"] == "forward" for item in inventory) == 30
+    assert len(inventory) == 38
+    assert sum(item["kind"] == "forward" for item in inventory) == 31
     assert sum(item["kind"] == "rollback" for item in inventory) == 5
     assert sum(item["kind"] == "baseline" for item in inventory) == 2
-    assert sum(item["kind"] in {"forward", "baseline"} for item in inventory) == 32
+    assert sum(item["kind"] in {"forward", "baseline"} for item in inventory) == 33
 
     forward_names = {
         item["name"] for item in inventory if item["kind"] in {"forward", "baseline"}
@@ -66,6 +66,16 @@ def test_manifest_covers_every_repo_migration_with_the_right_kind():
         assert item["domains"]
         assert set(item["domains"]) <= allowed_domains
         assert item["touched_objects"]
+
+
+def test_atomic_vocabulary_source_is_local_pending_not_production_verified():
+    manifest = _manifest()
+    name = "20260905040134_atomic_vocabulary_save_quota"
+    entry = next(item for item in manifest["drift_matrix"] if item["item"] == name)
+    assert entry["classification"] == "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED"
+    assert entry["ledger"] == "NOT_VERIFIED_IN_ROUND_K"
+    assert entry["production_schema"] == "NOT_VERIFIED_IN_ROUND_K"
+    assert "save_vocabulary_atomic" in manifest["scope"]["functions"]
 
 
 def test_allowlist_and_inventory_exclude_shared_other_project_domains():

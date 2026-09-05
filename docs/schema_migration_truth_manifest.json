@@ -47,7 +47,8 @@
       "payment_events_immutable",
       "accept_ecpay_payment",
       "get_anonymous_process_quota",
-      "consume_anonymous_process_quota"
+      "consume_anonymous_process_quota",
+      "save_vocabulary_atomic"
     ],
     "views": [
       "user_lookup",
@@ -96,7 +97,8 @@
     {"name": "20260813_anonymous_process_quota.sql", "kind": "forward", "domains": ["anonymous"], "touched_objects": ["anonymous_process_usage", "get_anonymous_process_quota", "consume_anonymous_process_quota"]},
     {"name": "20260813_anonymous_process_quota_rollback.sql", "kind": "rollback", "domains": ["anonymous"], "touched_objects": ["anonymous_process_usage", "get_anonymous_process_quota", "consume_anonymous_process_quota"]},
     {"name": "20260904_retire_obsolete_waitlist_exposure.sql", "kind": "forward", "domains": ["legacy", "security"], "touched_objects": ["upgrade_intent", "allow_anon_insert", "anon_insert_upgrade_intent", "authenticated_insert_upgrade_intent"]},
-    {"name": "20260904123000_task1_chart_human_review.sql", "kind": "forward", "domains": ["writing", "admin"], "touched_objects": ["writing_questions", "writing_questions_review_status_check", "writing_questions_review_issue_check", "idx_writing_questions_review_status"]}
+    {"name": "20260904123000_task1_chart_human_review.sql", "kind": "forward", "domains": ["writing", "admin"], "touched_objects": ["writing_questions", "writing_questions_review_status_check", "writing_questions_review_issue_check", "idx_writing_questions_review_status"]},
+    {"name": "20260905040134_atomic_vocabulary_save_quota.sql", "kind": "forward", "domains": ["vocabulary", "security"], "touched_objects": ["user_vocabulary", "save_vocabulary_atomic"]}
   ],
   "repo_only_reconciliation": [
     {
@@ -143,7 +145,8 @@
       "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED",
       "files": ["20260904_retire_obsolete_waitlist_exposure.sql", "20260904123000_task1_chart_human_review.sql"],
       "action": "Keep pending locally; it is not historical drift."
-    }
+    },
+    {"classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "files": ["20260905040134_atomic_vocabulary_save_quota.sql"], "action": "Round K: PENDING_BLABBY / LOCAL ONLY. Atomic quota replay passed; production schema/ledger not inspected in this round. NOT AUTHORIZED FOR PRODUCTION APPLY."}
   ],
   "ledger_reconstructed_sources": [
     {
@@ -182,7 +185,8 @@
     {"item": "20260813_anonymous_process_quota", "repo": "YES", "ledger": "CURRENT_NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_YES", "classification": "REPO_NO_LEDGER_SCHEMA_PRESENT_CONFIRMED", "action": "Do not rerun or repair the ledger; current table and quota function definitions were inspected read-only."},
     {"item": "20260904_retire_obsolete_waitlist_exposure", "repo": "YES", "ledger": "EXPECTED_NOT_DEPLOYED", "production_schema": "CURRENT_SNAPSHOT_OLD_STATE", "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "action": "Keep local pending. Verify production only after authorized push/deploy; do not call this historical drift."},
     {"item": "20260508_quality_grade_index", "repo": "YES", "ledger": "NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_MISSING", "classification": "REPO_SCHEMA_DELTA_NOT_IN_PRODUCTION", "action": "Record as explicit repo-only index drift; do not apply production SQL without separate authorization and a scoped decision."},
-    {"item": "20260429-20260630033125_early_repo_history", "repo": "YES", "ledger": "BEFORE_OR_NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_AVAILABLE", "classification": "REPO_EARLY_HISTORY_BEFORE_LEDGER_WINDOW", "action": "Do not infer unapplied state from ledger silence; use the read-only catalog snapshot and clean replay evidence for each later decision."}
+    {"item": "20260429-20260630033125_early_repo_history", "repo": "YES", "ledger": "BEFORE_OR_NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_AVAILABLE", "classification": "REPO_EARLY_HISTORY_BEFORE_LEDGER_WINDOW", "action": "Do not infer unapplied state from ledger silence; use the read-only catalog snapshot and clean replay evidence for each later decision."},
+    {"item": "20260905040134_atomic_vocabulary_save_quota", "repo": "YES", "ledger": "NOT_VERIFIED_IN_ROUND_K", "production_schema": "NOT_VERIFIED_IN_ROUND_K", "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "action": "New local atomic vocabulary quota source. Preserve H-R blockers and historical snapshots; coordinate backend/migration only after separate authorization."}
   ],
   "reconciliation_contract": {
     "shared_ledger_exceptions": [
@@ -193,7 +197,7 @@
       {"name": "p1_rls_and_reading_answers_idempotency_recheck", "reason": "Documented idempotent rerun of the existing 20260714 P1 source; no unique schema delta or missing source blocker."},
       {"name": "20260813_anonymous_process_quota", "reason": "Repo source exists and historical evidence recorded the table as present despite ledger silence; never rerun or backfill the ledger from this contract."}
     ],
-    "expected_pending": ["20260904_retire_obsolete_waitlist_exposure", "20260904123000_task1_chart_human_review"],
+    "expected_pending": ["20260904_retire_obsolete_waitlist_exposure", "20260904123000_task1_chart_human_review", "20260905040134_atomic_vocabulary_save_quota"],
     "unrecovered_blabby_sources": [],
     "unknown_drift_causes_failure": true
   },

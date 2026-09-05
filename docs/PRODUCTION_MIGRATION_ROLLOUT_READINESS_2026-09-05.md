@@ -609,3 +609,23 @@ Docs-only validation: referenced A/B filenames and SHA-256s, all 37 SQL inventor
 
 PRODUCTION MIGRATION APPLY: NOT PERFORMED
 PRODUCTION DB WRITE: 0
+
+## Local Pending Item — Round K
+
+This append-only entry records new local source; it does not revise H/H-R evidence or resolve its blockers.
+
+| Exact new migration | Classification | Local evidence | Production authorization |
+|---|---|---|---|
+| `supabase/migrations/20260905040134_atomic_vocabulary_save_quota.sql` | **PENDING_BLABBY / LOCAL ONLY** | Fresh PostgreSQL 17 replay, concurrent save/entitlement/ACL tests, lock-removal mutation failure and restored PASS | **NOT AUTHORIZED FOR PRODUCTION APPLY** |
+
+The exact local inventory is now **38 SQL files: 33 forward files including two baselines, 5 rollback files**. This adds one local pending item; it is not a current production-ledger absence claim. No historical migration or earlier classification was rewritten.
+
+The migration installs a service-role-only atomic vocabulary save RPC and removes direct owned-table INSERT privileges. The new backend requires that RPC; the old backend still requires direct INSERT. A future release needs coordinated migration/backend rollout under a controlled save pause, plus verified production schema/ACL/entitlement truth. Neither an independent backend deployment nor applying this file is authorized now.
+
+**ATOMIC QUOTA MIGRATION: LOCAL READY / PRODUCTION BLOCKED.** Production READ ONLY SQL access, Render deployed SHA, and verified recoverable backup remain BLOCKED. Production apply allowlist remains **NONE**; all H/H-R exclusions remain intact.
+
+Details: [Vocabulary quota contract — Round K](VOCABULARY_QUOTA_CONTRACT_2026-09-05.md).
+
+PRODUCTION DB WRITE: 0
+PRODUCTION POLICY CHANGE: 0
+PRODUCTION MIGRATION APPLY: 0

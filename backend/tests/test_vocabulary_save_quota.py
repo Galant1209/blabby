@@ -1,4 +1,6 @@
-"""Hermetic HTTP contracts for both vocabulary saves; no live auth/DB calls."""
+"""HTTP mapping/ownership tests with a fake RPC, never Python inserts.
+Real SQL proofs: supabase/replay/test_atomic_vocabulary_quota.py.
+"""
 
 from types import SimpleNamespace
 from uuid import UUID
@@ -9,8 +11,8 @@ from fastapi.testclient import TestClient
 import main
 
 
-OWNER = "verified-user"
-OTHER = "another-user"
+OWNER = str(UUID(int=70001))
+OTHER = str(UUID(int=70002))
 ITEM = str(UUID(int=999))
 ROUTES = ("/api/vocabulary/my", "/api/vocabulary/save_word")
 QUOTA_ERROR = {
@@ -50,35 +52,15 @@ class Query:
     single = maybe_single
 
     def insert(self, payload):
-        self.payload = payload
-        return self
+        raise AssertionError("Backend must not bypass atomic RPC with INSERT")
 
     def execute(self):
-        if self.payload is not None:
-            row = {"id": str(UUID(int=10000 + len(self.store.writes))), **self.payload}
-            if self.table == "user_vocabulary":
-                assert not any(
-                    (old["user_id"], old["vocabulary_item_id"])
-                    == (row["user_id"], row["vocabulary_item_id"])
-                    for old in self.store.rows[self.table]
-                ), "fake enforces the owned-item unique constraint"
-            self.store.rows[self.table].append(row)
-            self.store.writes.append((self.table, row.copy()))
-            return SimpleNamespace(data=[row])
-        rows = [
-            row.copy() for row in self.store.rows[self.table]
-            if all(row.get(key) == value for key, value in self.filters)
-        ]
-        count = None
-        if self.count_requested:
-            self.store.count_queries.append((self.table, list(self.filters)))
-            if self.store.count_failure:
-                raise RuntimeError("count unavailable")
-            count = None if self.store.missing_count else len(rows)
+        assert not self.count_requested, "Python count is not quota authority"
+        rows = [row.copy() for row in self.store.rows[self.table]
+                if all(row.get(key) == value for key, value in self.filters)]
         if self.cap is not None:
             rows = rows[:self.cap]
-        data = (rows[0] if rows else None) if self.single_row else rows
-        return SimpleNamespace(data=data, count=count)
+        return SimpleNamespace(data=(rows[0] if rows else None) if self.single_row else rows)
 
 
 class Store:
@@ -92,12 +74,15 @@ class Store:
         self.pro = False
         self.pro_failure = False
         self.count_failure = False
-        self.missing_count = False
+        self.rpc_failure = False
+        self.override_response = False
+        self.rpc_response = None
+        self.rpc_calls = []
         self.auth = SimpleNamespace(get_user=self.get_user)
 
     def seed_saved(self, count, owner=OWNER):
         self.rows["user_vocabulary"].extend(
-            {"id": f"saved-{owner}-{i}", "user_id": owner,
+            {"id": str(UUID(int=100000 + int(UUID(owner)) * 100 + i)), "user_id": owner,
              "vocabulary_item_id": str(UUID(int=i + 1))}
             for i in range(count)
         )
@@ -109,13 +94,48 @@ class Store:
         return Query(self, name)
 
     def rpc(self, name, params):
-        assert name == "is_user_pro"
-        assert params == {"user_id": OWNER}
+        assert name == "save_vocabulary_atomic", "No Python entitlement/count fallback"
+        assert params["p_user_id"] == OWNER
+        assert "is_pro" not in params and "p_is_pro" not in params
+        self.rpc_calls.append(params)
 
         def execute():
+            if self.rpc_failure:
+                raise RuntimeError("private database failure details")
+            if self.override_response:
+                return SimpleNamespace(data=self.rpc_response)
+            item_id, word = params["p_vocabulary_item_id"], params["p_word"]
+            item = next((row for row in self.rows["vocabulary_items"]
+                         if row["id"] == item_id or (word and row["word"] == word)), None)
+            owned = next((row for row in self.rows["user_vocabulary"]
+                          if row["user_id"] == OWNER and item and row["vocabulary_item_id"] == item["id"]), None)
+            def result(status):
+                return SimpleNamespace(data={
+                    "status": status, "user_vocabulary_id": owned["id"],
+                    "vocabulary_item_id": item["id"], "word": item["word"],
+                })
+            if owned:
+                return result("existing")
             if self.pro_failure:
-                raise RuntimeError("pro lookup unavailable")
-            return SimpleNamespace(data=self.pro)
+                raise RuntimeError("private entitlement failure details")
+            if not self.pro:
+                self.count_queries.append(OWNER)
+                if self.count_failure:
+                    raise RuntimeError("private count failure details")
+                if sum(row["user_id"] == OWNER for row in self.rows["user_vocabulary"]) >= 30:
+                    return SimpleNamespace(data={"status": "quota_reached", "limit": 30})
+            if not item and not word:
+                return SimpleNamespace(data={"status": "not_found"})
+            if not item:
+                item = {"id": str(UUID(int=80000)), "word": word, "zh_meaning": params["p_zh_meaning"]}
+                self.rows["vocabulary_items"].append(item)
+                self.writes.append(("vocabulary_items", item.copy()))
+            owned = {"id": str(UUID(int=90000)), "user_id": OWNER,
+                     "vocabulary_item_id": item["id"], "source": params["p_source"],
+                     "source_practice_record_id": params["p_source_practice_record_id"]}
+            self.rows["user_vocabulary"].append(owned)
+            self.writes.append(("user_vocabulary", owned.copy()))
+            return result("inserted")
 
         return SimpleNamespace(execute=execute)
 
@@ -224,20 +244,42 @@ def test_other_users_existing_link_cannot_bypass_owners_limit(saves, route):
 
 
 @pytest.mark.parametrize("route", ROUTES)
-@pytest.mark.parametrize("failure", ["count_failure", "missing_count"])
-def test_unavailable_count_fails_closed(saves, route, failure):
+@pytest.mark.parametrize("failure", ["count_failure", "rpc_failure", "pro_failure"])
+def test_atomic_rpc_failures_never_fall_back_to_python_insert(saves, route, failure):
     store, post = saves
     setattr(store, failure, True)
+    response = post(route)
+    assert response.status_code == 503
+    assert "private" not in response.text
+    assert store.writes == []
+
+
+@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize("payload", [None, {}, {"status": "unexpected"},
+                                    {"status": "inserted"}, {"status": "quota_reached", "limit": 99}])
+def test_missing_or_invalid_rpc_contract_fails_closed(saves, route, payload):
+    store, post = saves
+    store.override_response = True
+    store.rpc_response = payload
     assert post(route).status_code == 503
     assert store.writes == []
 
 
 @pytest.mark.parametrize("route", ROUTES)
-def test_pro_lookup_failure_does_not_bypass_free_limit(saves, route):
+def test_client_cannot_supply_pro_entitlement(saves, route):
     store, post = saves
     store.seed_saved(30)
-    store.pro_failure = True
-    assert post(route).json() == QUOTA_ERROR
+    response = post(route, is_pro=True, p_is_pro=True, user_id=OTHER)
+    assert response.status_code == 403
+    assert response.json() == QUOTA_ERROR
+    assert store.rpc_calls[0]["p_user_id"] == OWNER
+    assert store.writes == []
+
+
+def test_missing_catalog_item_retains_404(saves):
+    store, post = saves
+    store.rows["vocabulary_items"] = []
+    assert post(ROUTES[0]).status_code == 404
     assert store.writes == []
 
 
