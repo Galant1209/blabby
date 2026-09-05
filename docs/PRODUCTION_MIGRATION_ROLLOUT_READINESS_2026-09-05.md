@@ -1,5 +1,7 @@
 # Production Migration Rollout Readiness — 2026-09-05
 
+> Evidence provenance: Sections 1–12 preserve the Round H observations and planning. They are **HISTORICAL EVIDENCE for Round H-R**, even where the original text says “current.” The **Evidence Closure — Round H-R** section below is the authority for this round's CURRENTLY VERIFIED / NOT VERIFIED / BLOCKED states. No previous database snapshot or test run is represented as newly executed.
+
 ## 1. Preflight
 
 **APPLY STATUS: NOT READY — production read-only ledger/schema/ACL/11-row readback and backup availability are unavailable; Render deployment SHA is unverified.**
@@ -460,3 +462,150 @@ Round H may commit this documentation only. Final local commit is expected to be
 **APPLY STATUS: NOT READY — production READ ONLY ledger/schema/ACL/11-row readback and backup availability unavailable; Render deployment SHA unverified.**
 
 Galant authorization has not been requested or inferred. No next round, push, apply, rollback, ledger mutation or production review action is authorized by this plan.
+
+
+## Evidence Closure — Round H-R
+
+Inspection date: **2026-09-05**. Current health readback timestamp: **2026-09-05T03:28:37.814646 UTC**. This round changes only this document. No SQL, migration, production PATCH, backup creation, restore, external credential retrieval, or deployment was performed.
+
+### Evidence status summary
+
+| Item | Evidence class | Round H-R result |
+|---|---|---|
+| Canonical Git state / remote main | CURRENTLY VERIFIED | Start HEAD d6ee879; origin/main and independent ls-remote 88eada0; clean; ahead 1 / behind 0 |
+| A/B exact files and hashes | CURRENTLY VERIFIED | Both unchanged from the reviewed Round H files |
+| Canonical 11 IDs and source metadata | CURRENTLY VERIFIED | 11 distinct IDs extracted from the repository retirement record; exact set matches readiness queries |
+| Application dependency recheck | CURRENTLY VERIFIED | Current source findings below; no live DB behavior inferred |
+| Render health | CURRENTLY VERIFIED | HTTP 200; status=ok; billing_config_ok=true |
+| Supabase API credentials in legacy ignored env | CURRENTLY VERIFIED | Present, configured URL matches intended project; not SQL credentials and not used |
+| Existing Comet dashboard tab titles | CURRENTLY VERIFIED | Blabby SQL Editor and Render dashboard titles observed; page contents/auth/session capability not verified |
+| Production SQL transaction / READ ONLY | BLOCKED | SQL_ACCESS = BLOCKED; no usable persistent SQL connection or completed session-aware SQL inspection |
+| Render current deployment / full SHA | BLOCKED | RENDER_SHA = BLOCKED; no current Blabby deployment metadata obtained |
+| Managed backup/PITR / successful recoverable artifact | BLOCKED | BACKUP_BLOCKED; target-specific recoverability evidence unavailable |
+| Production ledger / A ACL / B schema / 11 rows | NOT VERIFIED | No production SELECT submitted |
+| Round H tests, replay, asset hashes; 09-04 ledger/schema; 07-14 retirement | HISTORICAL EVIDENCE | Retained as dated evidence only; not rerun or re-read from production in H-R |
+
+### Preflight and existing access search
+
+Commands ran from `/Users/yichengchiu/dev/Blabby/blabby`:
+
+- `git status --short`: empty before editing.
+- `git rev-parse HEAD`: `d6ee87934032289302c3ed6b52aaca90c670eeee`.
+- `git rev-parse origin/main`: `88eada001f89597eb7721ea425c6fd4af23edde3`.
+- `git rev-list --left-right --count origin/main...HEAD`: `0 1` (behind 0, ahead 1).
+- `git ls-remote origin refs/heads/main`: `88eada001f89597eb7721ea425c6fd4af23edde3`.
+- Prior docs commit and this readiness file exist. No reset, clean, stash, unknown-work overwrite or push.
+
+Access sources were inspected with **variable names and presence flags only**:
+
+| Source | CURRENTLY VERIFIED result | Usable SQL access? |
+|---|---|---|
+| Current shell exported variables | No relevant PG/DATABASE/POSTGRES/SUPABASE/RENDER/BACKUP/R2 variables | No |
+| `.zshenv`, `.zprofile`, `.zshrc` | No references to the candidate production connection or Render API variable names | No |
+| Canonical repo, including ignored env paths | Only `.env.staging.example`; no configured production SQL env file | No |
+| Legacy checkout `backend/.env` | Ignored file; Supabase URL/service-key variables and provider credentials present. URL target matches mkwywkwruyqzdhuzwnoa. No DATABASE_URL, SUPABASE_DB_URL, SUPABASE_DATABASE_URL, POSTGRES_URL, POSTGRES_PASSWORD, SUPABASE_ACCESS_TOKEN or RENDER_API_KEY | No; API access is not a SQL transaction |
+| Ops/deployment docs and scripts | Staging connection instructions and local replay PGURI only; no production SQL credential source discovered | No |
+| Supabase CLI / project linkage | No `supabase` executable on PATH; no project `.temp` linkage; `~/.supabase` contains traces/telemetry only, no CLI access-token file | No |
+| PostgreSQL client config | No `~/.pgpass` or `~/.pg_service.conf` | No |
+| Render CLI/config | No `render` executable or Render config directory; no API key source discovered | No authenticated metadata client |
+| Existing Comet browser | Tab title `Untitled query \| SQL Editor \| blabby \| Galant1209's Org \| Supabase`; another tab is the Kumo Render service dashboard | Potential existing UI route only; not confirmed SQL capability |
+
+The Comet interaction was interrupted twice with the tool reporting that the user changed the app. No dashboard navigation or SQL execution was confirmed. Availability was requested while independent checks continued; no concurrent browser control was forced. A tab title does not prove current authorization, connection identity, READ ONLY mode, or the current deployment of Blabby.
+
+Even if an SQL editor can be reached, do not assume separate UI Run requests retain the same PostgreSQL session. This task requires `BEGIN; SET TRANSACTION READ ONLY; SHOW transaction_read_only;`, observing `on` before SELECT, and `ROLLBACK` in that same session. A usable transaction-preserving SQL interface or a provisioned direct connection is still required. No preliminary production transaction was opened, so no production transaction was left pending.
+
+The legacy API credentials were not used through REST to bypass this gate. No password-manager lookup, guessed password, copied browser token, secret output or secret commit occurred. A targeted tracked-file credential-pattern check found only the documented disposable local PostgreSQL examples; it is not a comprehensive secret audit.
+
+### Render evidence
+
+**RENDER_SHA = BLOCKED.**
+
+- Production endpoint: `https://blabby-backend.onrender.com/health`.
+- Fresh HTTP result: **200**, `{"status":"ok","timestamp":"2026-09-05T03:28:37.814646","billing_config_ok":true}`.
+- Expected deployed source: **`88eada001f89597eb7721ea425c6fd4af23edde3`**, not the unpushed docs-only d6ee879.
+- Authenticated GitHub check-runs at that commit contain only backend-tests and migration-replay. Commit statuses contain only Vercel. The eight recent GitHub deployments are all created by vercel[bot]. None proves a Render deployment SHA.
+- The existing Comet Render tab identifies **kumo-japanese**, not the Blabby service; it must not be reported as Blabby deployment evidence. Its service selector/current Blabby deploy details could not be read because the UI interaction was interrupted.
+- **Current Blabby service ID, deploy ID, deployment status and full commit SHA remain NOT VERIFIED. Expected-SHA match: NOT VERIFIED.**
+
+Exact missing capability: uninterrupted access to the already authenticated Render dashboard's Blabby service/deployment details, or an existing authorized Render metadata client. Health 200 is not a substitute.
+
+### Backup readiness
+
+**BACKUP_BLOCKED.**
+
+CURRENTLY VERIFIED:
+
+- No backup/PITR/R2 procedure, destination configuration or successful backup artifact was found in the checked Blabby canonical/legacy project paths or tracked history search.
+- No backup/R2 variables exist in the current shell; legacy env contains no production backup configuration.
+- `age --version`: **v1.3.2**. Encryption software availability alone does not establish a recipient, backup, remote destination or recoverability.
+- The historical `/tmp/setbackup.sh` helper declares **KUMO** backup variables; discovered Kumo backup scripts/status filenames are other-project material. They were excluded; no Kumo backup data was accessed or counted as Blabby protection.
+- Managed backup/PITR configuration, last successful completion timestamp, retention window, restore capability and target-specific artifact metadata were **NOT VERIFIED**. The Supabase dashboard content could not be reached reliably in the active Comet session.
+
+No backup was run or created. No plaintext export, R2 upload, restore or production DB write was performed. This status does not claim that no managed backup exists; it states that **there is no verified recoverability evidence available to this round**. Exact missing evidence: authenticated backup/PITR state for project `mkwywkwruyqzdhuzwnoa`, or an existing verified encrypted backup artifact and restoration metadata for that same project.
+
+### Current ledger, ACL and schema truth
+
+No production SQL inspection timestamp, database/user identity, ledger count, exact version value, policy/grant readback or schema existence result can be supplied. `supabase_migrations.schema_migrations` remains the planned ledger target, not a currently verified relation. The 12-row ledger and catalog hashes in the earlier sections remain HISTORICAL EVIDENCE.
+
+| Migration / group | Current ledger | Current schema | H-R classification |
+|---|---|---|---|
+| `20260904_retire_obsolete_waitlist_exposure.sql` | NOT VERIFIED | NOT VERIFIED | UNKNOWN |
+| `20260904123000_task1_chart_human_review.sql` | NOT VERIFIED | NOT VERIFIED; cannot choose SCHEMA_ABSENT / PARTIALLY_PRESENT / ALREADY_PRESENT | UNKNOWN |
+| `20260508_quality_grade.sql` | NOT VERIFIED | No current index inspection; strictly excluded | REPO_ONLY_NOT_AUTHORIZED |
+| 9 historically mapped Blabby migration files listed in Section 2 | NOT VERIFIED | Historical parity only | UNKNOWN |
+| Remaining repo-only/baseline/rollback sources | NOT VERIFIED | No new current claim | REPO_ONLY_NOT_AUTHORIZED |
+| Historical `create_npc_relations`, `harden_npc_relations`; gmail/omg/npc scope | No current ledger claim | Other-project scope excluded | SHARED_OTHER_PROJECT_EXCLUDED |
+
+**A:** Current table/columns/RLS, exact policy names/roles/commands/USING/WITH CHECK, relacl/column grants, role memberships and effective INSERT abilities are NOT VERIFIED for anon/authenticated/service_role. Source review still proves that A drops an authenticated INSERT policy as well as anon policies; it cannot be described as “anon-only behavior change.” Current application search finds no waitlist INSERT caller, but that does not establish current production ACLs. Its rollback skeleton remains **historical/conditional**, not a current-production exact inverse. **A verdict: BLOCKED.**
+
+**B:** The exact target is `public.writing_questions` in repository SQL. Current production existence of the five columns, their types/defaults/nullability, CHECKs/index, total rows and metadata values is NOT VERIFIED. Ledger silence cannot establish SCHEMA_ABSENT. Review/serving separation remains a verified source contract and a historically tested local contract, not a current production data result. Rollback remains conditionally feasible before new review data, or data-losing after review writes; current exact inverse is not certified. **B verdict: BLOCKED.**
+
+### Task 1 canonical 11 and protected snapshot status
+
+CURRENTLY VERIFIED source: `docs/PIE_RETIRED_MULTIPERIOD_20260714.md`, retirement table. Regex extraction produced exactly **11 unique UUIDs**, all identical to this document's prepared readback set. Their source chart descriptors remain available in that canonical table.
+
+Sorted UUID lines joined with LF and a final LF have SHA-256:
+
+`2d08f5c27b56af462428b101910bc573821f606a15682d3814aa62b04af0c7e9`
+
+This is an **ID-set integrity hash, not a production row snapshot**. No row was SELECTed. `11/11 is_pregenerated=false` is **NOT VERIFIED in H-R**. No production protected-row hash or serving-state baseline was created. The prepared snapshot must also include task_type, task1_subtype, chart/source identity and serving fields when access resumes; hashes alone without a verified identity projection are insufficient for first-time identity confirmation. Do not apply the retirement document's historical reactivation SQL.
+
+### Application dependency recheck
+
+A fresh search covered frontend, backend, tests, migrations and docs; the local evidence search output has 231 matching lines at `/tmp/blabby-round-hr-evidence/dependency-search.txt` (ephemeral, not a production snapshot).
+
+- A: current frontend has none of the searched obsolete waitlist/track/admin surfaces. `backend/main.py` only references upgrade_intent in the admin deletion cleanup at lines 6282–6284; historical admin SQL still reads legacy data. Retain the table and rows. All eight obsolete route/token search targets remain absent from live runtime source.
+- B: admin GET at line 6653 explicitly selects all five review columns at 6683–6684; PATCH at 6706 builds review-only update_data at 6740–6746. Missing production metadata can still produce schema-backed 503; response fallback does not eliminate the SQL dependency.
+- Admin and Writing both import `task1-chart-renderer.js` (admin.html:13, writing.html:23). Admin sends only review_status/review_issue/review_note; API derives reviewed_at/reviewed_by. Its model forbids extra fields and review PATCH never assigns is_pregenerated.
+- Other backend serving/pregeneration paths still reference is_pregenerated; this is why migration preservation must be verified against real rows. No renderer or serving logic was changed.
+- Exact A SHA-256 remains `c0608cb44464a956496bd709487721fa91f25047eee3ada99507babd7bf763ce`; exact B SHA-256 remains `5793d823c6bf1f7499beccee8c84d32b620c87ab221e3ecc1190134c05321052`.
+
+Source search found no additional dependency of the removed waitlist exposure in the inspected application. It does not prove the absence of external clients or deployed/backend/schema drift.
+
+### Exact allowlist and rollout decision
+
+**NONE — BLOCKED.** No AUTHORIZED_CANDIDATE is established from incomplete production evidence.
+
+| Exact proposed item | H-R decision |
+|---|---|
+| `20260904123000_task1_chart_human_review.sql` | BLOCKED |
+| `20260904_retire_obsolete_waitlist_exposure.sql` | BLOCKED |
+| `practice_records_quality_grade_idx` / its source migration | NOT_AUTHORIZED — unchanged absolute exclusion |
+| All other repo/shared/rollback migrations | NOT_AUTHORIZED for this rollout |
+
+**NO HARD ORDERING DEPENDENCY** in reviewed A/B source. B → verify → A → verify remains an **operational proposal only**, because the review application needs B's metadata. It is not validated against current production truth and is not a fixed executable rollout order. If B or A is already present, the proposal must be revised after readback. No wildcard or run-all-pending action is allowed.
+
+### Remaining blockers and validation
+
+1. **SQL_ACCESS = BLOCKED:** no usable transaction-preserving production SQL path; consequently READ ONLY mode, current ledger, A exact ACL/policies, B schema classification and 11-row serving/source/protected snapshot are missing.
+2. **RENDER_SHA = BLOCKED:** current Blabby deploy ID/status/full SHA were not obtained; only health and unrelated-service tab title are current observations.
+3. **BACKUP_BLOCKED:** no target-specific managed backup/PITR or recoverable artifact evidence.
+
+These are capability/evidence failures, not permission to retrieve new credentials or bypass the SQL gate. Browser availability was requested; no response is assumed to grant control. No “READY” or SQL-only-blocked closure can be claimed while Render and backup remain unresolved.
+
+Docs-only validation: referenced A/B filenames and SHA-256s, all 37 SQL inventory files, canonical 11-ID source/set, Python snippet syntax, documentation diff and whitespace were checked. No product code/test/migration was changed. The Round H 642-test/replay results are retained as HISTORICAL EVIDENCE and were not rerun for formality. Final commit/status appear in the response; any additional docs-only commit remains unpushed.
+
+**APPLY STATUS: NOT READY — transaction-preserving production SQL access unavailable; Render Blabby deployment SHA and project-specific backup recoverability evidence unavailable.**
+
+PRODUCTION MIGRATION APPLY: NOT PERFORMED
+PRODUCTION DB WRITE: 0
