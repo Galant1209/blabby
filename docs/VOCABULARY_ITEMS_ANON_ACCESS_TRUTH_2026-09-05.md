@@ -216,3 +216,120 @@ LOCAL MIGRATION: NONE
 Production rollout stays **BLOCKED / NOT AUTHORIZED**: SQL access, Render deployed SHA, and backup evidence remain unresolved; production migration allowlist remains NONE. This audit did not retry those access paths. Additional implementation prerequisites are public-row provenance/rights criteria and a coherent bounded API/frontend contract. The existing alternate-save quota gap remains recorded and unfixed.
 
 **ROUND I audit verdict: PASS — OPTION D preferred; investigation documented, production unchanged.** This is not a production-security or migration-readiness PASS. Round J has not started.
+
+## Quota Bypass Closure — Round J
+
+The preceding sections remain the historical Round I record. This addendum supersedes only the statement that the application save-path quota bypass is unfixed. OPTION D remains unimplemented; no anonymous corpus policy or API shaping changed.
+
+### Preflight
+
+Canonical working directory: `/Users/yichengchiu/dev/Blabby/blabby`.
+
+```text
+HEAD: fba7e39a3b927f9552bf52cdd2ba870ac74bde58
+origin/main: 88eada001f89597eb7721ea425c6fd4af23edde3
+git rev-list --left-right --count origin/main...HEAD: 0 3
+ahead/behind: 3/0
+working tree: clean
+```
+
+These are command-derived local Git facts, not deployment or remote-refresh claims. Existing commits and unrelated work were preserved. No production request was made in Round J.
+
+### VOCABULARY_WRITE_PATH_MATRIX
+
+Search covered repository routes, table references, insert/upsert/update/delete calls, SQL sources, frontend fetch/auth wrappers and direct Supabase calls, tests, README/CLAUDE notes, and internal/admin paths. Exactly two application insert sites create `user_vocabulary` entries. Historical notes were checked against current code; for example, the older CLAUDE description of no vocabulary paywall is stale.
+
+| route/function | classification | auth | target table | quota before → after | idempotent | active caller |
+|---|---|---|---|---|---|---|
+| POST `/api/vocabulary/my` | CANONICAL | `verify_token` | `user_vocabulary` INSERT; corpus existence SELECT | Inline 30 gate → shared 30 gate; missing count now fails closed | Existing owned item returns before quota | Vocabulary bank/recommendation/generated-card save; Speaking suggestion button |
+| POST `/api/vocabulary/save_word` | CANONICAL | `verify_token` | Optional `vocabulary_items` INSERT, then `user_vocabulary` INSERT | NONE → same shared 30 gate, before either insert | Existing owned item returns `status=exists` before quota | Reading click-to-save; route retained |
+| POST `/api/vocabulary/review` | CANONICAL | `verify_token`, owned ID filter | `user_vocabulary` UPDATE; `vocabulary_review_logs` INSERT | N/A: changes review state, cannot add saved entries | Review events intentionally consume no new saved slot | Vocabulary flashcards |
+| POST `/api/vocabulary/generate` | CANONICAL | `verify_token` | `vocabulary_items` INSERT only | N/A: shared content generation does not create owned saves | Topic/word reuse, not an owned-save operation | Vocabulary generation; later card save uses `/my` |
+| Speaking enrichment, active-use target, Reading weakness tagging | CANONICAL | Existing session/Pro guards | SELECT only | N/A: not a save | N/A | Speaking/Reading personalized UI |
+| `supabase/seed_vocabulary.sql` | INTERNAL_ONLY | Operator execution, not an HTTP route | `vocabulary_items` INSERT | N/A: corpus seed only | Not relied on for saved-item idempotency | Repository seed; not executed here |
+| DELETE `/admin/user/{user_id}` | INTERNAL_ONLY | `verify_admin` | Auth-user deletion can cascade owned vocabulary/review rows under repo FKs | N/A: deletes, cannot increase saved count | Existing administrative behavior unchanged | Admin UI; not executed here |
+| Other legacy save routes | No LEGACY_ACTIVE or LEGACY_DEAD route found | N/A | No additional insert/upsert path found | N/A | N/A | Bare `/save_word` is shorthand in notes, not a registered alternate route |
+| Frontend direct Supabase vocabulary writes | No active caller found | Frontend Supabase use is auth/session | No frontend table write found | N/A | N/A | All three active save UIs use the two backend routes |
+| External/custom authenticated REST writers | UNKNOWN | Production ACL/catalog unavailable | Potential direct owned-table write surface | Not verified; no DB quota constraint in repository vocabulary migration | Repo unique `(user_id, vocabulary_item_id)` only | No repository caller identified; not a claim that external writers are impossible |
+
+The last row is an evidence boundary: application-route closure does not establish database-wide enforcement. No public-corpus, owned-table ACL, or policy migration was added to infer or alter this state.
+
+### Root cause and minimal fix
+
+`/my` contained the entire quota check inline. Reading's free-form `/api/vocabulary/save_word` implemented its own corpus resolution and owned insert without calling that check. This was an active path, not dead legacy code. Speaking also checked `body.error` although FastAPI sends the quota code under `body.detail.error`; Reading treated every failed save as a generic retry.
+
+`backend/main.py` now defines **`FREE_VOCABULARY_LIMIT = 30`** and a small **`_check_vocabulary_save_allowed(user_id)`** helper. Both routes invoke it after checking for an existing owned link and before insertion. The helper reuses `get_user_pro_status`, backed by `is_user_pro` RPC; no Pro/payment logic was duplicated or changed. Free counts use exact count filtered by the verified `user_id`; the `limit(1)` only limits returned rows, not the requested count. A missing count now raises 503 instead of silently treating it as zero. Query exceptions propagate to the existing route-level 503 handling, with no insert.
+
+Reading now checks quota before creating a missing corpus row as well as before creating the owned link. Existing translations, normalization, successful response shapes, and re-add behavior are preserved. No service layer, route removal, module refactor, or new vocabulary feature was introduced.
+
+### Exact contract and authorization
+
+Free limit remains 30 unique owned corpus links. Pro saves remain unlimited by this quota. A new save with count 29 succeeds; a new save with count at least 30 returns:
+
+```json
+{
+  "detail": {
+    "error": "vocab_limit_reached",
+    "limit": 30,
+    "message": "Free users may save up to 30 words. Upgrade to Pro for unlimited vocabulary."
+  }
+}
+```
+
+HTTP status is **403** on both routes. Existing owned-item re-add succeeds before either the Pro lookup or quota count, and consumes no slot. The contract is per `vocabulary_item_id`; this change does not deduplicate preexisting corpus entries by spelling or remove any historical over-limit rows.
+
+Both routes derive ownership from the unchanged `verify_token`, which calls Supabase auth `get_user` for the Bearer token and requires a returned user ID. Client-supplied `user_id` is not owner truth. Behavioral tests exercise this verifier with a fake auth provider, including missing/malformed/expired credentials and another user's existing saved link. The shared helper also counts only the verified owner's rows. Pro-lookup failure retains the existing fail-safe Free behavior. No new authorization hole was found in these two routes.
+
+### Race assessment
+
+**Classification: REAL_QUOTA_RACE.** Count and insert remain separate PostgREST operations, without a database transaction spanning both. The repo unique constraint prevents duplicate links for the same owner/item; it does not cap distinct saved items.
+
+A disposable in-memory concurrency observation used two independent HTTP client/event loops to model separate workers, held both counts at 29, then allowed a different new item through each route: **HTTP 200 + HTTP 200; final saved count 31**. This was a local model, not a production request. The save routes have synchronous DB operations after reading the body, reducing interleaving within one event loop, but that is not a cross-worker/instance guarantee. Production worker count, traffic/concurrency, and deployment topology were not retrieved, so the risk is not downgraded based on guessed product scale. Starting at 30, ordinary sequential new saves are rejected by both routes.
+
+An atomic database operation that serializes each owner's count-and-insert would be required for a strict distributed bound, and would need to cover or deny direct writers too. No process-local lock is presented as a database solution. Per this round's bounded scope, the remaining race is explicitly recorded; no production apply, RPC implementation, or migration proposal was added. The HTTP route-bypass fix is not a claim of atomic/global enforcement.
+
+### Frontend behavior
+
+- `vocabulary.html`: existing nested-error classification, Pro paywall, and `/upgrade.html?source=vocab_limit` CTA unchanged.
+- `index.html` Speaking suggestion: one-line correction reads `body.detail?.error`; existing 30-word upgrade nudge/CTA now executes for the canonical response.
+- `reading.html`: quota 403 opens the existing modal with vocabulary-specific copy and the same `vocab_limit` CTA. The save button becomes usable again; failed quota requests do not mark words saved or emit `reading_word_saved`. Non-quota errors retain the generic failure path and are not misclassified as quota or an auth redirect.
+
+No price, checkout code, payment funnel taxonomy, analytics event schema, or page design changed. Blabby Pro remains NT$199.
+
+### Regression evidence and execution
+
+The committed `backend/tests/test_vocabulary_save_quota.py` was created and executed **before backend changes**. Initial result: **7 failed, 21 passed**. Both variants of `test_save_word_cannot_bypass_free_vocabulary_limit` failed with `assert 200 == 403` (existing corpus entry and absent corpus entry). Canonical 31st rejection, both re-add paths, Pro, and auth baseline cases passed. Additional failures captured the alternate route's missing enforcement and the canonical missing-count-as-zero behavior.
+
+After the fix: **28 passed**. Tests cover both save routes at 29/30, exact error JSON, re-add/no quota query, Pro above 30, missing/invalid auth, verified ownership despite a supplied foreign user ID, foreign rows excluded from count/idempotency, Pro/count failures, and no corpus insert on quota rejection. Auth/RPC/database dependencies are in-memory doubles; no live service is called.
+
+The new `frontend_vocabulary_save_paths_behavior.mjs` executes actual Reading click and Speaking render/click handlers with a small DOM/fetch model. Before frontend changes, the two quota cases failed; six non-quota/success cases passed. After changes, all eight pass. It checks the modal/nudge CTA, no false saved state/telemetry, non-quota 401/403/503 handling, and successful/repeated-save behavior. The existing pytest harness runner now includes this file, so it runs in the established CI command. During harness development the Reading cache stub was corrected to the real `defnCache` name; the application quota failures were independently reproduced before their fix.
+
+Focused run (Python 3.11, Node **v20.20.2**):
+
+```text
+tests/test_vocabulary_save_quota.py
+tests/test_frontend_vocabulary_paywall_contracts.py
+tests/test_active_vocabulary.py
+tests/test_reading_pool_vocab_weak.py
+tests/test_reading_vocab_extraction.py
+tests/test_retention_focus.py
+tests/test_progress_evidence.py
+82 passed, 5 warnings in 1.76s
+```
+
+Direct Node 20 runs also passed the existing vocabulary paywall and active vocabulary harnesses. Full `pytest tests -q` from `backend/`: **671 passed, 10 skipped, 0 failed, 5 warnings in 47.37s**. The skipped tests are credential-gated integration tests; the warnings are existing dependency/FastAPI deprecations. Credential-gated test URLs/tokens were explicitly cleared, and provider keys set to test placeholders, to keep the full run local.
+
+Validation also includes `git diff --check`, exact-path staging, and verification that the prior Round I document content is an unchanged prefix. The protected H/H-R document retains SHA-256 `b5e72fcc716a66f1f9e5e06b62bb0084f63d61764717e68afebcc23fc8163bee`.
+
+### Production boundary
+
+```text
+PRODUCTION DB WRITE: 0
+PRODUCTION POLICY CHANGE: 0
+PRODUCTION MIGRATION APPLY: 0
+PRODUCTION REQUESTS IN ROUND J: 0
+GIT PUSH: NO
+LOCAL MIGRATION: NONE
+```
+
+H/H-R rollout remains blocked and its document is unchanged. OPTION D, ADMIN_EMAILS, Task 1, `practice_records_quality_grade_idx`, and checkout work were not started or changed. This is a local application fix pending any separately authorized release; existing production deployment behavior is not certified here.

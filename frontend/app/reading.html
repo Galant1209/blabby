@@ -1049,6 +1049,11 @@
 
         // ── Pro upsell modal (quota-exceeded paywall) ──────────────
         const PRO_MODAL_COPY = {
+            vocab_limit: {
+                kicker: '單字收藏已達上限',
+                title: 'Keep growing your lexicon with Pro.',
+                sub: '免費版最多收藏 30 個單字，Pro 可無限收藏。',
+            },
             reading_quota: {
                 kicker: '今日篇章已閱畢',
                 title: 'Thou hast read thy one passage for today.',
@@ -1472,7 +1477,13 @@
                 if (zhMeaning) savePayload.zh_meaning = zhMeaning;
                 const res = await authFetch('POST', '/api/vocabulary/save_word', savePayload);
                 if (!res.ok) {
-                    btn.textContent = 'Failed — try again';
+                    const body = await res.json().catch(() => ({}));
+                    if (res.status === 403 && body.detail?.error === 'vocab_limit_reached') {
+                        btn.textContent = '已達收藏上限';
+                        showProModal('vocab_limit');
+                    } else {
+                        btn.textContent = 'Failed — try again';
+                    }
                     btn.disabled = false;
                     return;
                 }

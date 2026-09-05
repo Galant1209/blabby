@@ -5544,6 +5544,40 @@ async def vocabulary_items_list(
         raise HTTPException(status_code=503, detail="Failed to load vocabulary items")
 
 
+FREE_VOCABULARY_LIMIT = 30
+
+
+def _check_vocabulary_save_allowed(user_id: str) -> None:
+    """Gate a new owned save, after idempotency checks and before any insert.
+
+    This count-and-insert contract is not atomic across workers. Both save
+    routes share it; database serialization would be needed to close that race.
+    """
+    if get_user_pro_status(user_id):
+        return
+    count_resp = (
+        supabase_admin.table("user_vocabulary")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if count_resp.count is None:
+        raise HTTPException(status_code=503, detail="Failed to check vocabulary quota")
+    if count_resp.count >= FREE_VOCABULARY_LIMIT:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "vocab_limit_reached",
+                "limit": FREE_VOCABULARY_LIMIT,
+                "message": (
+                    f"Free users may save up to {FREE_VOCABULARY_LIMIT} words. "
+                    "Upgrade to Pro for unlimited vocabulary."
+                ),
+            },
+        )
+
+
 @app.post("/api/vocabulary/my")
 @limiter.limit("30/minute")
 async def vocabulary_my_add(
@@ -5589,32 +5623,7 @@ async def vocabulary_my_add(
         if existing and existing.data:
             return existing.data
 
-        # Pro gate: free users may save up to 30 vocabulary items total.
-        # Idempotent re-adds (handled by the existing-check above) do NOT
-        # consume quota; only genuinely new inserts. Pro skip the check
-        # via get_user_pro_status — same fail-safe helper used by
-        # /api/history and /api/diagnosis/timeline.
-        if not get_user_pro_status(user_id):
-            count_resp = (
-                supabase_admin.table("user_vocabulary")
-                .select("id", count="exact")
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-            total = count_resp.count or 0
-            if total >= 30:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "error": "vocab_limit_reached",
-                        "limit": 30,
-                        "message": (
-                            "Free users may save up to 30 words. "
-                            "Upgrade to Pro for unlimited vocabulary."
-                        ),
-                    },
-                )
+        _check_vocabulary_save_allowed(user_id)
 
         # Verify the catalog item actually exists — fk would catch this on
         # insert, but a 404 is more useful than a Postgres error string.
@@ -8838,8 +8847,9 @@ async def vocabulary_save_word(
     (UUID into the curated catalog). Reading users click arbitrary words that
     may not be in the catalog, so we resolve the word lazily here:
       1. Find vocabulary_items row WHERE word = <lowercased input>
-      2. If absent, insert a sparse catalog row (word + optional zh_meaning)
-      3. Upsert user_vocabulary linking to that catalog row
+      2. Return an existing owned link without consuming quota
+      3. Check the shared Free quota before creating either row
+      4. If needed, create a sparse catalog row, then insert the owned link
 
     The Reading frontend supplies zh_meaning via /vocab/translate_zh before
     calling this endpoint, so newly-inserted catalog rows now ship with a
@@ -8891,9 +8901,30 @@ async def vocabulary_save_word(
             .limit(1)
             .execute()
         )
-        if existing_item.data:
-            item_id = existing_item.data[0]["id"]
-        else:
+        item_id = existing_item.data[0]["id"] if existing_item.data else None
+        if item_id:
+            existing_uv = (
+                supabase_admin.table("user_vocabulary")
+                .select("id")
+                .eq("user_id", user_id)
+                .eq("vocabulary_item_id", item_id)
+                .limit(1)
+                .execute()
+            )
+            if existing_uv.data:
+                logger.info(
+                    "[VOCAB_SAVE_WORD_DUP] user_id=%s word=%r source=%s",
+                    user_id, word, source,
+                )
+                return {
+                    "status": "exists",
+                    "vocabulary_item_id": item_id,
+                    "word": word,
+                }
+
+        _check_vocabulary_save_allowed(user_id)
+
+        if item_id is None:
             inserted_item = (
                 supabase_admin.table("vocabulary_items")
                 .insert({"word": word, "zh_meaning": zh_meaning})
@@ -8902,25 +8933,6 @@ async def vocabulary_save_word(
             if not inserted_item.data:
                 raise HTTPException(status_code=500, detail="Failed to create catalog entry")
             item_id = inserted_item.data[0]["id"]
-
-        existing_uv = (
-            supabase_admin.table("user_vocabulary")
-            .select("id")
-            .eq("user_id", user_id)
-            .eq("vocabulary_item_id", item_id)
-            .limit(1)
-            .execute()
-        )
-        if existing_uv.data:
-            logger.info(
-                "[VOCAB_SAVE_WORD_DUP] user_id=%s word=%r source=%s",
-                user_id, word, source,
-            )
-            return {
-                "status": "exists",
-                "vocabulary_item_id": item_id,
-                "word": word,
-            }
 
         inserted_uv = (
             supabase_admin.table("user_vocabulary")

@@ -96,11 +96,15 @@ def test_vocabulary_paywall_does_not_add_payment_or_analytics_schema():
     assert "payment_funnel" not in src
 
 
-def test_vocabulary_paywall_behavior_harness():
-    if not HARNESS.exists():
-        pytest.fail(f"missing harness: {HARNESS}")
+@pytest.mark.parametrize("harness", [
+    HARNESS,
+    HARNESS.with_name("frontend_vocabulary_save_paths_behavior.mjs"),
+])
+def test_vocabulary_paywall_behavior_harness(harness):
+    if not harness.exists():
+        pytest.fail(f"missing harness: {harness}")
     result = subprocess.run(
-        ["node", str(HARNESS)],
+        ["node", str(harness)],
         cwd=str(APP.parent.parent),
         capture_output=True,
         text=True,

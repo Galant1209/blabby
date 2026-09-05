@@ -6479,7 +6479,7 @@
                             });
                         } else if (res.status === 403) {
                             const body = await res.json().catch(() => ({}));
-                            if (body.error === 'vocab_limit_reached') {
+                            if (body.detail?.error === 'vocab_limit_reached') {
                                 addBtn.textContent = '已達上限';
                                 addBtn.disabled = true;
                                 const nudge = document.createElement('div');
