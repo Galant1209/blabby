@@ -333,3 +333,91 @@ LOCAL MIGRATION: NONE
 ```
 
 H/H-R rollout remains blocked and its document is unchanged. OPTION D, ADMIN_EMAILS, Task 1, `practice_records_quality_grade_idx`, and checkout work were not started or changed. This is a local application fix pending any separately authorized release; existing production deployment behavior is not certified here.
+
+
+## Option D Implementation — Round N
+
+Date: 2026-09-05. Implementation starts from command-verified `67596a1e147ae555ce0033b68fcb059c7f320c5c`; `origin/main = 88eada001f89597eb7721ea425c6fd4af23edde3`, ahead/behind 7/0, clean. Canonical checkout: `/Users/yichengchiu/dev/Blabby/blabby`. Earlier sections are historical evidence, preserved verbatim. Round N is a **local implementation contract**, not a refreshed production inspection.
+
+### Re-audited access and fields
+
+Previous public `/api/vocabulary/items` used the same 15-column projection as authenticated joins, with no application row limit. The bank downloaded its response then filtered word/Chinese meaning/topic/band locally; recommendations independently downloaded the same unbounded response. Round I's historical anonymous REST probes demonstrated count/offset/order/filter enumeration, including tags/created_at, bypassing the backend limiter. No production probe or corpus export was repeated in Round N.
+
+Current flow: anonymous vocabulary bank/recommendations → `GET /api/vocabulary/items` → `supabase_admin` service-role client → `public.vocabulary_items`. The new migration closes the separate raw browser-to-table branch. Auth/session SDK use remains; public browsing has no Authorization requirement, login redirect, or Pro gate.
+
+| Current caller | Corpus transport / contract |
+|---|---|
+| `frontend/app/vocabulary.html`: `loadBank`, `loadRecommended`, `renderVocabCardHtml` | Anonymous backend API; cards use exactly the ten fields below |
+| Same page: search, topic and IELTS band controls | Server-side query of the corpus before pagination; no first-page-only local search |
+| Same page: `loadMy`, `loadDueCount`, `renderReviewCard`/`submitReview`, `onAddClick`, `generateVocab` | Existing authenticated `/my`, `/review/today`, `/review`, `/generate` routes; owned joins/generation projection unchanged |
+| `frontend/app/index.html`: Speaking suggestions, active-use, save buttons | Backend `/process`, `/active-use/current`, `/review/today`, `/my`; service-role enrichment remains. Anonymous `/process` skips corpus enrichment |
+| `frontend/app/reading.html`: dictionary and save | Authenticated dictionary endpoints and `/api/vocabulary/save_word`; save still uses atomic RPC |
+| `frontend/app/hub.html`: due review count | Authenticated `/api/vocabulary/review/today` |
+| Writing, anonymous trial, landing/auth/history | No additional direct corpus reader found; links to Vocabulary retain anonymous access |
+| Recommendation/search alternatives | No direct Supabase fallback found; admin corpus mention is explanatory text |
+
+Repository search covered `vocabulary_items`, `/api/vocabulary`, `/items`, fetch/load/search names, `.from`/`.table`/REST access, topic and band use. A frontend-wide contract test forbids a raw corpus call in HTML/JS/MJS. No authenticated student direct-table dependency was found, so both browser roles are revoked.
+
+**Public response schema (exact allowlist, including nulls for optional/missing content):**
+
+- Required identity/filter content: `id`, `word`, `zh_meaning`, `topic`, `ielts_band_level`.
+- Existing visible card enrichment: `part_of_speech`, `common_chunk`, `speaking_sentence`, `better_than`, `usage_note_zh`. Full bank cards render sentences; compact recommendations omit sentences. Each of these five has an actual card consumer.
+- Excluded from public payload: `difficulty_level`, `simple_definition_en`, `common_mistake`, `tags`, `created_at`.
+
+`PUBLIC_VOCABULARY_FIELDS` governs both the DB projection and final response dictionary; even extra fields unexpectedly supplied by the provider cannot pass through. Authenticated owned joins retain `_vocab_item_select()` and their existing contract; this is not a broader authenticated payload cleanup.
+
+```json
+{"items":[{"id":"<uuid>","word":"example","zh_meaning":"例子","topic":null,"ielts_band_level":null,"part_of_speech":null,"common_chunk":null,"speaking_sentence":null,"better_than":null,"usage_note_zh":null}],"limit":50,"offset":0,"has_more":false,"next_offset":null}
+```
+
+### Row eligibility
+
+**ROW ELIGIBILITY REMAINS BROAD.** The current rule keeps all rows the existing product would normally display, with a reduced field projection and controlled backend queries. There is no reliable corpus source, approval, review, active, or quality column. Tags are weakness metadata, not publication approval. Corpus `created_at` is not provenance. Do not infer eligibility from whether optional learning fields are populated.
+
+| Classification | Evidence / decision |
+|---|---|
+| PUBLIC_ELIGIBLE | Operational browsing rule only: existing visible rows remain candidates. No individual live production row is newly certified as reviewed/publication-approved |
+| NON_PUBLIC | No reliably identifiable row subset can be assigned this label from the available schema. This is not a claim that every row is safe to publish |
+| UNKNOWN | Individual production-row provenance, rights and publication approval; membership in seed/generated/user-input sources remains unverified |
+
+The source paths remain mixed: repository seed of 30 entries; practice-informed authenticated generation into the shared corpus, including weakness tags; and atomic saved-word creation from user-submitted word/meaning. Round I's **83** is a historical observation, not a new count or a current per-row classification. No invented allowlist, backfill or approval flag was added.
+
+### Query and frontend contract
+
+- Endpoint: unauthenticated `GET /api/vocabulary/items`.
+- `q`: case-insensitive substring OR across `word` and `zh_meaning`; existing `search` remains an alias. `q` wins if both supplied. Maximum 100 characters. Accepts Unicode word characters, whitespace, hyphens and apostrophes; filter syntax/wildcards are rejected with 422. Underscore is escaped as a literal LIKE character. Empty/whitespace query means list.
+- `topic`: exact match, max 80 characters. `band`: exact `ielts_band_level`, max 20; existing `level` alias preserved, `band` wins. Both apply before paging.
+- `limit`: default 50, range 1–100; invalid values return 422. `offset`: default 0, range 0–100000. Stable order is `word ASC, id ASC`. Query reads at most `limit + 1` rows; response sends at most `limit`, with `has_more` and `next_offset`. No unrestricted count endpoint or arbitrary column/order/filter parameters.
+- Existing per-IP `30/minute` decorator remains shared across list, search and filter variants. Tests send 30 different queries then prove both plain and changed-query requests return 429.
+- Bank initial page size 50; previous/next controls retain filters. Search debounces 600ms; filter changes reset offset and cancel pending debounce. An incrementing request number prevents stale responses replacing newer search results. Loading, empty, network failure, 422/429 messages and retry are explicit. A later owned-list render cannot erase a bank error/retry state.
+- Recommendations use a bounded first-50 pool, excluding locally known saved IDs and retaining the daily six-card shuffle. This is deliberately a limited recommendation sample, not whole-corpus coverage. Bank search still finds matches outside this pool. The existing parallel owned-list/recommendation boot timing is unchanged.
+- Save, SRS/review and quota paywall remain authenticated. Free30 rejection still opens the existing modal with `/upgrade.html?source=vocab_limit`; anonymous corpus browsing is distinct from saving.
+
+### Local ACL/RLS migration and behavior
+
+New source: `supabase/migrations/20260905120000_vocabulary_public_access_lockdown.sql` — **PENDING_BLABBY / LOCAL ONLY**.
+
+The transaction enables corpus RLS, drops the known public SELECT policy, revokes table SELECT and every current column SELECT from PUBLIC/anon/authenticated, and explicitly grants service_role SELECT. Effective inherited SELECT causes the migration to abort rather than rewriting shared roles. It requires the expected service_role BYPASSRLS property. It does not touch owned-table ACLs/policies, quota function, payment, Admin UI, Task 1, quality index or waitlist physical storage.
+
+`supabase/replay/test_public_vocabulary_access.py` runs on disposable PostgreSQL 17, via the existing replay runner. It first recreates broad table and independent column/PUBLIC grants and verifies raw reads work; then reapplies the migration and verifies real permission denial for full, safe-field, and internal-field reads by both browser roles. Service-role SELECT and an owner-filtered backend-style join succeed. Transaction-scoped auth fixtures exercise owner SELECT, SRS UPDATE and review-log isolation, leaving another user's state unchanged. Owned ACL/RLS and quota function definition/EXECUTE privileges compare equal before/after; rerun is idempotent. These are executed database behaviors, not static SQL matching.
+
+Validation results are recorded below after execution. All DB writes made by these tests were confined to a fresh disposable local cluster with TCP listening disabled, and the cluster was stopped afterward. The Supabase replay shim models platform roles/auth, so this does not prove current production ACLs or a deployed PostgREST/Render release.
+
+### Residual risk and deployment boundary
+
+**SCRAPE RESISTANCE IMPROVED / NOT SCRAPE-PROOF.** Anonymous pagination and query partitioning still permit corpus enumeration over time. Reduced columns, bounded query/response shape and the existing limiter reduce exposure; they are not a bot-proof boundary. The limiter uses the existing remote-address/in-memory configuration; multiple workers, restarts and distributed clients remain limitations. Offset paging is ordered but is not a snapshot across concurrent corpus mutations. Very large results beyond the offset ceiling require narrower filters. Unbounded text length in stored card content is outside this query-count bound.
+
+Eligibility remains broad and free-form generated/user-input content may still be displayed. Future reviewed-row enforcement can be centralized in this backend path, but no such review truth is claimed here. Authenticated projections remain unchanged and may still include the five fields excluded from anonymous browsing. Independent privileged RPCs or later grants would require separate review; no new RPC surface was added here.
+
+Production state is unchanged and unverified in this round. Production READ ONLY SQL access, Render deployed SHA, recoverable backup evidence, PostHog personal query key/project identity remain blocked/unverified. Current backend also depends on pending atomic quota migration `20260905040134_atomic_vocabulary_save_quota.sql`, whose bytes remain unchanged. No push/deploy/apply is authorized by these local results. See the readiness appendix for coordinated candidate sequencing; never auto-apply all pending files by timestamp.
+
+
+### Executed validation — Round N
+
+- Focused backend vocabulary/ownership/quota/frontend/manifest suite: **98 passed**, 5 existing deprecation warnings. Public vocabulary file contributes **25 HTTP cases + 1 real-DOM Node wrapper + 1 frontend dependency check**; schema/manifest suite has **9 passed**.
+- Fresh disposable **PostgreSQL 17.11** replay: **REPLAY OK**. Corpus ACL/RLS harness: **7 proof groups PASS**. Atomic quota harness: **12 PASS outputs**, including restored concurrency, plus **1 expected failing lock-removal mutation probe** (31 without lock, 30 after restore).
+- Node **20.20.2**: **4 vocabulary harnesses PASS** — new public bank DOM, existing paywall, Reading/Speaking save paths (8 subtests), active vocabulary.
+- Full Python **3.11** backend pytest: **725 passed, 10 skipped, 5 existing deprecation warnings**. Live Reading E2E configuration was explicitly blank; provider keys were dummy test values and conftest disabled live Supabase initialization.
+- `git diff --check`: PASS. Readiness and this audit retained their entire previous byte prefixes; historical manifest production/ledger/replay snapshots and atomic quota migration bytes verified unchanged.
+
+Execution paths: focused tests use `test_public_vocabulary.py`, `test_vocabulary_save_quota.py`, `test_active_vocabulary.py`, `test_frontend_vocabulary_paywall_contracts.py`, `test_frontend_harness_ci_contract.py`, `test_schema_migration_truth_contract.py`; full suite uses `pytest backend/tests -q`. Replay uses `PGURI=<fresh local Unix socket> ./supabase/replay/replay.sh`, which now runs both corpus-access and atomic-quota behavior scripts. New Node harness is owned by the pytest CI wrapper; existing CI Node20/npm installation is reused. Temporary local runtime was reused without changing the original runtime files; only the new disposable cluster was started, then stopped.

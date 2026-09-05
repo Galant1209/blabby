@@ -878,13 +878,18 @@ header.brand .subtitle {
             <button class="level-chip" data-level="7.0">IELTS 7.0+</button>
         </div>
         <div id="level-description" class="level-desc" style="display:none"></div>
-        <input type="text" class="vocab-search" id="vocab-search" placeholder="搜尋單字、主題，或你想替換的 basic word...">
+        <input type="text" class="vocab-search" id="vocab-search" maxlength="100" placeholder="搜尋英文單字或中文意思...">
         <div id="vocab-grid">
             <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
             <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
             <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
             <div class="skeleton-card"><div class="skeleton-line wide"></div><div class="skeleton-line medium"></div><div class="skeleton-line narrow"></div></div>
         </div>
+        <nav class="filter-row" aria-label="Vocabulary pages">
+            <button id="bank-prev" type="button" disabled>上一頁</button>
+            <span id="bank-page" role="status" aria-live="polite"></span>
+            <button id="bank-next" type="button" disabled>下一頁</button>
+        </nav>
     </section>
 
     <!-- Section 3: My Vocabulary (hidden — data still loaded, drives journal) -->
@@ -927,12 +932,18 @@ header.brand .subtitle {
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // ── State
-    let allItems = [];                  // catalog from /api/vocabulary/items
+    let allItems = [];                  // current server-filtered page
     let myItems = [];                   // from /api/vocabulary/my (joined)
     let mySetOfItemIds = new Set();     // fast membership check
     let activeTopic = '';
     let activeLevel = 'all';
     let activeSearch = '';
+    const BANK_PAGE_SIZE = 50;
+    let bankOffset = 0;
+    let bankNextOffset = null;
+    let bankRequest = 0;
+    let bankLoading = false;
+    let bankError = false;
     const LEVEL_DESCRIPTIONS = {
         '5.5': 'Band 5.5 — 基礎進階詞彙。你認識這些字，但還沒有自然說出口的習慣。從這裡開始。',
         '6.0': 'Band 6.0 — 核心 IELTS 詞彙。考 6 分的學生應該能自然使用這個等級的詞。',
@@ -1026,19 +1037,52 @@ header.brand .subtitle {
     window.analytics?.track('vocabulary_page_viewed');
 
     // ── Section 2: Bank fetch + render ────────────────────────────────
-    async function loadBank() {
+    function bankPending() {
+        bankLoading = true;
+        bankError = false;
+        document.getElementById('bank-prev').disabled = true;
+        document.getElementById('bank-next').disabled = true;
+        document.getElementById('bank-page').textContent = '載入中…';
+        document.getElementById('vocab-grid').innerHTML = '<div class="empty-state" role="status">載入單字中…</div>';
+    }
+    async function loadBank(offset = 0) {
+        const requestId = ++bankRequest;
+        bankPending();
+        const params = new URLSearchParams({ limit: BANK_PAGE_SIZE, offset });
+        if (activeSearch.trim()) params.set('q', activeSearch.trim());
+        if (activeTopic) params.set('topic', activeTopic);
+        if (activeLevel !== 'all') params.set('band', activeLevel);
         try {
-            const r = await fetch(`${API_BASE}/api/vocabulary/items`);
+            const r = await fetch(`${API_BASE}/api/vocabulary/items?${params}`);
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const body = await r.json();
+            if (requestId !== bankRequest) return;
             allItems = Array.isArray(body.items) ? body.items : [];
+            bankOffset = offset;
+            bankNextOffset = body.has_more ? body.next_offset : null;
+            bankLoading = false;
             renderBank();
+            document.getElementById('bank-page').textContent = `第 ${Math.floor(offset / BANK_PAGE_SIZE) + 1} 頁`;
+            document.getElementById('bank-prev').disabled = offset === 0;
+            document.getElementById('bank-next').disabled = bankNextOffset === null;
         } catch (e) {
-            console.error('loadBank failed', e);
+            if (requestId !== bankRequest) return;
+            bankLoading = false;
+            bankError = true;
+            allItems = [];
+            document.getElementById('bank-page').textContent = '';
+            const message = e.message === 'HTTP 429' ? '查詢太頻繁，請稍候一分鐘再試。'
+                : e.message === 'HTTP 422' ? '請輸入英文單字或中文意思，勿使用搜尋符號。'
+                : '無法載入單字，請檢查網路後再試。';
             document.getElementById('vocab-grid').innerHTML =
-                `<div class="error-state">Failed to load vocabulary bank.</div>`;
+                `<div class="error-state">${message} <button id="bank-retry" type="button">重試</button></div>`;
+            document.getElementById('bank-retry').addEventListener('click', () => loadBank(offset));
         }
     }
+    document.getElementById('bank-prev').addEventListener('click', () => loadBank(Math.max(0, bankOffset - BANK_PAGE_SIZE)));
+    document.getElementById('bank-next').addEventListener('click', () => {
+        if (bankNextOffset !== null) loadBank(bankNextOffset);
+    });
     // Shared card markup. opts.compact = true drops speaking_sentence
     // (used by Recommended for Today). opts.source = analytics source tag.
     function renderVocabCardHtml(it, opts) {
@@ -1073,16 +1117,8 @@ header.brand .subtitle {
 
     function renderBank() {
         const grid = document.getElementById('vocab-grid');
-        const term = activeSearch.trim().toLowerCase();
-        const filtered = allItems.filter(it => {
-            if (activeTopic && (it.topic || '') !== activeTopic) return false;
-            if (activeLevel !== 'all' && (it.ielts_band_level || '') !== activeLevel) return false;
-            if (term) {
-                const hay = `${it.word || ''} ${it.zh_meaning || ''}`.toLowerCase();
-                if (!hay.includes(term)) return false;
-            }
-            return true;
-        });
+        if (bankLoading || bankError) return;
+        const filtered = allItems;
         if (filtered.length === 0) {
             grid.innerHTML = '<div class="empty-state">No words match these filters.</div>';
             return;
@@ -1091,11 +1127,11 @@ header.brand .subtitle {
         grid.querySelectorAll('.vocab-card__add').forEach(btn => btn.addEventListener('click', onAddClick));
     }
 
-    // Recommended for Today — small fixed list, compact card variant.
+    // Recommended for Today — six picks from the first bounded 50-row pool.
     async function loadRecommended() {
         const grid = document.getElementById('recommended-grid');
         try {
-            const r = await fetch(`${API_BASE}/api/vocabulary/items`);
+            const r = await fetch(`${API_BASE}/api/vocabulary/items?limit=50&offset=0`);
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const body = await r.json();
             let items = Array.isArray(body.items) ? body.items : [];
@@ -1353,7 +1389,8 @@ header.brand .subtitle {
         if (!btn) return;
         activeTopic = btn.dataset.topic || '';
         document.querySelectorAll('#topic-filters button').forEach(b => b.classList.toggle('active', b === btn));
-        renderBank();
+        clearTimeout(searchTrackTimer);
+        loadBank();
         window.analytics?.track('vocabulary_filter_used', { topic: activeTopic || 'all' });
     });
 
@@ -1374,16 +1411,19 @@ header.brand .subtitle {
             }
 
             window.analytics?.track('vocabulary_filter_used', { filter_type: 'level', level: activeLevel });
-            renderBank();
+            clearTimeout(searchTrackTimer);
+            loadBank();
         });
     });
     // Search — track on input but debounce so we don't fire per keystroke
     let searchTrackTimer = null;
     document.getElementById('vocab-search').addEventListener('input', (ev) => {
         activeSearch = ev.target.value || '';
-        renderBank();
+        ++bankRequest; // Invalidate responses as soon as the query changes.
+        bankPending();
         if (searchTrackTimer) clearTimeout(searchTrackTimer);
         searchTrackTimer = setTimeout(() => {
+            loadBank();
             const q = activeSearch.trim();
             if (q) window.analytics?.track('vocabulary_search_used', { query: q });
         }, 600);

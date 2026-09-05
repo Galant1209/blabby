@@ -1043,5 +1043,6 @@ psql_run "$MIGRATIONS/20260731_content_access_lockdown.sql"
 echo "ok    rollback verified, re-locked"
 
 echo
+python3 "$HERE/test_public_vocabulary_access.py" --disposable
 python3 "$HERE/test_atomic_vocabulary_quota.py" --disposable
 echo "REPLAY OK"

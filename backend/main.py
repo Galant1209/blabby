@@ -5318,14 +5318,14 @@ async def resolve_practice_record(
 
 
 # ─── Vocabulary system ────────────────────────────────────────────────────────
-# vocabulary_items is a public-read catalog; user_vocabulary holds the SRS
+# vocabulary_items is read through the backend; user_vocabulary holds the SRS
 # state per user; vocabulary_review_logs is the audit trail. RLS handles
 # tenancy at the DB layer — these endpoints additionally use service-role
 # client with explicit user_id filtering for parity with the rest of the
 # /api/* surface.
 
 def _vocab_item_select() -> str:
-    """Columns we send to the client for both /items and joined queries."""
+    """Authenticated joined queries; public browsing has its own allowlist."""
     return (
         "id, word, part_of_speech, zh_meaning, difficulty_level, ielts_band_level, "
         "topic, tags, simple_definition_en, common_chunk, speaking_sentence, "
@@ -5520,35 +5520,59 @@ async def vocabulary_active_use_current(
         raise HTTPException(status_code=503, detail="Failed to load active vocabulary target") from exc
 
 
+PUBLIC_VOCABULARY_FIELDS = (
+    "id", "word", "zh_meaning", "topic", "ielts_band_level", "part_of_speech",
+    "common_chunk", "speaking_sentence", "better_than", "usage_note_zh",
+)
+
+
 @app.get("/api/vocabulary/items")
 @limiter.limit("30/minute")
 async def vocabulary_items_list(
     request: Request,
-    topic: Optional[str] = None,
-    level: Optional[str] = None,
-    search: Optional[str] = None,
+    topic: Optional[str] = Query(None, max_length=80),
+    level: Optional[str] = Query(None, max_length=20),
+    search: Optional[str] = Query(None, max_length=100, pattern=r"^[\w\s'-]*$"),
+    q: Optional[str] = Query(None, max_length=100, pattern=r"^[\w\s'-]*$"),
+    band: Optional[str] = Query(None, max_length=20),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=100000),
 ):
-    """
-    Public-ish catalog. Optional filters: topic, level (ielts_band_level),
-    search (substring match on word). Auth not required — RLS allows
-    anyone to SELECT from vocabulary_items.
+    """Anonymous card catalog via service_role; bounded server search/paging.
+
+    Row eligibility remains broad: no trustworthy publication marker exists.
+    search/level remain aliases for older callers. Search accepts words,
+    Chinese text, whitespace, apostrophes and hyphens, never filter syntax.
     """
     if supabase_admin is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    topic = (topic or "").strip() or None
-    level = (level or "").strip() or None
-    search = (search or "").strip() or None
+    topic = (topic or "").strip()
+    level = (band if band is not None else level or "").strip()
+    term = (q if q is not None else search or "").strip()
     try:
-        query = supabase_admin.table("vocabulary_items").select(_vocab_item_select())
+        query = supabase_admin.table("vocabulary_items").select(
+            ", ".join(PUBLIC_VOCABULARY_FIELDS)
+        )
         if topic:
             query = query.eq("topic", topic)
         if level:
             query = query.eq("ielts_band_level", level)
-        if search:
-            # PostgREST ilike: case-insensitive LIKE; wildcards on both sides.
-            query = query.ilike("word", f"%{search}%")
-        resp = query.order("word", desc=False).execute()
-        return {"items": resp.data or []}
+        if term:
+            # Underscore is a LIKE wildcard even inside a quoted filter value.
+            pattern = json.dumps("%" + term.replace("_", r"\_") + "%", ensure_ascii=False)
+            query = query.or_(f"word.ilike.{pattern},zh_meaning.ilike.{pattern}")
+        # One lookahead row avoids an unbounded count; id breaks word ties.
+        resp = query.order("word", desc=False).order("id", desc=False).range(
+            offset, offset + limit
+        ).execute()
+        rows = resp.data or []
+        has_more = len(rows) > limit and offset + limit <= 100000
+        return {
+            "items": [{key: row.get(key) for key in PUBLIC_VOCABULARY_FIELDS}
+                      for row in rows[:limit]],
+            "limit": limit, "offset": offset, "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+        }
     except HTTPException:
         raise
     except Exception:

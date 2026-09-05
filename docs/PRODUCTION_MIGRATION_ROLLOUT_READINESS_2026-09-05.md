@@ -629,3 +629,34 @@ Details: [Vocabulary quota contract — Round K](VOCABULARY_QUOTA_CONTRACT_2026-
 PRODUCTION DB WRITE: 0
 PRODUCTION POLICY CHANGE: 0
 PRODUCTION MIGRATION APPLY: 0
+
+
+## Round N — Public vocabulary access candidate (local only)
+
+Starting preflight: HEAD `67596a1e147ae555ce0033b68fcb059c7f320c5c`, origin/main `88eada001f89597eb7721ea425c6fd4af23edde3`, ahead/behind 7/0, clean canonical checkout. All prior readiness/prod snapshots remain historical and unchanged.
+
+| Exact source | Classification | Production authorization |
+|---|---|---|
+| `supabase/migrations/20260905120000_vocabulary_public_access_lockdown.sql` | **PENDING_BLABBY / LOCAL ONLY** | **NOT AUTHORIZED FOR PRODUCTION APPLY** |
+| `supabase/migrations/20260905040134_atomic_vocabulary_save_quota.sql` | **PENDING_BLABBY / LOCAL ONLY**, unchanged source | **NOT AUTHORIZED FOR PRODUCTION APPLY** |
+
+Round N narrows anonymous backend corpus output to ten actual card fields and bounded server-side filtering/pagination. The new migration closes raw anon/authenticated table and column SELECT while retaining service_role and owned vocabulary contracts. Fresh local replay/ACL proofs do not establish current production grants or deployed behavior. Row eligibility remains broad; scraping remains possible through the public API.
+
+**Production blockers remain unchanged:**
+
+- Production transaction-preserving READ ONLY SQL session unavailable; current ledger/catalog/ACL evidence remains missing.
+- Render Blabby deployed SHA unverified.
+- Target-specific recoverable backup/PITR evidence unavailable.
+- PostHog personal query key missing and project ID unverified; this round neither queries nor changes PostHog.
+
+**Candidate sequencing — documentation only, requires separate authorization after evidence gates:**
+
+1. Re-establish same-session production READ ONLY inspection, exact deployed SHA and recoverability evidence; reconcile only the explicitly authorized candidate sources against live state. Apply the atomic quota migration `20260905040134_atomic_vocabulary_save_quota.sql` before any backend version that requires its RPC. This is not authorization to apply it now.
+2. Deploy a coordinated backend containing atomic save RPC integration plus the bounded public corpus API, together with the matching Vocabulary frontend. Verify anonymous list/search (including a match outside page one), topic/band, paging, allowlist, rate limits and authenticated save/review. The old frontend locally filters a now-bounded first page; the new frontend's q/band parameters also need the matching backend. Avoid leaving mixed versions serving incomplete search; treat this as one coordinated release candidate.
+3. Only after public API and matching frontend verification, apply **only** `20260905120000_vocabulary_public_access_lockdown.sql` under its separate authorization. Verify effective table/column/PUBLIC/inherited ACLs and policies, anon/authenticated denial and service-role/backend access. Do not use timestamps to run all pending migrations.
+4. Reverify anonymous frontend, recommendation sample, full-corpus filtered search and pagination, owned list/save/review/SRS and Free30/Pro behavior; close with exact deployment SHA and readback. Stop on any prerequisite or compatibility failure; no production rollback or other migration is implied.
+
+Current production apply allowlist remains **NONE**. Current backend must not be independently deployed while its atomic RPC dependency is unverified. H/H-R exclusions, quality-index drift, Task 1 separation and no physical waitlist drop remain intact. Production writes/policy changes/migration apply/deployment in Round N: **0 / 0 / 0 / 0**; push: **NO**.
+
+
+Local evidence: PostgreSQL 17.11 fresh replay **REPLAY OK**; corpus ACL/RLS **7 proof groups PASS**; existing atomic quota concurrency/ACL regression **PASS**, including lock-removal failure and restored PASS. Focused suite **98 passed** (including 9 manifest contracts); full suite **725 passed, 10 skipped**; Node20 vocabulary **4 harnesses PASS**. See the Round N appendix in `VOCABULARY_ITEMS_ANON_ACCESS_TRUTH_2026-09-05.md` for exact scope and limitations. These results do not close any production readiness blocker.
