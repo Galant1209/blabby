@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "scope": "Round O-R: three historical source rows only; no current production reads/writes",
+  "sources": [
+    {
+      "evidence_id": "S1",
+      "source_path": "/Users/yichengchiu/.claude/projects/-Users-yichengchiu-Desktop-Blabby/80b8cb73-c3f7-478f-a62c-507ea8ff0396.jsonl",
+      "request_line": 1416,
+      "response_line": 1417,
+      "request_timestamp": "2026-07-14T05:59:24.421Z",
+      "response_timestamp": "2026-07-14T05:59:28.920Z",
+      "tool_name": "mcp__0fe2b759-6524-4325-89ca-45415b550daa__execute_sql",
+      "tool_use_id": "toolu_01KVn7NtmrLo482GUwBzE6AN",
+      "project_id": "mkwywkwruyqzdhuzwnoa",
+      "operation": "Historical SELECT of in-pool pie rows; exact prompt and chart_description",
+      "request_line_sha256": "d5e75319bb58ffe4fefe821199f41278a1a09115df660a87360add9b2966b185",
+      "response_line_sha256": "fffef7795f8091b3dbad6665d220aa7435c2e1b0a548aaf38f0ec3540b42577e"
+    },
+    {
+      "evidence_id": "S2",
+      "source_path": "/Users/yichengchiu/.claude/projects/-Users-yichengchiu-Desktop-Blabby/80b8cb73-c3f7-478f-a62c-507ea8ff0396.jsonl",
+      "request_line": 1479,
+      "response_line": 1480,
+      "request_timestamp": "2026-07-14T06:04:07.859Z",
+      "response_timestamp": "2026-07-14T06:04:13.993Z",
+      "tool_name": "mcp__0fe2b759-6524-4325-89ca-45415b550daa__execute_sql",
+      "tool_use_id": "toolu_01SLWVjqFsshmUSu1SXaTtMW",
+      "project_id": "mkwywkwruyqzdhuzwnoa",
+      "operation": "Historical soft-retirement UPDATE RETURNING; inspected as archival text only, never executed in O-R",
+      "request_line_sha256": "5037805dd1ca6136cee9a1248596b483b24d0c6bd666339b6f6990a21df3b555",
+      "response_line_sha256": "4e2c238801338b095e57151f9d8f05e9b31cac5ea779af32f4d73e75f84772c2"
+    },
+    {
+      "evidence_id": "S3",
+      "source_path": "/Users/yichengchiu/.claude/projects/-Users-yichengchiu-Desktop-Blabby/df81760a-b94c-4dde-bf69-d93a65eda394.jsonl",
+      "request_line": 47,
+      "response_line": 48,
+      "request_timestamp": "2026-09-03T13:04:21.314Z",
+      "response_timestamp": "2026-09-03T13:04:26.039Z",
+      "tool_name": "mcp__0fe2b759-6524-4325-89ca-45415b550daa__execute_sql",
+      "tool_use_id": "toolu_0131tDGsFZEZidvm3JqQPRvr",
+      "project_id": "mkwywkwruyqzdhuzwnoa",
+      "operation": "Historical SELECT of serving state, timestamps, prompt/SVG lengths",
+      "request_line_sha256": "c70b7ff6317361fe41f33b34e040a810497e38158d062bedbd4ed13d8233187f",
+      "response_line_sha256": "50b16c205fc10ceab4c5b4ef17955ea9fa9bcfcb2dc79f707b3f7e0519faa3f5"
+    }
+  ],
+  "samples": [
+    {
+      "sample": "A",
+      "id": "2e0a374b-68d2-458f-adca-d5a4a45da0c7",
+      "original_row": {
+        "id": "2e0a374b-68d2-458f-adca-d5a4a45da0c7",
+        "prompt": "The pie charts below show the distribution of energy consumption by sector in a developed country in 2010 and 2023. Summarise the information by describing the main features, and make comparisons where relevant.",
+        "chart_description": "Sector | 2010 | 2023\nIndustrial | 32 | 28\nResidential | 26 | 31\nTransport | 25 | 22\nCommercial | 17 | 19",
+        "created_at": "2026-07-07 06:12:31.064086+00"
+      },
+      "original_row_source": "S1",
+      "historical_retirement": {
+        "id": "2e0a374b-68d2-458f-adca-d5a4a45da0c7",
+        "task1_subtype": "pie_chart",
+        "is_pregenerated": false
+      },
+      "retirement_source": "S2",
+      "historical_metadata": {
+        "id": "2e0a374b-68d2-458f-adca-d5a4a45da0c7",
+        "task1_subtype": "pie_chart",
+        "is_pregenerated": false,
+        "used_count": 1,
+        "created_at": "2026-07-07 06:12:31.064086+00",
+        "svg_len": 6647,
+        "prompt_len": 211,
+        "desc_null": false
+      },
+      "metadata_source": "S3",
+      "unit_status": "PARTIAL: percentage-style display intended in historical generator; not explicit in recovered row fields",
+      "IELTS_validity": "INSUFFICIENT_EVIDENCE",
+      "disposition": "KEEP_RETIRED_PROVENANCE_INSUFFICIENT",
+      "review_note": "Original prompt/table recovered from archival Supabase SELECT S1, 2026-07-14, UUID 2e0a374b-68d2-458f-adca-d5a4a45da0c7. Original table has no explicit unit; archived SVG content is unavailable. Keep retired for provenance insufficiency; no source edit or serving approval.",
+      "current_production_state": "NOT_QUERIED"
+    },
+    {
+      "sample": "B",
+      "id": "ab70b2fd-b96b-435b-81ca-ee7864be2c10",
+      "original_row": {
+        "id": "ab70b2fd-b96b-435b-81ca-ee7864be2c10",
+        "prompt": "The pie charts below show the distribution of energy consumption by source in a European country across three decades: 2000, 2010, and 2020. Summarize the information by describing the main changes in energy sources over the 20-year period, and make comparisons where relevant.",
+        "chart_description": "Energy Source | 2000 | 2010 | 2020\nCoal | 32 | 24 | 12\nNatural Gas | 28 | 31 | 28\nRenewable Energy | 8 | 12 | 35\nNuclear | 18 | 18 | 15\nOil | 14 | 15 | 10",
+        "created_at": "2026-07-07 06:07:09.451709+00"
+      },
+      "original_row_source": "S1",
+      "historical_retirement": {
+        "id": "ab70b2fd-b96b-435b-81ca-ee7864be2c10",
+        "task1_subtype": "pie_chart",
+        "is_pregenerated": false
+      },
+      "retirement_source": "S2",
+      "historical_metadata": {
+        "id": "ab70b2fd-b96b-435b-81ca-ee7864be2c10",
+        "task1_subtype": "pie_chart",
+        "is_pregenerated": false,
+        "used_count": 1,
+        "created_at": "2026-07-07 06:07:09.451709+00",
+        "svg_len": 10879,
+        "prompt_len": 277,
+        "desc_null": false
+      },
+      "metadata_source": "S3",
+      "unit_status": "PARTIAL: percentage-style display intended in historical generator; not explicit in recovered row fields",
+      "IELTS_validity": "INSUFFICIENT_EVIDENCE",
+      "disposition": "KEEP_RETIRED_PROVENANCE_INSUFFICIENT",
+      "review_note": "Original prompt/table recovered from archival Supabase SELECT S1, 2026-07-14, UUID ab70b2fd-b96b-435b-81ca-ee7864be2c10. Original table has no explicit unit; archived SVG content is unavailable. Keep retired for provenance insufficiency; no source edit or serving approval.",
+      "current_production_state": "NOT_QUERIED"
+    },
+    {
+      "sample": "C",
+      "id": "6b3c1090-fca5-48c3-886f-92d25195fb69",
+      "original_row": {
+        "id": "6b3c1090-fca5-48c3-886f-92d25195fb69",
+        "prompt": "The pie charts below show the distribution of household energy consumption by source in a developed country in 2010 and 2023. Summarise the information by describing the main features, and make comparisons where relevant.",
+        "chart_description": "Energy Source | 2010 | 2023\nNatural Gas | 42 | 38\nElectricity | 35 | 44\nOil | 15 | 12\nRenewable Energy | 8 | 6",
+        "created_at": "2026-07-07 06:07:54.458501+00"
+      },
+      "original_row_source": "S1",
+      "historical_retirement": {
+        "id": "6b3c1090-fca5-48c3-886f-92d25195fb69",
+        "task1_subtype": "pie_chart",
+        "is_pregenerated": false
+      },
+      "retirement_source": "S2",
+      "historical_metadata": {
+        "id": "6b3c1090-fca5-48c3-886f-92d25195fb69",
+        "task1_subtype": "pie_chart",
+        "is_pregenerated": false,
+        "used_count": 1,
+        "created_at": "2026-07-07 06:07:54.458501+00",
+        "svg_len": 7104,
+        "prompt_len": 221,
+        "desc_null": false
+      },
+      "metadata_source": "S3",
+      "unit_status": "PARTIAL: percentage-style display intended in historical generator; not explicit in recovered row fields",
+      "IELTS_validity": "INSUFFICIENT_EVIDENCE",
+      "disposition": "KEEP_RETIRED_PROVENANCE_INSUFFICIENT",
+      "review_note": "Original prompt/table recovered from archival Supabase SELECT S1, 2026-07-14, UUID 6b3c1090-fca5-48c3-886f-92d25195fb69. Original table has no explicit unit; archived SVG content is unavailable. Household context recovered, but Electricity/Renewable Energy exclusivity remains unresolved. Keep retired for provenance insufficiency; no source edit or serving approval.",
+      "current_production_state": "NOT_QUERIED"
+    }
+  ],
+  "git_blob_search": {
+    "searched_blobs": 771,
+    "matching_blobs": 9,
+    "matching_paths": [
+      "backend/tests/test_task1_review.py",
+      "docs/PIE_RETIRED_MULTIPERIOD_20260714.md",
+      "docs/PRODUCTION_MIGRATION_ROLLOUT_READINESS_2026-09-05.md",
+      "docs/TASK1_CHART_HUMAN_REVIEW_2026-09-04.md"
+    ]
+  },
+  "excluded": "No credentials, other question rows, user submissions or entire session logs copied. Existing Round O synthetic fixtures are not canonical source."
+}

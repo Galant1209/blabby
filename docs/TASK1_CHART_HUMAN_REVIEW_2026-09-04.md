@@ -321,3 +321,232 @@ Executed local evidence:
 - `git diff --check`: PASS. Original human-review document prefix verified byte-for-byte preserved; application and migration files unchanged.
 
 **Final scope result:** canonical recovery/reproduction and review workflow verification PASS; three source-data assessments documented; complete human content review remains **BLOCKED — original prompt and unit/population context unavailable**. No claim of human operator approval or production metadata update is made. The prior production SQL/Render SHA/recoverability blockers remain unchanged. Production DB writes = 0; production review PATCH = 0; migration apply = 0; deployment = 0; push = NO.
+
+
+## Source Context Recovery — 2026-09-05
+
+### 1. Scope and new finding
+
+Round O-R baseline: HEAD `dcd08bac24293aa0ca7c13d25d44d82ea1ed7743`, origin/main `88eada001f89597eb7721ea425c6fd4af23edde3`, ahead/behind **9/0**, working tree clean; reverified in `/Users/yichengchiu/dev/Blabby/blabby`.
+
+**All three original prompts and complete stored chart descriptions were recovered from historical project tool results.** This supersedes Round O's limited search result that the prompts were not available there. It does not rewrite that historical assessment, turn the reconstructed fixtures into original sources, or resolve the separate **UNRECOVERABLE HISTORICAL PROVENANCE** of the 09-03 six design issues.
+
+The remaining content gate is narrower: the recovered per-row prompt/table fields do not explicitly state a unit, original SVG contents were not recovered, and C still lacks an exclusivity definition for Electricity versus Renewable Energy. The historical renderer suggests percentage-style display but is not a per-row unit declaration. All three therefore remain **KEEP_RETIRED_PROVENANCE_INSUFFICIENT** under this round's strict confirmation gate. This is not proof that the source was permanently lost or that the questions are intrinsically invalid.
+
+Only this appendix and the [minimal source archive](evidence/task1_review_samples_20260905/source-context-recovery.json) are new. No renderer, static fallback, source data, question text, application code or migration was changed. No production query or PATCH was issued.
+
+### 2. Search coverage and method
+
+| Search surface | What was actually searched | Result / limitation |
+|---|---|---|
+| Canonical current tree | 190 tracked files plus hidden/ignored text sources; UUIDs, exact numeric/category sequences and recovered distinctive prompt strings; docs, SQL, JSON/CSV, tests, seeds, import/generation scripts and reports | Only existing retirement/review/readiness docs and synthetic API test matched; no original question bank export |
+| Reachable Git history | 466 commits; `git log -S/-G`, `git show`, historical `git grep` at `071695b`, `c3e30b1`, `4eea975`, `562b88e`; `git cat-file --batch` scan of 771 historical text blobs | 9 matching blobs across the same four documentation/test paths; no original prompt in Git. Deleted JSON/CSV/SQL/XLSX path search found only unrelated `frontend/app/config.json`, not a deleted question dataset |
+| Desktop rescue | Filesystem text search under `/Users/yichengchiu/Desktop/Blabby`, including available worktrees/reports; no rescue Git command or writes | Retirement document only; no additional original source. Search completed within the 35-second bound, no metadata repair |
+| Nearby archives / Downloads | Canonical parent contains only canonical repo; filesystem search of `/Users/yichengchiu/Downloads/blabby`; 16 Blabby-named text handoff/context files in Downloads | Downloads rescue again contains the retirement document; 16 handoffs had no sample/value match |
+| Local project operation logs | Four Blabby Claude project directories, plus available July Codex sessions; exact UUIDs and distinctive value/phrase matching | Two Claude logs carry relevant evidence; one contains original rows, the other later metadata. Prior scratchpad path cited in the log no longer exists |
+| Attachments / external banks | Existing attachment tree, including 333 text attachments, exact IDs and distinctive numeric patterns | Only current recovery request/attachment metadata matched IDs; no source CSV/XLSX bank identified. A remote external bank/backup or live original SVG is **EXTERNAL SOURCE NOT AVAILABLE**, not claimed searched. Unrelated personal sheets/course material were not treated as source data |
+
+Text scans excluded Git metadata, dependency/runtime directories and env/credential files. Source strings, not broad private-data exports, drove the searches. Reachable Git history is not a proof about unreachable/pruned objects. Lack of a local SVG match is not proof the database no longer holds it.
+
+### 3. Recovered evidence chain
+
+The archive contains only the three target rows and their relevant metadata, with source paths, line numbers, UTC timestamps, matching request/result tool IDs and SHA-256 hashes of exact archived log lines. No session-wide export, credentials, submissions or other question rows are copied.
+
+| Evidence | Archived source | Meaning |
+|---|---|---|
+| S1 | `~/.claude/projects/-Users-yichengchiu-Desktop-Blabby/80b8cb73-c3f7-478f-a62c-507ea8ff0396.jsonl`, request line 1416 / result 1417, 2026-07-14 05:59:24.421 / 05:59:28.920 UTC | Successful Supabase `execute_sql` SELECT of `id,prompt,chart_description,created_at` from in-pool task1/pie_chart rows in project `mkwywkwruyqzdhuzwnoa`. Request tool ID equals response tool_use_id; these are actual historical tool-result values, not an assistant summary |
+| S2 | Same log, request 1479 / result 1480, 2026-07-14 06:04:07.859 / 06:04:13.993 UTC | Historical soft-retirement operation returned the three IDs with subtype pie_chart and `is_pregenerated=false`. O-R inspected this record as text; its UPDATE was **not executed** |
+| S3 | `~/.claude/projects/-Users-yichengchiu-Desktop-Blabby/df81760a-b94c-4dde-bf69-d93a65eda394.jsonl`, request 47 / result 48, 2026-09-03 13:04:21.314 / 13:04:26.039 UTC | Successful historical SELECT of subtype, serving flag, used_count, created_at, SVG length, prompt length and description-null flag |
+
+S1's subsequent scratchpad copy (same July log lines 1432/1436) is derivative evidence, not an independent source; its original `/private/tmp/claude-501/.../scratchpad/inpool_pies.json` is unavailable now. S3 proves historical nonempty SVG storage, **not recovery of SVG contents or present-day availability**. The S3 prompt lengths match the recovered prompts, but equal length alone is not a proof of unchanged prompt bytes between July and September.
+
+### 4. SAMPLE_IDENTITY_TABLE
+
+| Field | A | B | C |
+|---|---|---|---|
+| id | `2e0a374b-68d2-458f-adca-d5a4a45da0c7` | `ab70b2fd-b96b-435b-81ca-ee7864be2c10` | `6b3c1090-fca5-48c3-886f-92d25195fb69` |
+| task type / subtype | task1 / pie_chart, S1 filter and S2/S3 | Same | Same |
+| prompt/question | Exact prompt RECOVERED, S1 | Exact prompt RECOVERED, S1 | Exact prompt RECOVERED, S1 |
+| chart_description / raw data | Exact stored pipe table recovered | Exact stored pipe table recovered | Exact stored pipe table recovered |
+| period labels | 2010, 2023 | 2000, 2010, 2020 | 2010, 2023 |
+| categories | Industrial, Residential, Transport, Commercial | Coal, Natural Gas, **Renewable Energy**, Nuclear, Oil | Natural Gas, Electricity, Oil, **Renewable Energy** |
+| title / subtitle | Original SVG title/subtitles NOT RECOVERED; source prompt provides context, not byte-exact visual title | Same | Same |
+| unit | PARTIAL: % intended by historical renderer; no explicit unit in S1 prompt/table | Same | Same |
+| base/context | Energy consumption by sector, a developed country, each stated year | Energy consumption by source, a European country, three stated years over 20 years | Household energy consumption by source, a developed country, each stated year |
+| created_at, UTC (S1/S3 agree) | 2026-07-07 06:12:31.064086+00 | 2026-07-07 06:07:09.451709+00 | 2026-07-07 06:07:54.458501+00 |
+| updated_at | No such dedicated column in reviewed schema; actual row last modification UNKNOWN | Same | Same |
+| historical serving | true at S1 query predicate; false S2 and S3 | Same | Same |
+| used_count at S3 | 1 | 1 | 1 |
+| SVG / prompt lengths at S3 | 6647 / 211 characters | 10879 / 277 | 7104 / 221 |
+| description at S3 | Non-null | Non-null | Non-null |
+| source / generation metadata | No row-specific model, prompt-template version, source citation, schema version or generation/import batch ID recovered | Same | Same |
+| review metadata | Round O test-only pending→needs_fix; production metadata unverified | Round O test-only pending→needs_fix | Round O test-only pending→retired |
+
+The retirement summary shortened **Renewable Energy** to **Renewable** in B/C. The original spelling is now retained in the archive; original values/periods match the documented matrix exactly. This is a documentation/provenance correction, not a database or source-data edit. A's stored description matches the reconstructed matrix without that abbreviation.
+
+### 5. PROVENANCE TIMELINE and Git sanity
+
+| Event | Evidence and what it does / does not prove |
+|---|---|
+| 2026-06-18 original schema | `20260618040300_create_writing_module_tables.sql` records `prompt text NOT NULL`, chart_description and created_at. Companion `20260618045448...` adds chart_svg, is_pregenerated and used_count. Files were later reconstructed from the ledger; their Git creation is not the table's creation event |
+| 2026-06-18 generator | `f55d0a7` introduces `_writing_question_prompt`; it generates prompt plus chart_description. This is pipeline evidence, not sample creation attribution |
+| 2026-07-07 multi-period generation | `679fd8b` contains the 1/2/3/4-period generation contract; `da96816` adds subtype replenishment; `68398da` rejects imageless Task 1; `071695b` is the latest inspected reachable revision before the samples' created_at timestamps. None is proven as the exact deployed generation revision for these rows |
+| 2026-07-07 row creation timestamps | B 06:07:09Z, C 06:07:54Z, A 06:12:31Z, recovered from S1/S3. These are row timestamps, not Git commits or model run IDs |
+| 2026-07-14 rendering change | `80b46d3` introduces deterministic single-pie parsing; explains unsupported multi-period behavior, not a content-authoring event |
+| 2026-07-14 first full local source observation | S1 at 05:59:28.920Z contains original prompt/description. Exact initial model response/insert event and any prior edits are UNKNOWN |
+| 2026-07-14 retirement event | S2 at 06:04:13.993Z confirms serving=false; no question-text rewrite is attributed to this operation |
+| First observed Git source, all A/B/C | Canonical ancestry: `4eea97527521650bc3df554a63e6286de1063549`, 14:05:51+08. All-ref search also finds `c3e30b17ffafcbaf48b15879c111ccf3bc55f656`; both retirement files have blob `a0a86cbd5663c72172fc49059363e60f82c32b44`. These are documentation commits, not database insertion/retirement transactions |
+| Last modified commit, all A/B/C | Actual source-row LAST MODIFIED COMMIT: **UNKNOWN / no row-to-Git version mapping**. Retirement document has no later value edit; Round G/O documentation additions are not question edits |
+| 2026-09-03 latest recovered metadata | S3: all three still soft-retired, nonempty SVG and prompt. This is not a current production readback |
+
+For every sample: FIRST OBSERVED COMMIT = canonical retirement-document commit above; RETIREMENT COMMIT = documentary `4eea975`, with the actual database event separately identified by S2; SOURCE FILE = original S1 operation log plus this scoped archive; source-row LAST MODIFIED COMMIT = UNKNOWN. No cherry-pick, checkout mutation, history repair or rescue-repository Git operation was used.
+
+### 6. Generator/schema findings
+
+The historical contract at `071695b:backend/main.py` is concrete:
+
+- `_writing_question_prompt()` requests JSON containing **prompt + chart_description**. Multi-period pie instructions require the same categories across period columns and column sums between 95 and 105; examples use a category-by-year table. They do not request a dedicated unit, denominator, source citation or batch/version object.
+- `_pregenerate_task1_subtype()` calls `claude-haiku-4-5-20251001`, strips JSON fences, checks prompt presence, passes the prompt/table into `generate_chart_svg()`, then persists task_type, subtype, prompt, chart_description, chart_svg, serving flag and used_count. SVG generation uses `claude-sonnet-4-6`. **These are code-level model settings, not verified per-row generation attribution.**
+- `generate_chart_svg()` derives a title from prompt when none is supplied and requests percentage-style pie labels (`% label`). It does not create independently verified measurement metadata; the original SVG text would be needed to recover each actual displayed label/title.
+- The database's non-null prompt column and S1 results directly disprove **SOURCE NEVER PERSISTED** for these prompts. Context was partly persisted as free text, not simply discarded into numeric values.
+- The reviewed legacy schema has no dedicated unit, population/base, source/provenance, model/version, raw-response hash or import/generation batch field. It allows SVG storage, which S3 confirms was nonempty. Lack of structured fields does not prove that every missing detail was absent from that SVG.
+- Today's single-pie path (`80b46d3` onward) explicitly carries chart title/unit and serializes unit into `Value (...)`; its optional `context` is not passed through `_pie_artifacts_from_response()`. This newer behavior cannot be used to backfill or certify the three older multi-period rows.
+
+**Pipeline classification:** prompts/descriptions = **SOURCE STILL RECOVERABLE**, now recovered; original row-level unit/visual semantics and exact generator attribution = **UNKNOWN / partially recovered**, not proven lost during generation. Dedicated structured provenance fields were not part of the examined persistence contract. No claim that source context was universally never persisted is justified.
+
+### 7. Sample A source recovery
+
+Question: `2e0a374b-68d2-458f-adca-d5a4a45da0c7`. **Original prompt: RECOVERED**, exact S1 text:
+
+> The pie charts below show the distribution of energy consumption by sector in a developed country in 2010 and 2023. Summarise the information by describing the main features, and make comparisons where relevant.
+
+Exact stored chart description:
+
+```text
+Sector | 2010 | 2023
+Industrial | 32 | 28
+Residential | 26 | 31
+Transport | 25 | 22
+Commercial | 17 | 19
+```
+
+- Task instruction: describes main features and makes relevant comparisons, explicitly recovered above. Standalone prompt omits a 150-word sentence; the app's existing Task 1 writing UI displays 150 as its minimum target, so prompt wording alone is not the entire instruction surface.
+- Chart title/subtitle: no original SVG text recovered; do not invent a visual title from the first sentence and label it original.
+- Unit: **PARTIAL**. A 100-based proportional energy-consumption display is strongly indicated by the generator and matrix, but neither stored prompt nor header says `%`. Exact displayed units are not recovered.
+- Population/base: one unspecified developed country's energy consumption, grouped by sector in 2010 and 2023. Each year is a separate composition; no absolute energy quantity, primary/final-energy accounting convention or geographic identity is provided. An unnamed country itself is not disqualifying for an IELTS-style generated task.
+- Categories: Industrial, Residential, Transport, Commercial. Exclusivity **PLAUSIBLE**, consistent with ordinary sector grouping; exact boundary/accounting definitions are not recorded, so do not claim independently CONFIRMED taxonomy.
+- Source: S1 exact query result; S2 retirement; S3 later metadata. Country and values are exercise context, not verified real-world statistics or a published dataset citation.
+- Confidence: **HIGH** in recovered prompt/data/base; **MEDIUM** in intended percentage interpretation; insufficient for original visual-label confirmation.
+- IELTS validity: **INSUFFICIENT_EVIDENCE** for the complete task under the O-R unit/visual gate. Wording, comparison targets and periods are appropriate; source units/visual presentation remain unverified. This is not INVALID.
+- Final disposition: **KEEP_RETIRED_PROVENANCE_INSUFFICIENT**. Earlier static candidacy remains a potential engineering option, not CONFIRMED.
+
+### 8. Sample B source recovery
+
+Question: `ab70b2fd-b96b-435b-81ca-ee7864be2c10`. **Original prompt: RECOVERED**, exact S1 text:
+
+> The pie charts below show the distribution of energy consumption by source in a European country across three decades: 2000, 2010, and 2020. Summarize the information by describing the main changes in energy sources over the 20-year period, and make comparisons where relevant.
+
+Exact stored chart description:
+
+```text
+Energy Source | 2000 | 2010 | 2020
+Coal | 32 | 24 | 12
+Natural Gas | 28 | 31 | 28
+Renewable Energy | 8 | 12 | 35
+Nuclear | 18 | 18 | 15
+Oil | 14 | 15 | 10
+```
+
+- Task instruction: main changes over the **20-year period**, relevant comparisons. The phrase “across three decades: 2000, 2010, and 2020” names three decadal reference years, not evidence for a 30-year interval or decade-wide averages. Clarifying it to “in 2000, 2010 and 2020” would be an editorial proposal, not an original source quote; no text edit made.
+- Chart title/subtitles: original SVG text unavailable. Recovered period labels are 2000, 2010, 2020; retain all three.
+- Unit: **PARTIAL**, same missing explicit per-row unit declaration as A. Percent display is intended by pipeline but not independently recovered from actual SVG labels.
+- Population/base: energy consumption by source in **one European country** at three time points. The wording supports the same geographic referent over time and comparison of separate annual compositions, not three countries/populations. It does not name a fixed population cohort, future projections or forecast series. No documentary basis to claim real measured historical data or a named country exists.
+- Categories: Coal, Natural Gas, Renewable Energy, Nuclear, Oil; exclusivity **PLAUSIBLE** for a source mix, with no explicit boundary/energy-accounting definition. This is not merely the question's period count.
+- Source: S1 exact prompt/description; the original Renewable Energy label restores the abbreviated retirement summary. S3 stores an SVG length but no SVG content in that query result.
+- Confidence: **HIGH** in source recovery and the same-country/three-time-point reading; **MEDIUM** in intended unit; actual-vs-synthetic data provenance remains unverified.
+- IELTS validity: **INSUFFICIENT_EVIDENCE** for full validation. Rich comparisons and a reasonable task instruction are recovered; the minor “three decades” wording can be flagged separately, but does not solve the unit/visual gate.
+- Final disposition: **KEEP_RETIRED_PROVENANCE_INSUFFICIENT**, not CONFIRMED static/engineering candidacy.
+
+### 9. Sample C source recovery
+
+Question: `6b3c1090-fca5-48c3-886f-92d25195fb69`. **Original prompt: RECOVERED**, exact S1 text:
+
+> The pie charts below show the distribution of household energy consumption by source in a developed country in 2010 and 2023. Summarise the information by describing the main features, and make comparisons where relevant.
+
+Exact stored chart description:
+
+```text
+Energy Source | 2010 | 2023
+Natural Gas | 42 | 38
+Electricity | 35 | 44
+Oil | 15 | 12
+Renewable Energy | 8 | 6
+```
+
+- Task instruction: main features and relevant comparisons, with explicit **household energy consumption** context in one developed country in 2010 and 2023.
+- Chart title/subtitles: original SVG not recovered. Do not reinterpret Electricity as a sector or rename it.
+- Unit: **PARTIAL**; percentage-style display is suggested, not recovered as an explicit per-row label.
+- Population/base: household energy consumption by source, not national electricity-generation composition. This narrows the Round O ambiguity materially. No household count, named country, energy accounting basis or absolute total is specified.
+- Categories: Natural Gas, Electricity, Oil, Renewable Energy. The prompt does **not** define Electricity as its generation source; it is listed as a supplied energy category within household consumption. Renewable Energy may mean direct household renewables, or may overlap electricity generated from renewables. Neither interpretation is explicitly selected by the source.
+- Category exclusivity: **UNKNOWN**, not CONFIRMED and not proven CONFLICT. The restored household framing makes a mutually exclusive final-energy interpretation possible but does not establish it. No label/data rewrite may be used as evidence.
+- Source: S1 exact context and full category label; S3 nonempty SVG metadata. No source note defining grid electricity versus direct renewables was recovered.
+- Confidence: **HIGH** in household context recovery and necessity of a hold; **LOW** in any assertion that the categories are inherently invalid.
+- IELTS validity: **INSUFFICIENT_EVIDENCE**. Clear years and arithmetic cannot resolve hidden category assumptions.
+- Final disposition: **KEEP_RETIRED_PROVENANCE_INSUFFICIENT**. Do not save this question through an assumed redefinition or static visual.
+
+### 10. Validity, final dispositions and static gate
+
+| Sample | Original prompt | Explicit per-row unit / original visual | Base/context | Category semantics | IELTS classification | Final disposition |
+|---|---|---|---|---|---|---|
+| A | RECOVERED | PARTIAL / NOT RECOVERED | Developed country's annual energy consumption, by sector | PLAUSIBLE | INSUFFICIENT_EVIDENCE | KEEP_RETIRED_PROVENANCE_INSUFFICIENT |
+| B | RECOVERED | PARTIAL / NOT RECOVERED | One European country's consumption by source at three time points | PLAUSIBLE | INSUFFICIENT_EVIDENCE | KEEP_RETIRED_PROVENANCE_INSUFFICIENT |
+| C | RECOVERED | PARTIAL / NOT RECOVERED | Household consumption in one developed country | UNKNOWN exclusivity | INSUFFICIENT_EVIDENCE | KEEP_RETIRED_PROVENANCE_INSUFFICIENT |
+
+A/B have plausible static geometry and recovered comparison context; C needs both source and category clarification. **None clears all static fallback conditions**, especially original unit/visual recovery; no candidate receives a CONFIRMED suffix. No source is declared INVALID or permanently discarded on this evidence. Review decisions here are metadata/documentary holds only; historical/local serving remains false, current production untouched.
+
+### 11. Exact provenance-gap classification
+
+| Sample / field | Classification | Evidence and exact remaining gap |
+|---|---|---|
+| A/B/C prompt + raw table + created_at | **E — SOURCE RECOVERED** | S1 exact archived DB result, linked to request/tool/project; values agree with canonical retirement record |
+| A/B/C complete task context | **D — SOURCE PARTIALLY RECOVERED** | Base and periods recovered; original per-row displayed units/title/subtitles unavailable |
+| A/B/C original SVG | **C — SOURCE MAY EXIST EXTERNALLY BUT NOT AVAILABLE** | S3 records lengths 6647/10879/7104, so SVG was stored in September; the query did not return its contents. Current database/backups were not accessed |
+| C category exclusivity | **D — SOURCE PARTIALLY RECOVERED** | Household base recovered, but no definition separating Electricity and Renewable Energy |
+| Dedicated unit/model/source/batch fields | **A — SOURCE NEVER PERSISTED**, narrowly at structured-field-contract level | No such dedicated fields in the reviewed original schema/inserts; do not extend this label to all prose/SVG context |
+| Source deletion/history loss | **B — NOT ESTABLISHED** | No deleted source dataset found in reachable history; positive historical storage evidence forbids a claim of confirmed permanent loss |
+
+The remaining missing artifact is specific: an existing original `chart_svg`/full source record or corresponding source-authoring specification for these exact three IDs, plus C's accounting definition if the SVG does not supply it. A later authorized read-only retrieval would be a new evidence source; do not rerun broad Git searches as though the original prompts were still absent. Do not use unavailable production read access as permission to alter schema or request credentials in chat.
+
+### 12. Future content provenance requirement — documentation only
+
+The demonstrated design weakness is incomplete **structured** provenance, not failure to save prompt text. A future contract should require: stable question ID; exact prompt/instruction; chart title and period subtitles; explicit unit; measure and per-period denominator/base; category definitions/exclusivity; periods and actual/forecast status; immutable structured values; synthetic/generated versus cited real-data source; source citation or generation model/version and prompt-template version; generator/schema version and run/batch ID; raw-response/source hash; created_at and versioned content modification metadata; original visual/asset hash if used; review state/audit separate from serving state. Optional generation context should not be silently lost during persistence.
+
+No migration or new field was implemented. Unknown older fields must remain unknown; this contract is future backlog, not a retrospective metadata fabrication exercise.
+
+### 13. Local review notes
+
+Updated documentary notes are saved in the archive. No local database or production PATCH was necessary this round; Round O screenshots remain historical and were not edited to imply newly recovered content had been displayed there.
+
+**Sample A:**
+
+> Original prompt/table recovered from archival Supabase SELECT S1, 2026-07-14, UUID 2e0a374b-68d2-458f-adca-d5a4a45da0c7. Original table has no explicit unit; archived SVG content is unavailable. Keep retired for provenance insufficiency; no source edit or serving approval.
+
+**Sample B:**
+
+> Original prompt/table recovered from archival Supabase SELECT S1, 2026-07-14, UUID ab70b2fd-b96b-435b-81ca-ee7864be2c10. Original table has no explicit unit; archived SVG content is unavailable. Keep retired for provenance insufficiency; no source edit or serving approval.
+
+**Sample C:**
+
+> Original prompt/table recovered from archival Supabase SELECT S1, 2026-07-14, UUID 6b3c1090-fca5-48c3-886f-92d25195fb69. Original table has no explicit unit; archived SVG content is unavailable. Household context recovered, but Electricity/Renewable Energy exclusivity remains unresolved. Keep retired for provenance insufficiency; no source edit or serving approval.
+
+### 14. Verification and remaining eight
+
+- Canonical retirement-set contract re-executed: **11/11**, exact ordered ID equality across retirement table, embedded rollback UUIDs and pre-Round-O review table. No SQL statement executed.
+- Selected identity checks: **3/3 PASS** for UUID, created_at, period vectors and original numeric matrices. The two Renewable→Renewable Energy abbreviations are explicitly accounted for; originals archived without modification. S3 prompt lengths agree with S1 strings, with the limitations stated above.
+- Actual backend parser/preview adapter against the newly recovered original descriptions: **3/3 renderer_unsupported**, chart_data null, local serving false; original descriptions do not become supported just because context was found.
+- Source integrity: **3/3 historical request/result pairs** matched by tool ID/project and six archived-line SHA-256 hashes verified. Git sanity: canonical first-observation commit resolved; equivalent retirement blobs matched; all-ref original-source searches recorded.
+- `git diff --check`: PASS; prior document prefix preserved byte-for-byte; no application or migration diff. **No full pytest** for this investigation/docs-only change.
+
+Do not begin content review of the remaining eight. Source recovery for these three demonstrated a useful search path, but it does not authorize bulk classification. Keep remaining review/serving states untouched. This round's outcome is **BLOCKED — original per-row SVG/unit evidence unavailable and C's category exclusivity unresolved**, with materially recovered prompts/base/source records committed. It is neither confirmed provenance loss nor a completed valid-for-serving review.
+
+Production DB writes = 0; review PATCH = 0; migration apply = 0; deployment = 0; push = NO. Existing SQL-access, Render deployed-SHA and recoverability blockers are unchanged.
