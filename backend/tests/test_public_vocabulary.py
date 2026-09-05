@@ -15,7 +15,7 @@ FIELDS = {'id', 'word', 'zh_meaning', 'topic', 'ielts_band_level', 'part_of_spee
 
 class Catalog:
     def __init__(self):
-        self.rows = [dict(id=f'{i:03}', word=f'word{i:03}', zh_meaning='學習' if i == 110 else '意思',
+        self.rows = [dict(is_public=True, id=f'{i:03}', word=f'word{i:03}', zh_meaning='學習' if i == 110 else '意思',
                           topic='study' if i % 2 else 'work', ielts_band_level='6.0' if i % 2 else '7.0',
                           tags=['private'], created_at='private', common_mistake='private',
                           difficulty_level='private', simple_definition_en='private') for i in range(125)]
@@ -83,7 +83,7 @@ def test_anonymous_list_requires_no_auth(catalog):
     response = get(client)
     assert response.status_code == 200
     assert len(response.json()['items']) == 50
-    assert store.calls == [('range', 0, 50)]
+    assert store.calls == [('eq', 'is_public', True), ('range', 0, 50)]
 
 
 def test_exact_public_allowlist_even_if_provider_returns_more(catalog):
@@ -179,3 +179,24 @@ def test_no_frontend_raw_corpus_read_dependency():
     for path in app.rglob('*'):
         if path.suffix in {'.html', '.js', '.mjs'}:
             assert not direct.search(path.read_text()), str(path)
+
+
+@pytest.mark.parametrize('params', [{}, {'q': 'word'}, {'search': '意思'},
+    {'topic': 'work'}, {'band': '7.0'}, {'level': '7.0'},
+    {'q': 'hidden', 'include_unpublished': 'true'}])
+def test_unpublished_rows_never_enter_search_or_pagination(catalog, params):
+    store, client = catalog
+    store.rows = [dict(row, is_public=False) for row in store.rows]
+    assert get(client, **params).json() == dict(
+        items=[], limit=50, offset=0, has_more=False, next_offset=None)
+
+
+def test_mixed_publication_pagination_uses_only_public_rows(catalog):
+    store, client = catalog
+    for row in store.rows:
+        row['is_public'] = int(row['id']) % 2 == 0
+    first = get(client, limit=50).json()
+    second = get(client, limit=50, offset=first['next_offset']).json()
+    assert len(first['items']) == 50 and len(second['items']) == 13
+    assert second['next_offset'] is None and second['has_more'] is False
+    assert all(int(row['id']) % 2 == 0 for row in first['items'] + second['items'])

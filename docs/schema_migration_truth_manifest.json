@@ -99,7 +99,8 @@
     {"name": "20260904_retire_obsolete_waitlist_exposure.sql", "kind": "forward", "domains": ["legacy", "security"], "touched_objects": ["upgrade_intent", "allow_anon_insert", "anon_insert_upgrade_intent", "authenticated_insert_upgrade_intent"]},
     {"name": "20260904123000_task1_chart_human_review.sql", "kind": "forward", "domains": ["writing", "admin"], "touched_objects": ["writing_questions", "writing_questions_review_status_check", "writing_questions_review_issue_check", "idx_writing_questions_review_status"]},
     {"name": "20260905040134_atomic_vocabulary_save_quota.sql", "kind": "forward", "domains": ["vocabulary", "security"], "touched_objects": ["user_vocabulary", "save_vocabulary_atomic"]},
-    {"name": "20260905120000_vocabulary_public_access_lockdown.sql", "kind": "forward", "domains": ["vocabulary", "security"], "touched_objects": ["vocabulary_items"]}
+    {"name": "20260905120000_vocabulary_public_access_lockdown.sql", "kind": "forward", "domains": ["vocabulary", "security"], "touched_objects": ["vocabulary_items"]},
+    {"name": "20260905140000_vocabulary_publication_eligibility.sql", "kind": "forward", "domains": ["vocabulary", "security"], "touched_objects": ["vocabulary_items"]}
   ],
   "repo_only_reconciliation": [
     {
@@ -148,7 +149,8 @@
       "action": "Keep pending locally; it is not historical drift."
     },
     {"classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "files": ["20260905040134_atomic_vocabulary_save_quota.sql"], "action": "Round K: PENDING_BLABBY / LOCAL ONLY. Atomic quota replay passed; production schema/ledger not inspected in this round. NOT AUTHORIZED FOR PRODUCTION APPLY."},
-    {"classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "files": ["20260905120000_vocabulary_public_access_lockdown.sql"], "action": "Round N: PENDING_BLABBY / LOCAL ONLY. Backend public API must be verified before raw read revocation. NOT AUTHORIZED FOR PRODUCTION APPLY."}
+    {"classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "files": ["20260905120000_vocabulary_public_access_lockdown.sql"], "action": "Round N: PENDING_BLABBY / LOCAL ONLY. Backend public API must be verified before raw read revocation. NOT AUTHORIZED FOR PRODUCTION APPLY."},
+    {"classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "files": ["20260905140000_vocabulary_publication_eligibility.sql"], "action": "Round P: default unpublished, no production row backfill. Column required before filtered backend; lockdown closes raw bypass. NOT AUTHORIZED FOR PRODUCTION APPLY."}
   ],
   "ledger_reconstructed_sources": [
     {
@@ -189,7 +191,8 @@
     {"item": "20260508_quality_grade_index", "repo": "YES", "ledger": "NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_MISSING", "classification": "REPO_SCHEMA_DELTA_NOT_IN_PRODUCTION", "action": "Record as explicit repo-only index drift; do not apply production SQL without separate authorization and a scoped decision."},
     {"item": "20260429-20260630033125_early_repo_history", "repo": "YES", "ledger": "BEFORE_OR_NOT_OBSERVED", "production_schema": "CURRENT_SNAPSHOT_AVAILABLE", "classification": "REPO_EARLY_HISTORY_BEFORE_LEDGER_WINDOW", "action": "Do not infer unapplied state from ledger silence; use the read-only catalog snapshot and clean replay evidence for each later decision."},
     {"item": "20260905040134_atomic_vocabulary_save_quota", "repo": "YES", "ledger": "NOT_VERIFIED_IN_ROUND_K", "production_schema": "NOT_VERIFIED_IN_ROUND_K", "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "action": "New local atomic vocabulary quota source. Preserve H-R blockers and historical snapshots; coordinate backend/migration only after separate authorization."},
-    {"item": "20260905120000_vocabulary_public_access_lockdown", "repo": "YES", "ledger": "NOT_VERIFIED_IN_ROUND_N", "production_schema": "NOT_VERIFIED_IN_ROUND_N", "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "action": "Local public vocabulary ACL hardening. H-R production blockers unchanged; explicit coordinated authorization required."}
+    {"item": "20260905120000_vocabulary_public_access_lockdown", "repo": "YES", "ledger": "NOT_VERIFIED_IN_ROUND_N", "production_schema": "NOT_VERIFIED_IN_ROUND_N", "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "action": "Local public vocabulary ACL hardening. H-R production blockers unchanged; explicit coordinated authorization required."},
+    {"item": "20260905140000_vocabulary_publication_eligibility", "repo": "YES", "ledger": "NOT_VERIFIED_IN_ROUND_P", "production_schema": "NOT_VERIFIED_IN_ROUND_P", "classification": "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED", "action": "Local publication contract only; all unknown existing rows remain unpublished. Production READ ONLY, deployed SHA and backup gates remain unresolved."}
   ],
   "reconciliation_contract": {
     "shared_ledger_exceptions": [
@@ -200,7 +203,7 @@
       {"name": "p1_rls_and_reading_answers_idempotency_recheck", "reason": "Documented idempotent rerun of the existing 20260714 P1 source; no unique schema delta or missing source blocker."},
       {"name": "20260813_anonymous_process_quota", "reason": "Repo source exists and historical evidence recorded the table as present despite ledger silence; never rerun or backfill the ledger from this contract."}
     ],
-    "expected_pending": ["20260904_retire_obsolete_waitlist_exposure", "20260904123000_task1_chart_human_review", "20260905040134_atomic_vocabulary_save_quota", "20260905120000_vocabulary_public_access_lockdown"],
+    "expected_pending": ["20260904_retire_obsolete_waitlist_exposure", "20260904123000_task1_chart_human_review", "20260905040134_atomic_vocabulary_save_quota", "20260905120000_vocabulary_public_access_lockdown", "20260905140000_vocabulary_publication_eligibility"],
     "unrecovered_blabby_sources": [],
     "unknown_drift_causes_failure": true
   },

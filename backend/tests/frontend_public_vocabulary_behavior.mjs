@@ -71,5 +71,25 @@ assert.equal(d.querySelector('#vocab-pro-modal-overlay').hidden, false);
 assert.equal(d.querySelector('#vocab-pro-modal-cta').getAttribute('href'), '/upgrade.html?source=vocab_limit');
 assert.equal(d.querySelector('#vocab-grid .vocab-card__add').disabled, false);
 assert.ok(!/\.from\s*\(\s*['"]vocabulary_items/.test(html));
+// Unpublished generated cards are consumed directly from the owner's response;
+// saving must not depend on finding the item again in the public bank.
+d.querySelector('#generate-vocab-btn').click(); await flush();
+assert.equal(calls.at(-1).url.pathname, '/api/vocabulary/generate');
+assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer test-token');
+pending.shift().resolve({ ok: true, json: async () => ({
+    items: [{ ...item('unpublished-generated'), id: 'generated-id', is_public: false }],
+    generated_count: 1, topic: 'study', weakness_tag: 'weak_vocab',
+}) });
+await flush();
+assert.match(d.querySelector('#recommended-grid').textContent, /unpublished-generated/);
+assert.doesNotMatch(d.querySelector('#vocab-grid').textContent, /unpublished-generated/);
+const generatedButton = d.querySelector('#recommended-grid .vocab-card__add');
+assert.equal(generatedButton.disabled, false);
+generatedButton.click(); await flush();
+assert.equal(calls.at(-1).url.pathname, '/api/vocabulary/my');
+assert.equal(JSON.parse(calls.at(-1).options.body).vocabulary_item_id, 'generated-id');
+pending.shift().resolve({ ok: false, status: 403, json: async () => ({ detail: { error: 'vocab_limit_reached', limit: 30 } }) });
+await flush();
+assert.equal(generatedButton.disabled, false);
 w.close();
-console.log('PASS public vocabulary DOM: anonymous loading, bounded recommendations, paging, server search, debounce, stale response, topic/band, empty/error/retry, quota CTA');
+console.log('PASS public vocabulary DOM: anonymous loading, bounded recommendations, paging, server search, debounce, stale response, topic/band, empty/error/retry, quota CTA, unpublished generation direct render/save');

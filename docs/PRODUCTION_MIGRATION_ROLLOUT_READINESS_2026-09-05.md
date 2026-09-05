@@ -660,3 +660,56 @@ Current production apply allowlist remains **NONE**. Current backend must not be
 
 
 Local evidence: PostgreSQL 17.11 fresh replay **REPLAY OK**; corpus ACL/RLS **7 proof groups PASS**; existing atomic quota concurrency/ACL regression **PASS**, including lock-removal failure and restored PASS. Focused suite **98 passed** (including 9 manifest contracts); full suite **725 passed, 10 skipped**; Node20 vocabulary **4 harnesses PASS**. See the Round N appendix in `VOCABULARY_ITEMS_ANON_ACCESS_TRUTH_2026-09-05.md` for exact scope and limitations. These results do not close any production readiness blocker.
+
+## Vocabulary Publication Eligibility — Round P
+
+Local baseline `ba6c2b9e7237fcab28cc6618e078b1ec2bb86a6a`, origin/main `88eada001f89597eb7721ea425c6fd4af23edde3`, 10/0 ahead/behind, clean. New candidate: `20260905140000_vocabulary_publication_eligibility.sql` (**PENDING_BLABBY / LOCAL ONLY**). No production inspection/apply/deploy/push was performed. Historical schema/ledger snapshots above remain historical and unchanged.
+
+Publication is now explicit locally: `vocabulary_items.is_public boolean NOT NULL DEFAULT false`; anonymous list/search and shared generation/Speaking discovery require true. Owned vocabulary/SRS and the exact atomic quota RPC are unaffected. This is a publication marker, not creator-private access control. Existing shared item-ID/word save semantics remain; another user's owned SRS record stays inaccessible.
+
+### Dependency DAG and safe candidate sequence
+
+| Node | Exact source / release | Required relationship and compatibility |
+|---|---|---|
+| A | `20260905040134_atomic_vocabulary_save_quota.sql` | Must exist before current backend save routes. Removes direct owned INSERT even for service_role, so old direct-insert backend writers need a coordinated pause/cutover. Canonical `is_user_pro` dependency still requires actual production verification |
+| B | `20260905120000_vocabulary_public_access_lockdown.sql` | Both browser roles lose raw SELECT. Old direct-table frontend breaks; verify API-consuming frontend and backend first, or keep traffic paused until both are in place |
+| C | `20260905140000_vocabulary_publication_eligibility.sql` | Column/default must exist before P backend discovery queries. Additive for old service-role writers; old readers still ignore the flag. Revokes browser INSERT/UPDATE, without changing owned ACLs/RPC. No semantic dependency on filename order relative to A/B |
+| D | Current coordinated backend/frontend release | Backend requires A and C; frontend needs working backend API. Complete publication boundary also requires B. Old broad readers cannot remain serving during the cutover |
+
+```mermaid
+flowchart LR
+  G[Read-only schema / SHA / backup / content gates] --> A[Atomic save RPC]
+  G --> C[Publication column and default]
+  A --> DB[Deploy backend]
+  C --> DB
+  DB --> DF[Deploy and verify API frontend]
+  DF --> B[Revoke raw corpus SELECT]
+  B --> V[Verify roles / public subset / personal saves]
+  V --> T[Resume traffic after all gates pass]
+```
+
+This is a dependency plan, not authorization to execute any node. Concrete future sequence:
+
+1. Restore approved READ ONLY access, exact deployed SHA and recoverable backup evidence. Inspect actual schema/function/ACL drift. Obtain exact-ID content review decisions; historical 83 rows and repo seed are not an approval list. Prepare a separately authorized bounded publication batch, or explicitly accept an empty public catalog. Define a maintenance/traffic pause so broad old readers and old direct writers cannot serve through intermediate states.
+2. During that coordinated cutover, apply only the authorized A/C dependencies after their preflights. C makes all unknown existing rows unpublished and preserves owned use; it does not publish seeds automatically. Do not run unrelated pending migrations by timestamp. Existing A bytes are unchanged in P.
+3. Deploy/verify backend against A/C, then the API-consuming frontend. Verify generated cards still save and SRS works, public filters are authoritative, and provider failure does not widen eligibility. Intermediate smoke does not authorize reopening traffic while raw reads remain open.
+4. Apply B only after the replacement consumer is ready (or within the same paused cutover), verify raw roles denied and exact deployed filtered API, then execute/read back any separately authorized reviewed publication batch. Prove public rows match the approved set, unknown/new generated rows are excluded, counts/lookahead exclude unpublished rows, and ownership/quota remain correct. Resume traffic only after this full boundary is verified.
+
+An alternative B-first ordering is safe only with traffic intentionally paused; without that pause it breaks the old frontend. A/C alone do not close publication exposure; D alone leaves the direct-table bypass. No universally safe timestamp-sorted rollout exists. Backend rollback to unfiltered serving is not a safe publication rollback; keep the catalog unavailable until a compatible filtered version is restored. Do not drop C while D depends on it or use a broad true backfill to recover UX.
+
+### Existing corpus and mutation scope
+
+C performs **no `UPDATE ... is_public=true`**. A first apply maps all existing rows to false via the default. Existing true decisions survive rerun. No per-row production approval was inferred from seed words, tags, non-null learning fields or creation timestamps. The repository seed remains unchanged and also defaults false. Future reviewed publication must use exact IDs plus expected content hashes, refuse stale mismatches, and read back only intended flag changes with content/owned state unchanged.
+
+C removes table and column-level INSERT/UPDATE privileges from PUBLIC/anon/authenticated and asserts effective write denial. Service-role operations remain available. RLS, grants and actual execution are tested on disposable PostgreSQL17, including a permissive write-policy fixture. Owned ACLs/policies and atomic function definition/EXECUTE are compared before/after and remain equal. C creates no index without measured query-plan need and aborts on incompatible pre-existing publication column shape/default.
+
+Production gate remains **NO-GO / NOT AUTHORIZED**: SQL READ ONLY unavailable, Render SHA unavailable, backup/recoverability unavailable; exact publication backfill set additionally unresolved. Local full replay and HTTP/PG tests do not establish production application, deployment or row review.
+
+### Round P validation evidence
+
+- Disposable PostgreSQL **17.11** full replay **REPLAY OK**; publication **5 proof groups**, raw-access/owned **7 proof groups**, atomic quota **12 PASS outputs** plus the expected failing lock-removal probe. Atomic function body/ACL and owned ACLs/policies preserved.
+- FastAPI + actual PG persistence/RPC integration **2 passed** (model/auth doubled, fluent SQL adapter, no PostgREST service); focused suite **109 passed** under Python3.11/Node20.20.2; standalone Node vocabulary harnesses **4 PASS**.
+- Full backend suite **736 passed, 10 skipped**, 5 existing deprecation warnings; full run used Node26.7.0, affected focused/harness runs also passed on Node20.20.2. Live provider/E2E access disabled.
+- Original audit/readiness byte prefixes, historical manifest snapshots, seed, prior migrations and eight owned/quota function source segments preserved; `git diff --check` PASS.
+
+**LOCAL CONTRACT PASS; PRODUCTION NO-GO / NOT AUTHORIZED.** No production data writes, migration apply, deployment or push. This appendix is evidence and sequencing only.

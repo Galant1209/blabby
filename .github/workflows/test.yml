@@ -92,3 +92,16 @@ jobs:
         env:
           PGURI: postgresql://postgres:postgres@localhost:5432/postgres
         run: ./supabase/replay/replay.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install publication API integration dependencies
+        run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Verify vocabulary publication through API and PostgreSQL
+        env:
+          PGURI: postgresql://postgres:postgres@localhost:5432/postgres
+          BLABBY_PUBLICATION_TEST_DB: disposable
+        run: pytest backend/tests/test_vocabulary_publication_integration.py -q

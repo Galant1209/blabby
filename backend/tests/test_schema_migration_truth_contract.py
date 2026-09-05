@@ -27,11 +27,11 @@ def test_manifest_covers_every_repo_migration_with_the_right_kind():
     listed_files = sorted(item["name"] for item in inventory)
 
     assert listed_files == repo_files
-    assert len(inventory) == 39
-    assert sum(item["kind"] == "forward" for item in inventory) == 32
+    assert len(inventory) == 40
+    assert sum(item["kind"] == "forward" for item in inventory) == 33
     assert sum(item["kind"] == "rollback" for item in inventory) == 5
     assert sum(item["kind"] == "baseline" for item in inventory) == 2
-    assert sum(item["kind"] in {"forward", "baseline"} for item in inventory) == 34
+    assert sum(item["kind"] in {"forward", "baseline"} for item in inventory) == 35
 
     forward_names = {
         item["name"] for item in inventory if item["kind"] in {"forward", "baseline"}
@@ -217,3 +217,13 @@ def test_public_vocabulary_hardening_is_local_pending():
     assert name in manifest["reconciliation_contract"]["expected_pending"]
     runner = (ROOT / "supabase/replay/replay.sh").read_text()
     assert 'python3 "$HERE/test_public_vocabulary_access.py" --disposable' in runner
+
+
+def test_publication_migration_is_pending_with_no_implicit_backfill():
+    name = "20260905140000_vocabulary_publication_eligibility"
+    entry = next(row for row in _manifest()["drift_matrix"] if row["item"] == name)
+    assert entry["ledger"] == entry["production_schema"] == "NOT_VERIFIED_IN_ROUND_P"
+    assert entry["classification"] == "EXPECTED_PENDING_LOCAL_NOT_DEPLOYED"
+    source = (MIGRATIONS_DIR / (name + ".sql")).read_text()
+    assert "is_public boolean NOT NULL DEFAULT false" in source
+    assert not re.search(r"UPDATE\s+(?:public\.)?vocabulary_items", source, re.I)

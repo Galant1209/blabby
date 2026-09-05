@@ -3125,6 +3125,7 @@ async def process(
                         exact = (
                             supabase_admin.table("vocabulary_items")
                             .select(VOCAB_RETURN_COLS)
+                            .eq("is_public", True)
                             .ilike("word", target_word)
                             .limit(1)
                             .execute()
@@ -3135,6 +3136,7 @@ async def process(
                             fuzzy = (
                                 supabase_admin.table("vocabulary_items")
                                 .select(VOCAB_RETURN_COLS)
+                                .eq("is_public", True)
                                 .ilike("word", f"%{target_word}%")
                                 .limit(1)
                                 .execute()
@@ -3171,6 +3173,7 @@ async def process(
                     pool_resp = (
                         supabase_admin.table("vocabulary_items")
                         .select("id, word, zh_meaning, common_chunk")
+                        .eq("is_public", True)
                         .eq("topic", practice_topic.lower())
                         .execute()
                     )
@@ -5540,7 +5543,7 @@ async def vocabulary_items_list(
 ):
     """Anonymous card catalog via service_role; bounded server search/paging.
 
-    Row eligibility remains broad: no trustworthy publication marker exists.
+    Only explicitly published rows are discoverable; ownership is separate.
     search/level remain aliases for older callers. Search accepts words,
     Chinese text, whitespace, apostrophes and hyphens, never filter syntax.
     """
@@ -5552,7 +5555,7 @@ async def vocabulary_items_list(
     try:
         query = supabase_admin.table("vocabulary_items").select(
             ", ".join(PUBLIC_VOCABULARY_FIELDS)
-        )
+        ).eq("is_public", True)
         if topic:
             query = query.eq("topic", topic)
         if level:
@@ -5870,7 +5873,7 @@ async def vocabulary_generate(
     """
     DB-first vocab fetch with LLM fallback.
       1. Pull caller's top weakness_tag + most-recent topic from practice_records.
-      2. Query vocabulary_items by topic.
+      2. Query explicitly public vocabulary_items by topic.
       3. If < 10 hits: ask Groq for the rest, persist, return combined set.
       4. Returns {items, generated_count, weakness_tag, topic}.
 
@@ -5960,6 +5963,7 @@ async def vocabulary_generate(
         db_resp = (
             supabase_admin.table("vocabulary_items")
             .select(_vocab_item_select())
+            .eq("is_public", True)
             .eq("topic", norm_topic)
             .limit(10)
             .execute()
@@ -6045,6 +6049,7 @@ Rules:
             elif weakness_tag and weakness_tag not in tags:
                 tags = [*tags, weakness_tag]
             row = {
+                "is_public": False,  # Backend-owned; never copy publication from model/client.
                 "word": word,
                 "part_of_speech": (item.get("part_of_speech") or "").strip() or None,
                 "zh_meaning": zh,

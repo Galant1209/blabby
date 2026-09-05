@@ -421,3 +421,126 @@ Production state is unchanged and unverified in this round. Production READ ONLY
 - `git diff --check`: PASS. Readiness and this audit retained their entire previous byte prefixes; historical manifest production/ledger/replay snapshots and atomic quota migration bytes verified unchanged.
 
 Execution paths: focused tests use `test_public_vocabulary.py`, `test_vocabulary_save_quota.py`, `test_active_vocabulary.py`, `test_frontend_vocabulary_paywall_contracts.py`, `test_frontend_harness_ci_contract.py`, `test_schema_migration_truth_contract.py`; full suite uses `pytest backend/tests -q`. Replay uses `PGURI=<fresh local Unix socket> ./supabase/replay/replay.sh`, which now runs both corpus-access and atomic-quota behavior scripts. New Node harness is owned by the pytest CI wrapper; existing CI Node20/npm installation is reused. Temporary local runtime was reused without changing the original runtime files; only the new disposable cluster was started, then stopped.
+
+## Publication Eligibility — Round P
+
+### Scope and preflight
+
+Canonical `/Users/yichengchiu/dev/Blabby/blabby`: HEAD `ba6c2b9e7237fcab28cc6618e078b1ec2bb86a6a`, origin/main `88eada001f89597eb7721ea425c6fd4af23edde3`, ahead/behind **10/0**, clean. These values were obtained by commands, not assumed from the handoff. This appendix supersedes Round N's **local** broad eligibility rule, not its historical production evidence. No production reads, writes, migrations, deployment or push occurred in P.
+
+**PUBLICATION LEAK CONFIRMED in the pre-P local contract.** Existence in `vocabulary_items` was sufficient for anonymous publication. This is a content-governance finding; it is not evidence that a particular person's secret was actually disclosed in production.
+
+### VOCABULARY_CREATION_PATH_MATRIX
+
+Search covered all repository `vocabulary_items` references, INSERT/upsert/table calls, seeds, migrations, generator/save endpoints, Reading/Speaking consumers and replay/test fixtures. Current application creates rows through exactly the generator INSERT or the atomic save RPC's optional INSERT; no admin import, scheduled corpus generator, separate speaking insert, manual publication endpoint or backfill creator was found.
+
+| source path | caller | auth | row source | public intent | current eligibility |
+|---|---|---|---|---|---|
+| `supabase/seed_vocabulary.sql` | SQL operator | DB privilege; no HTTP caller | SEED, 30 example entries | Shared catalog intended by original schema/docs; no per-row review attestation | Pre-P broad; P default false. Seed untouched and not auto-approved |
+| `backend/main.py:vocabulary_generate` | Vocabulary “generate” button | Verified bearer, practice history scoped to caller | USER_TRIGGERED_GENERATED; model produces generic topic/weakness content | Immediate recommendations for this caller; previous shared caching does not establish publication approval | P generated INSERT explicitly false; caller still receives generated cards |
+| `backend/main.py:vocabulary_save_word` → `save_vocabulary_atomic` | Reading click/save; Speaking compatible word save | Verified bearer; service-only atomic RPC | USER_TRIGGERED_GENERATED / user-supplied sparse content: normalized word + supplied meaning, not necessarily an LLM generation | Save in caller's collection | P omitted publication column receives DB default false; ownership link remains atomic |
+| `backend/main.py:vocabulary_my_add` | Bank/generated/Speaking card save | Verified bearer | No new corpus row; references existing UUID | Personal save | Same quota RPC; no publication mutation |
+| `/process` exact/fuzzy suggestions and topic recommendations | Speaking feedback | Authenticated; anonymous enrichment skipped | Reader, not creator | Generic cross-user recommendation discovery | P only `is_public=true` candidates |
+| `_tag_vocab_weakness`, active-use, `/my`, `/review` | Reading/personal review | Verified owner filters | Readers of personal links, not creators | Personal use | Publication does not filter owned joins |
+| Corpus migrations | Migration operator | Privileged SQL | Schema only; atomic RPC defines optional creation | No migration seed/approval evidence | New P migration defaults unknown rows false, no data publication backfill |
+| Backend/replay fixtures | Automated tests | Hermetic doubles or acknowledged disposable PG17 | TEST_ONLY | Explicit synthetic publication decisions where needed | Public fixtures opt in; generated/save fixtures remain false |
+| SYSTEM_GENERATED / ADMIN_CURATED / IMPORT / manual external SQL | No separate repository implementation found | External actor unknown | UNKNOWN for any corresponding production rows | Not established | Cannot classify historical 83 rows by guessing source |
+
+### ELIGIBILITY_SIGNAL_TABLE — original 15 columns
+
+Original schema: `supabase/migrations/20260507_vocabulary.sql`. Round I observed these names in a historical 83-row HTTP response; P did not re-query production.
+
+| field | populated by | trustworthy | usable for publication |
+|---|---|---|---|
+| id | DB-generated UUID | Row identity, not creator identity | NO |
+| word | seed; model; normalized `/save_word` input | Content only; no corpus-wide uniqueness/review guarantee | NO |
+| part_of_speech | seed/model | Unreviewed optional content | NO |
+| zh_meaning | seed/model; client-supplied text clipped to 30 characters for saved words | Source dependent; may be arbitrary user text | NO |
+| difficulty_level | seed/model | Learning label, not assessed publication status | NO |
+| ielts_band_level | seed/model | Same; label presence is not approval | NO |
+| topic | seed/model; generated from mapped or raw practice topic | Intended subject, not source classification | NO |
+| tags | generator weakness tags, optional model list | Weakness metadata; client/history/model influenced | NO |
+| simple_definition_en | Nullable schema field; not populated by current seed/generator/save INSERTs | Historical writer/completeness unknown | NO |
+| common_chunk | seed/model | Content, not review | NO |
+| speaking_sentence | seed/model | Model example; not automatically the user's transcript | NO |
+| common_mistake | Nullable schema field; no current creation-path assignment | Historical writer unknown | NO |
+| better_than | Nullable array; no current creation-path assignment | Historical writer unknown | NO |
+| usage_note_zh | seed/model | Optional learning content | NO |
+| created_at | DB default; privileged imports can override | Timestamp, not provenance or review | NO |
+
+There are no original source, created_by, generated_by, owner, origin, approved, reviewed, quality, status, is_public or updated_at columns. `user_vocabulary.source` belongs to an owned link, is caller-supplied, and describes a save context; it cannot approve or reliably attribute the shared corpus row. No historical consistency across all 83 rows can be established from these fields.
+
+### Before/after flow and risk
+
+Pre-P: A's `/generate` reads A's practice history → model JSON → INSERT into shared corpus → returned cards → A optionally POSTs `/my` → atomic owned link. Independently, anonymous `/items` selects that same table without a row predicate, so the generated row is immediately searchable even before A saves. `/save_word` likewise creates a sparse shared row and owned link in one RPC. This is source-derived end-to-end behavior, additionally reproduced by the integration test's broad SQL baseline query against the newly generated row.
+
+P: same generation/save behavior, with `is_public=false`; anonymous/B public discovery sees no row. A's generated card directly consumes `/generate`'s response and remains saveable. Personal joins, due review, SRS submission, active-use and Reading weakness matching are based on A's `user_vocabulary`, independent of publication. No frontend reload from the public bank is required to save a generated card. `generateVocab()` already implements this immediate response flow; the Node harness exercises it.
+
+| potential content | evidence | risk classification |
+|---|---|---|
+| Hallucinated definition/translation, weak example or garbage/duplicate vocabulary | Generator checks list shape and nonempty word/meaning/chunk; deduplication is only within the selected batch/cache, not corpus-wide review. Saved words strip non-letter punctuation but allow arbitrary normalized strings | CONTENT_QUALITY_RISK |
+| Raw user sentence/transcript | `/generate` projects only weakness_tag, topic, created_at; it does not send transcript, better_expression or personalized mistake text to this generator | No direct transcript-copy path found; do not claim actual transcript disclosure |
+| Personalized phrasing / identifying text in generated content | Typical topics map to generic keys, but unknown practice topics fall through as raw lowercase text; `/process` accepts topic via form input. Model output could repeat unusual user-supplied topic content | Conditional PRIVACY_RISK, not a proven historical disclosure |
+| User-supplied meaning | `/save_word` accepts arbitrary `zh_meaning` up to 30 characters. Normalizing word does not sanitize meaning into a generic dictionary definition | BOTH content quality and conditional privacy risk |
+| Weakness metadata | Tags include the caller's common weakness; Round N public allowlist excludes tags, but topic/example content is still publishable without P | Content governance signal; not evidence of identifiable transcript exposure |
+
+Overall **BOTH**, with content-quality exposure confirmed structurally and privacy risk conditional on supplied/model text. No particular production PII incident is asserted.
+
+### Publication contract and alternatives
+
+Chosen **Option B: explicit `is_public boolean NOT NULL DEFAULT false`**. Public eligible means a trusted, intentional publication decision has set the marker true. False means **unpublished**, not rejected, bad, deleted, confidential or owner-private.
+
+| option | decision |
+|---|---|
+| A seed/admin-only | Seed membership is not approval; no trustworthy historical creator metadata or admin curation route exists |
+| B explicit boolean | Chosen: minimum two-state discovery contract, no current review workflow to represent |
+| C draft/approved/rejected status | Defer until an actual review workflow needs distinctions; not justified by the small current corpus |
+| D source allowlist | Reject: no reliable source column, tags/age cannot substitute |
+| E source + publication hybrid | Future provenance/audit may complement explicit publication; unnecessary for current enforcement |
+
+Generated rows are explicitly false using a backend-created dictionary; model/client `is_public=true` is never copied. Sparse RPC rows, existing rows and unchanged seed INSERTs inherit false. No new trusted publication endpoint or CMS exists. Only separately authorized privileged SQL/backend administration may publish. Future manual publication should record exact item ID and content hash, source, reviewer, reviewed_at and decision in an audit record; this round adds no analytics or queue.
+
+**Publication is not ownership authorization.** The existing shared catalog/save semantics are deliberately retained: knowing an item UUID or independently saving the same normalized word can establish the caller's own link through the quota RPC. It cannot impersonate another user's `user_vocabulary` ID or mutate their SRS. This round does not claim creator-only confidentiality, add created_by, or modify RPC resolution/quotas. Sensitive personal content must not be treated as protected merely because is_public is false. A future creator-private storage requirement would need a separate access contract and migration, not a misleading publication label.
+
+### Existing-row strategy and API enforcement
+
+Known-public production IDs: **NONE newly certified**. Historical count 83 and repo seed count 30 do not identify a reviewed publication set. No whole-table true UPDATE, word-only allowlist, tag heuristic or seed auto-approval is included. All existing rows receive false when the column is first added; existing owned use remains available. The public catalog will be empty until an intentional reviewed batch is published. This is a production content-readiness gate, not a reason to silently approve all rows.
+
+Before future rollout: authenticated READ ONLY snapshot for exact IDs/full candidate content and source evidence; compare seed candidates using complete content, not word alone; review the candidate list; produce separately authorized exact-ID + expected-content-hash updates; stale/mismatched/unknown rows remain unpublished. Apply/readback must prove only intended publication flags changed, with all learning content and owned state untouched. No such production batch was created or executed in P.
+
+`GET /api/vocabulary/items` adds `.eq("is_public", True)` before topic/band/search/order/range. All aliases (`q`/`search`, `band`/`level`) share this predicate. Offset/lookahead operate only on eligible rows; unpublished rows cannot inflate `has_more`/`next_offset`. The endpoint exposes no count and no include-unpublished override. The ten-field public response allowlist, validation and limiter remain unchanged.
+
+Shared discovery through `/generate`'s DB cache and Speaking exact/fuzzy/topic suggestions uses the same public predicate, preventing an alternative cross-user recommendation path. Unpublished generated results are still returned directly to the requesting generator caller. Personalized owned joins intentionally have no is_public predicate.
+
+### Local migration, ACLs and replay
+
+New source: `supabase/migrations/20260905140000_vocabulary_publication_eligibility.sql`, **EXPECTED_PENDING_LOCAL_NOT_DEPLOYED / PENDING_BLABBY**. Transactional, rerunnable ADD COLUMN with schema-shape validation; aborts on incompatible manual type/nullability/default. Rerun preserves explicit true decisions. No existing-content approval/backfill, no index: historical 83 rows do not justify a new query index without measured plans.
+
+It revokes browser INSERT/UPDATE table and independent column grants, including PUBLIC grants, and aborts on inherited effective writes. This guards self-publication even under a permissive write policy. Round N remains the SELECT lockdown dependency. Service-role privileges and all owned-table policies/ACLs remain untouched. Atomic function body/EXECUTE, advisory lock, entitlement check, count, duplicate handling and INSERT restrictions are unchanged.
+
+`supabase/replay/test_vocabulary_publication.py` proves upgrade from a pre-P table with an unknown row, browser SELECT/INSERT/UPDATE denial, explicit service publication, default false, compatible rerun, incompatible-default rejection and unchanged owned/RPC catalog contracts. Existing Round N ACL and Round K concurrency/mutation proofs also run after P.
+
+`backend/tests/test_vocabulary_publication_integration.py` uses real FastAPI handlers and a narrow psql adapter over the disposable PG17 database. Auth identity and model response are deterministic doubles; row filters, INSERTs, joins, SRS UPDATEs and the atomic RPC execute as SQL. It is not a PostgREST HTTP service test. It proves A generation → false despite model/client true → save → A personal/due review → B public exclusion and foreign SRS 404 → trusted fixture publication → anonymous visibility. The second scenario exercises Reading-style saved words, 30 unpublished saved items, idempotent re-add, new-item HTTP 403, and Pro 31st save. Replay independently covers real concurrency.
+
+CI runs the API/PG integration after replay in the disposable PostgreSQL service job; the ordinary DB-free backend job skips those two integration cases. No production credentials are needed. Local full pytest explicitly enables the disposable cases and disables live Reading E2E credentials.
+
+### Production dependencies and unresolved gates
+
+See the Round P readiness appendix for the dependency DAG. A = atomic quota; B = raw SELECT lockdown; C = publication column/default; D = coordinated backend + frontend API consumer. Required edges: **A → D backend saves**, **C → D publication queries**, **D frontend/backend verified → B** when replacing an older direct-table frontend. A's removal of direct owned INSERT requires a coordinated writer cutover; it is not generally compatible with old direct-insert code. C is additive for old service-role writers, but cannot fix old unfiltered readers. B is incompatible with a still-active raw-table frontend. Do not order by filename timestamps.
+
+A maintenance/cutover plan must prevent traffic from using old broad readers between steps; closure requires both filtered backend and raw-table revocation. Rollback must not restore broad public serving or DROP the publication column while D depends on it. Unknown rows remain unpublished. Product approval for an empty catalog or a separately reviewed publication batch is required for production readiness.
+
+Production SQL READ ONLY availability, Render deployed SHA and recoverable backup remain **BLOCKED / UNVERIFIED**. Local replay does not resolve these gates. No Task 1, payment, PostHog, Admin redesign, quota semantics or quality-index source was changed. Remaining unknowns are exact production row source/approval, current schema/ACL drift, deployed code and backup recoverability.
+
+### Executed validation — Round P
+
+- Focused vocabulary/publication/ownership/quota/frontend/manifest suite: **109 passed**, 5 existing deprecation warnings, Python **3.11** with Node **20.20.2** on PATH. Public API file: **35 passed** (33 HTTP cases, one DOM wrapper, one raw-client dependency check); publication FastAPI/PG integration: **2 passed**; manifest contracts: **10 passed**.
+- Fresh disposable **PostgreSQL 17.11** full migration replay: **REPLAY OK**. Round P publication: **5 proof groups PASS**; Round N raw-access/ownership: **7 proof groups PASS**; Round K atomic quota: **12 PASS outputs + 1 expected failing lock-removal mutation probe**. Without lock, concurrency yields 31; restored function yields 30. All fixtures use a new local Unix-socket-only cluster with TCP listening disabled.
+- Node **20.20.2** standalone: **4 vocabulary harnesses PASS**, including 8 Reading/Speaking save-path subtests. Expanded public DOM test proves an unpublished generated card renders directly to its requester and sends its ID to the existing save endpoint without a public-bank lookup. The anonymous boot's existing not_signed_in console diagnostics are expected; harness assertions pass.
+- Full Python **3.11** pytest: **736 passed, 10 skipped, 5 existing deprecation warnings**, 52.14s. The full run used ambient Node **26.7.0**; the affected focused suite and four vocabulary harnesses were additionally verified on CI's Node20 runtime. Two new disposable integration cases executed; only the existing live credential-gated cases skipped. All provider keys were dummy values, live Reading E2E config was blank, and conftest disabled Supabase client initialization.
+- Initial integration fixture omitted required practice question text; corrected the synthetic fixture and reran successfully. Initial default Homebrew initdb lacked share files; reused the existing complete relocated PG17 runtime without modifying it or creating global links. These were harness setup failures, not production observations.
+- `git diff --check`: **PASS**. Both original document prefixes remain byte-for-byte intact. Historical manifest production/ledger/replay snapshots preserved. Atomic migration SHA-256 remains `30ae348c94bc200d55774e71171fb55e3076dd59df218bd97a5b316d08243c28`; raw-lockdown migration and seed bytes also unchanged. Source segments for the eight owned/save/quota/review/active/Reading functions compare exactly equal to pre-P HEAD.
+
+Execution: focused suite is `test_public_vocabulary.py`, `test_vocabulary_publication_integration.py`, `test_vocabulary_save_quota.py`, `test_active_vocabulary.py`, `test_frontend_vocabulary_paywall_contracts.py`, `test_frontend_harness_ci_contract.py`, `test_schema_migration_truth_contract.py`; full command `pytest backend/tests -q`; replay `PGURI=<fresh local socket> bash supabase/replay/replay.sh`. Integration requires `BLABBY_PUBLICATION_TEST_DB=disposable` and validates a local host/socket before data access. Replay fixtures and API tests have no Supabase/PostgREST network connection.
+
+**Local verdict: PASS — VOCABULARY PUBLICATION ELIGIBILITY IS EXPLICIT IN LOCAL CONTRACT.** Production remains NO-GO; unknown rows remain unpublished, and the reviewed production publication batch remains unresolved. No claim of creator-private isolation is made. No production DB writes, migration apply, deployment or push.
