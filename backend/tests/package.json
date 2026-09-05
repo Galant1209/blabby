@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "Hermetic DOM harness for the actual Blabby admin script",
+  "devDependencies": { "jsdom": "26.1.0" }
+}

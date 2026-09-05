@@ -19,6 +19,7 @@ DIRECT_CI_HARNESSES = (
 )
 
 PYTEST_WRAPPED_HARNESSES = {
+    "frontend_admin_member_behavior.mjs": "test_admin_member_contracts.py",
     "frontend_billing_behavior.mjs": "test_frontend_billing_contracts.py",
     "frontend_history_behavior.mjs": "test_frontend_history_contracts.py",
     "frontend_vocabulary_paywall_behavior.mjs": "test_frontend_vocabulary_paywall_contracts.py",

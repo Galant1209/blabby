@@ -4080,6 +4080,7 @@ async def get_user_subscription(
 async def admin_list_subscriptions(
     request: Request,
     authorization: Optional[str] = Header(None),
+    user_id: Optional[str] = None,
 ):
     """List recent 100 subscriptions with email resolved.
     PostgREST nested-select on auth.users isn't allowed (different schema),
@@ -4089,10 +4090,19 @@ async def admin_list_subscriptions(
     verify_admin(authorization)
     if supabase_admin is None:
         raise HTTPException(status_code=503, detail="Database not configured")
+    if user_id:
+        try:
+            uuid.UUID(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid user_id format")
     try:
-        resp = (
+        query = (
             supabase_admin.table("subscriptions")
             .select("id, user_id, order_id, plan, status, amount, started_at, expires_at, created_at, updated_at")
+        )
+        if user_id:
+            query = query.eq("user_id", user_id)
+        resp = (query
             .order("created_at", desc=True)
             .limit(100)
             .execute()
@@ -4101,7 +4111,9 @@ async def admin_list_subscriptions(
         logger.exception("admin_list_subscriptions select failed")
         raise HTTPException(status_code=503, detail="Failed to load subscriptions")
 
-    rows = resp.data or []
+    if resp.data is None:
+        raise HTTPException(status_code=503, detail="Failed to load subscriptions")
+    rows = resp.data
     # Cache email lookups so 5 subs from the same user → 1 API call.
     email_cache: dict[str, str] = {}
     for row in rows:
@@ -6480,6 +6492,8 @@ async def admin_user_records(
     request: Request,
     user_id: str,
     authorization: Optional[str] = Header(None),
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
     try:
         verify_admin(authorization)
@@ -6502,24 +6516,52 @@ async def admin_user_records(
                 "id, mode, topic, question, user_transcript, coach_response, "
                 "better_expression, better_expression_zh, next_question, "
                 "weakness_tag, memory_snapshot, created_at, "
-                "quality_grade, quality_reason"
+                "quality_grade, quality_reason", count="exact"
             )
             .eq("user_id", user_id)
-            .order("created_at", desc=False)
+            .order("created_at", desc=True)
+            .order("id", desc=True)
+            .range(offset, offset + limit - 1)
             .execute()
         )
 
-        records = []
-        for index, record in enumerate(response.data or [], start=1):
-            record_with_sequence = dict(record)
-            record_with_sequence["sequence"] = index
-            records.append(record_with_sequence)
-
+        if response.data is None or response.count is None:
+            raise HTTPException(status_code=500, detail="Failed to load speaking records")
+        records = [dict(row, sequence=response.count - offset - index)
+                   for index, row in enumerate(response.data)]
+        # Small metadata pages, never full transcripts, for the weakness summary.
+        # A summary failure must not make the latest records unusable.
+        weakness_counts = None
+        if offset == 0:
+            try:
+                counts = {}
+                start = 0
+                while True:
+                    tags = (supabase_admin.table("practice_records")
+                            .select("weakness_tag")
+                            .eq("user_id", user_id)
+                            .order("id")
+                            .range(start, start + 499).execute())
+                    if tags.data is None:
+                        raise ValueError("Missing weakness data")
+                    for row in tags.data:
+                        tag = row.get("weakness_tag")
+                        if tag:
+                            counts[tag] = counts.get(tag, 0) + 1
+                    if len(tags.data) < 500:
+                        break
+                    start += 500
+                weakness_counts = counts
+            except Exception:
+                logger.exception("admin speaking weakness summary failed")
         return {
             "user_id": user_id,
             "email": email,
-            "total_records": len(records),
+            "total_records": response.count,
             "records": records,
+            "offset": offset,
+            "has_more": offset + len(records) < response.count,
+            "weakness_counts": weakness_counts,
         }
     except HTTPException:
         raise

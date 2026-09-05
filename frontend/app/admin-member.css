@@ -1,0 +1,71 @@
+/* Member workspace only; global monitoring and the shared chart renderer retain their styles. */
+#users-tab { grid-template-columns: 280px minmax(0, 1fr); height: calc(100vh - 88px); }
+#users-tab .col--users { background: #f9f6ef; }
+#users-tab .user-row { display: block; width: 100%; text-align: left; font: inherit; border: 0; border-bottom: 1px solid #e8e2d6; padding: 13px 16px; background: transparent; color: var(--ink); cursor: pointer; }
+#users-tab .user-row:hover { background: #efeadd; }
+#users-tab .user-row.active { background: #e8eddf; box-shadow: inset 4px 0 var(--green); }
+#users-tab .user-row__email { font: 600 13px/1.5 var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#users-tab .user-row__top { gap: 8px; }
+#users-tab .user-row__plan { color: var(--green); background: transparent; font-size: 10px; }
+#users-tab .user-row__counts { display: flex; font-size: 12px; color: var(--muted); margin-top: 5px; }
+.member-email { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+#users-tab #detail-header { padding: 22px 26px 18px; background: var(--surface); }
+#detail-header h1 { font: 600 20px/1.4 var(--sans); margin: 0; overflow-wrap: anywhere; }
+#detail-header .dh__meta { margin-top: 9px; font-size: 12px; }
+#detail-header .dh__top { justify-content: flex-start; gap: 12px; }
+#detail-subtabs { padding: 0 26px; gap: 20px; background: var(--surface); border-bottom: 1px solid #ded8c9; }
+#detail-subtabs .subtab { padding: 13px 2px; font-size: 14px; white-space: nowrap; border-radius: 0; border: 0; border-bottom: 3px solid transparent; background: transparent; }
+#detail-subtabs .subtab.active { color: var(--green); border-bottom-color: var(--green); font-weight: 600; background: transparent; }
+#detail-pane { max-width: 1300px; }
+#detail-pane .subpanel { padding: 0 10px 20px; }
+.member-section { padding: 22px 16px 16px; }
+#detail-pane h2 { font: 600 18px/1.4 var(--sans); margin: 0 0 10px; }
+#detail-pane h2 span { font-size: 14px; color: var(--muted); margin-left: 9px; font-weight: 400; }
+#detail-pane h3 { font: 600 13px/1.5 var(--sans); margin: 14px 0 8px; }
+.member-note { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 6px 0; }
+.weakness-summary { display: flex; flex-wrap: wrap; gap: 10px 24px; color: var(--muted); font-size: 13px; }
+.weakness-summary strong { color: var(--ink); margin-left: 5px; }
+#users-tab .triage-bar { position: static; top: auto; padding: 14px 16px 7px; background: transparent; border: 0; }
+#users-tab .triage-bar__actions { gap: 10px; }
+#users-tab .part-filter-tabs { margin: 0; padding: 8px 16px 12px; border-top: 0; background: transparent; }
+#users-tab .prow, #users-tab .lrow { min-height: 60px; padding: 12px 16px; grid-template-columns: 80px minmax(0,1fr) auto; gap: 12px; }
+#users-tab .prow.hidden { display: none; }
+#users-tab .prow__q { font-style: normal; font-size: 14px; line-height: 1.5; }
+#users-tab .prow__t, #users-tab .lrow__meta { margin-top: 4px; font-size: 12px; }
+#users-tab .ltab-summary { display: none; }
+#users-tab .ldetail { margin: 0 16px; padding: 18px; background: #f3f0e7; }
+.member-pagination { padding: 16px; display: flex; align-items: center; justify-content: flex-end; gap: 14px; font-size: 12px; color: var(--muted); }
+.member-more { margin: 18px 16px; }
+.report-action { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid #e3ded2; padding: 16px 0; }
+.report-action h3 { margin: 0 0 6px !important; font-size: 15px !important; }
+.report-action p, .member-subscription-row p { margin: 5px 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.report-action button { flex-shrink: 0; }
+#sub-ai .right-section { padding: 14px 0; }
+#sub-subscription .subs-detail { padding: 22px 16px 0; max-width: none; }
+#sub-subscription .subs-info { margin: 0; padding-bottom: 12px; }
+#sub-subscription .subs-action { margin-top: 12px; }
+#sub-subscription .subs-action__upgrade, #sub-subscription .subs-action__revoke { width: auto; padding: 8px 14px; font-size: 13px; }
+.member-subscription-row { display: flex; justify-content: space-between; gap: 20px; border-bottom: 1px solid #e3ded2; padding: 14px 0; font-size: 14px; }
+.member-subscription-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.member-subscription-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+#users-tab :focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.admin-denied { padding: 40px; font: 16px/1.6 system-ui; }
+@media (max-width: 1100px) {
+  #users-tab { grid-template-columns: 240px minmax(0, 1fr); }
+  #detail-subtabs { gap: 16px; padding: 0 18px; }
+  #users-tab .triage-bar__actions { margin-left: 0; }
+  .member-subscription-row { flex-wrap: wrap; }
+}
+@media (max-width: 760px) {
+  #users-tab { grid-template-columns: 1fr; height: auto; }
+  #users-tab .col--users { display: block; max-height: 300px; }
+  #users-tab .col--detail-pane { max-height: none; }
+  #detail-subtabs { gap: 12px; overflow-x: auto; padding: 0 12px; }
+  #users-tab .prow, #users-tab .lrow { grid-template-columns: 64px minmax(0,1fr); }
+  #users-tab .prow__grade, #users-tab .lrow > div:last-child { grid-column: 2; }
+  .report-action { flex-wrap: wrap; }
+}
+@media (min-width: 761px) and (max-width: 900px) {
+  #users-tab .col--users { display: block; }
+  #users-tab .col { max-height: none; }
+}

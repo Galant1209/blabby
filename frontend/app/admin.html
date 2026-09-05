@@ -837,7 +837,7 @@
     .dash-cols { grid-template-columns: 1fr; }
   }
 
-  /* === 用戶管理 student-centric 2-pane detail (Phase 2) === */
+  /* === 會員管理 student-centric 2-pane detail (Phase 2) === */
   #users-tab { grid-template-columns: 296px minmax(0, 1fr); }
   .col--detail-pane { overflow-y: auto; }
   #detail-header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
@@ -892,6 +892,7 @@
   .ov-tl__skill--rd { background: rgba(26,53,80,0.10); color: var(--navy); }
   .ov-tl__label { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
+<link rel="stylesheet" href="./admin-member.css">
 </head>
 <body>
 
@@ -905,7 +906,7 @@
 
 <div class="tabs" role="tablist">
   <button class="tab active" data-tab="dashboard" type="button">總覽</button>
-  <button class="tab"        data-tab="users"     type="button">用戶管理</button>
+  <button class="tab"        data-tab="users"     type="button">會員管理</button>
   <button class="tab"        data-tab="subs"      type="button">訂閱管理</button>
   <button class="tab"        data-tab="changelog" type="button">更新日誌</button>
   <button class="tab"        data-tab="writing"   type="button">Writing</button>
@@ -924,7 +925,7 @@
   <aside class="col col--users" id="col-users">
     <div class="col__title">使用者</div>
     <div class="user-controls">
-      <input type="text" id="user-search" class="user-search" placeholder="搜尋 email…" autocomplete="off">
+      <input type="text" id="user-search" class="user-search" placeholder="搜尋 email / name…" autocomplete="off">
       <div class="user-controls__row">
         <select id="user-sort" class="user-sort">
           <option value="recent">最近活躍</option>
@@ -951,31 +952,6 @@
   </main>
 </div>
 
-<div class="tab-panel layout" id="subs-tab">
-  <aside class="col col--users" id="subs-col-users">
-    <div class="col__title">使用者 (Pro / Free)</div>
-    <div class="subs-search">
-      <input type="text" id="subs-search-input" placeholder="Search by email…" autocomplete="off">
-    </div>
-    <div class="col__body" id="subs-user-list">
-      <div class="col__empty">Loading…</div>
-    </div>
-  </aside>
-
-  <main class="col col--records" id="subs-col-detail">
-    <div id="subs-middle-content">
-      <div class="col__empty">Select a user to manage Pro access.</div>
-    </div>
-  </main>
-
-  <aside class="col col--detail" id="subs-col-log">
-    <div class="col__title">Recent action</div>
-    <div id="subs-action-log">
-      <div class="col__empty">No actions yet.</div>
-    </div>
-  </aside>
-</div>
-
 <div class="tab-panel" id="changelog-tab">
   <div class="changelog" id="changelog-content"></div>
 </div>
@@ -998,7 +974,7 @@
   const SUPABASE_URL = cfg.supabaseUrl;
   const SUPABASE_ANON_KEY = cfg.supabaseAnonKey;
   const API_BASE = window.BLABBY_API_BASE || 'https://blabby-backend.onrender.com';
-  const ADMIN_EMAILS = ['galant.chiu@kumo-edu.com', 'galant19951209@gmail.com'];
+
 
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -1014,7 +990,9 @@
     selectedUserId: null,
     detail: null,         // {user_id, email, total_records, records: [...]}
     selectedRecordId: null,
-    showAll: false,
+    showAll: true,
+    memberEpoch: 0,
+    memberCache: {},
     partFilter: 'all',    // 'all' | 'part1' | 'part2' — client-side filter, mode inferred from coach_response shape
     token: null,
     userSearch: '',       // left-list email search
@@ -1087,25 +1065,19 @@
       window.location.replace('/index.html');
       return;
     }
-    const userEmail = (session.user.email || '').toLowerCase();
-    if (!ADMIN_EMAILS.map(e => e.toLowerCase()).includes(userEmail)) {
-      // Not a designated admin — silently bounce.
-      window.location.replace('/');
-      return;
-    }
     state.token = session.access_token;
     $('admin-email').textContent = session.user.email;
-    // Users list backs the 用戶管理 tab + is reused by the dashboard, so load
+    // Users list backs the 會員管理 tab + is reused by the dashboard, so load
     // it once up front regardless of which tab we land on.
-    await loadUsers();
-    // Restore last-visited tab; default landing is the 總覽 dashboard.
-    let initialTab = 'dashboard';
-    try { initialTab = localStorage.getItem('blabby_admin_tab') || 'dashboard'; } catch (_) {}
+    if (!await loadUsers()) return;
+    // Restore the last view; new sessions start with member management.
+    let initialTab = 'users';
+    try { initialTab = localStorage.getItem('blabby_admin_tab') || 'users'; } catch (_) {}
     activateTab(initialTab);
   }
 
   // === Left column: users ===
-  async function loadUsers() {
+  async function loadUsers(selectInitial = true) {
     const list = $('users-list');
     list.innerHTML = '<div class="col__empty">Loading…</div>';
     try {
@@ -1114,7 +1086,10 @@
       });
       if (!res.ok) {
         list.innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`;
-        return;
+        if (res.status === 401 || res.status === 403) {
+          document.body.innerHTML = '<main class="admin-denied">無法存取管理介面。請使用具備後端管理權限的帳號登入。</main>';
+        }
+        return false;
       }
       const body = await res.json();
       const users = (body.users || []).slice().sort((a, b) =>
@@ -1126,15 +1101,16 @@
       const dd = $('mobile-user-dropdown');
       dd.innerHTML = users.map(u => {
         const label = (u.email || (u.user_id || '').slice(0, 8));
-        const q = u.quality_counts || {};
-        return `<option value="${escapeHtml(u.user_id)}">${escapeHtml(label)} · ${q.valid||0}v / ${q.invalid||0}i</option>`;
+        return `<option value="${escapeHtml(u.user_id)}">${escapeHtml(label)}</option>`;
       }).join('');
-      dd.addEventListener('change', () => selectUser(dd.value));
+      dd.onchange = () => selectUser(dd.value);
 
-      if (users.length > 0) await selectUser(users[0].user_id);
+      if (selectInitial && users.length > 0) await selectUser(state.selectedUserId || users[0].user_id);
+      return true;
     } catch (err) {
       console.error('loadUsers error', err);
       list.innerHTML = '<div class="col__empty">Network error</div>';
+      return false;
     }
   }
 
@@ -1168,7 +1144,7 @@
     else if (state.userFilter === 'free') view = view.filter(u => !u.is_pro_effective);
     else if (state.userFilter === 'practiced') view = view.filter(u => (u.practice_count || 0) > 0);
     const s = (state.userSearch || '').trim().toLowerCase();
-    if (s) view = view.filter(u => (u.email || '').toLowerCase().includes(s));
+    if (s) view = view.filter(u => `${u.email || ''} ${u.display_name || u.name || ''}`.toLowerCase().includes(s));
     if (state.userSort === 'recent') view.sort((a, b) => String(b.last_practice || '').localeCompare(String(a.last_practice || '')));
     else if (state.userSort === 'count') view.sort((a, b) => (b.practice_count || 0) - (a.practice_count || 0));
     else if (state.userSort === 'az') view.sort((a, b) => String(a.email || '').localeCompare(String(b.email || '')));
@@ -1178,102 +1154,111 @@
       return;
     }
     list.innerHTML = view.map(u => {
-      const q = u.quality_counts || {};
-      const label = u.email ? truncate(u.email, 20) : (u.user_id || '').slice(0, 8);
+      const name = u.display_name || u.name || u.email || u.user_id;
       const cls = u.user_id === state.selectedUserId ? 'user-row active' : 'user-row';
-      const plan = u.is_pro_effective ? '<span class="user-row__plan">PRO</span>' : '';
-      return `
-        <div class="${cls}" data-user-id="${escapeHtml(u.user_id)}" title="${escapeHtml(u.email || u.user_id)}">
-          <div class="user-row__top">
-            <span class="user-row__email">${escapeHtml(label)}</span>
-            ${plan}
-          </div>
-          <div class="user-row__counts">
-            <span class="v">${q.valid || 0}v</span>
-            <span class="p">${q.partial || 0}p</span>
-            <span class="i">${q.invalid || 0}i</span>
-            <span class="user-row__last">${escapeHtml(relTime(u.last_practice))}</span>
-          </div>
-        </div>
-      `;
+      return `<button type="button" class="${cls}" data-user-id="${escapeHtml(u.user_id)}" aria-pressed="${u.user_id === state.selectedUserId}" title="${escapeHtml(u.email || u.user_id)}">
+        <span class="user-row__top"><span class="user-row__email">${escapeHtml(name)}</span>
+        <span class="user-row__plan">${u.is_pro_effective ? 'PRO' : 'FREE'}</span></span>
+        ${name !== u.email ? `<span class="member-email">${escapeHtml(u.email)}</span>` : ''}
+        <span class="user-row__counts">口說 ${u.practice_count ?? '—'} 次<span class="user-row__last">${escapeHtml(relTime(u.last_practice))}</span></span>
+      </button>`;
     }).join('');
     list.querySelectorAll('.user-row').forEach(el => {
       el.addEventListener('click', () => selectUser(el.dataset.userId));
     });
   }
 
-  // === Middle column: practice records ===
+  // Only the selected member owns this cache. Epoch guards also cover A → B → A.
+  async function memberRequest(path, options = {}) {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...options, headers: { Authorization: `Bearer ${state.token}`, ...options.headers },
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+    return body;
+  }
+
   async function selectUser(userId) {
     state.selectedUserId = userId;
+    state.detail = null;
     state.selectedRecordId = null;
-    renderUsers(); // refresh active highlight
-    // Build the 2-pane detail skeleton (header + sub-tabs); this (re)creates
-    // #middle-content (口說) + #record-detail-section so renderMiddle /
-    // selectRecord keep working against the same ids.
+    state.showAll = true;
+    state.partFilter = 'all';
+    state.memberCache = {};
+    const epoch = ++state.memberEpoch;
+    renderUsers();
+    $('mobile-user-dropdown').value = userId;
     buildDetailSkeleton();
-    $('middle-content').innerHTML = '<div class="col__empty">Loading records…</div>';
-    $('detail-header').innerHTML = '<div class="col__empty">Loading…</div>';
+    renderDetailHeader();
+    await loadSpeakingPage(0, epoch);
+  }
+
+  async function loadSpeakingPage(offset = 0, epoch = state.memberEpoch) {
+    const host = $('middle-content');
+    host.innerHTML = '<div class="col__empty" role="status">載入口說紀錄…</div>';
+    $('record-detail-section').style.display = 'none';
     try {
-      const res = await fetch(`${API_BASE}/admin/user/${encodeURIComponent(userId)}`, {
-        headers: { 'Authorization': `Bearer ${state.token}` },
-      });
-      if (!res.ok) {
-        $('middle-content').innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`;
-        return;
-      }
-      state.detail = await res.json();
+      const data = await memberRequest(`/admin/user/${encodeURIComponent(state.selectedUserId)}?limit=10&offset=${offset}`);
+      if (epoch !== state.memberEpoch) return;
+      if (offset > 0) data.weakness_counts = state.detail?.weakness_counts;
+      state.detail = data;
+      state.selectedRecordId = null;
       renderMiddle();
       renderDetailHeader();
-      // 概覽 is the default sub-tab — fill it once the detail loads.
-      loadOverview();
-    } catch (err) {
-      console.error('selectUser error', err);
-      $('middle-content').innerHTML = '<div class="col__empty">Network error</div>';
+    } catch (error) {
+      if (epoch !== state.memberEpoch) return;
+      host.innerHTML = `<div class="col__empty" role="alert">口說載入失敗：${escapeHtml(error.message)} <button class="btn" id="speaking-retry">重試</button></div>`;
+      $('speaking-retry').onclick = () => loadSpeakingPage(offset);
     }
   }
 
-  // Build the student-detail pane: header slot + sub-tab strip + 4 sub-panels.
-  // 口說 keeps the legacy ids (#middle-content + #record-detail-section) so the
-  // existing renderMiddle / selectRecord work unchanged. 概覽/寫作/閱讀 are
-  // filled in later Phase-2 commits; 口說 is the default sub-tab for now.
   function buildDetailSkeleton() {
-    const pane = $('detail-pane');
-    if (!pane) return;
-    pane.innerHTML = `
+    const tabs = [['speaking', '口說'], ['writing', '寫作'], ['reading', '閱讀'], ['subscription', '訂閱管理'], ['ai', 'AI 生成報告']];
+    $('detail-pane').innerHTML = `
       <div id="detail-header"></div>
-      <div class="subtabs" id="detail-subtabs">
-        <button class="subtab active" data-sub="overview" type="button">概覽</button>
-        <button class="subtab" data-sub="speaking" type="button">口說</button>
-        <button class="subtab" data-sub="writing" type="button">寫作</button>
-        <button class="subtab" data-sub="reading" type="button">閱讀</button>
+      <div class="subtabs" id="detail-subtabs" role="tablist" aria-label="會員資料">
+        ${tabs.map(([key, label], i) => `<button class="subtab ${i === 0 ? 'active' : ''}" id="member-tab-${key}" data-sub="${key}" type="button" role="tab" aria-controls="sub-${key}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${label}</button>`).join('')}
       </div>
-      <div class="subpanel active" id="sub-overview"><div class="col__empty">Loading…</div></div>
-      <div class="subpanel" id="sub-speaking">
-        <div id="middle-content"></div>
-        <div class="right-section" id="record-detail-section" style="display:none">
-          <h3>選中紀錄</h3>
-          <div id="record-detail-content"></div>
-        </div>
-      </div>
-      <div class="subpanel" id="sub-writing"><div class="col__empty">寫作即將推出。</div></div>
-      <div class="subpanel" id="sub-reading"><div class="col__empty">閱讀即將推出。</div></div>
-    `;
-    pane.querySelectorAll('#detail-subtabs .subtab').forEach(b => {
-      b.addEventListener('click', () => activateSubtab(b.dataset.sub));
+      ${tabs.map(([key], i) => `<section class="subpanel ${i === 0 ? 'active' : ''}" id="sub-${key}" role="tabpanel" aria-labelledby="member-tab-${key}" tabindex="0"></section>`).join('')}`;
+    $('sub-speaking').innerHTML = `<div id="middle-content"></div><div class="right-section" id="record-detail-section" style="display:none"><h3>口說紀錄詳情</h3><div id="record-detail-content"></div></div>`;
+    $('sub-ai').innerHTML = `<div class="member-section">
+      <h2>AI 生成報告</h2><p class="member-note" id="ai-scope"></p><p class="member-note">兩種報告皆以口說紀錄為資料來源；寫作與閱讀不納入分析。</p>
+      <div class="report-action"><div><h3>學生簡報</h3><p>依現有服務取最早 30 筆有效口說，生成可分享給學生的建議。</p></div><button class="btn btn--primary" id="brief-btn">生成學生簡報</button></div>
+      <div id="brief-section" class="right-section" style="display:none"><div class="brief-block" id="brief-content"></div><button class="copy-btn" id="brief-copy">複製報告</button></div>
+      <div class="report-action"><div><h3>AI 診斷報告</h3><p>分析口說歷史，整理弱點、證據與下一步。</p></div><button class="btn" id="diag-btn">生成最新診斷</button></div>
+      <div id="diag-section" class="right-section" style="display:none"><div class="diag-block" id="diag-content"></div></div>
+      <p class="member-note" id="ai-report-status">尚未生成 AI 報告。按下生成按鈕才會執行。</p></div>`;
+    $('brief-btn').onclick = loadBrief;
+    $('diag-btn').onclick = loadDiagnosis;
+    const buttons = [...document.querySelectorAll('#detail-subtabs .subtab')];
+    buttons.forEach((button, i) => {
+      button.onclick = () => activateSubtab(button.dataset.sub);
+      button.onkeydown = event => {
+        let next;
+        if (event.key === 'ArrowRight') next = (i + 1) % buttons.length;
+        if (event.key === 'ArrowLeft') next = (i + buttons.length - 1) % buttons.length;
+        if (event.key === 'Home') next = 0;
+        if (event.key === 'End') next = buttons.length - 1;
+        if (next !== undefined) { event.preventDefault(); buttons[next].focus(); activateSubtab(buttons[next].dataset.sub); }
+      };
     });
   }
 
   function activateSubtab(name) {
-    document.querySelectorAll('#detail-subtabs .subtab').forEach(b => {
-      b.classList.toggle('active', b.dataset.sub === name);
+    document.querySelectorAll('#detail-subtabs .subtab').forEach(button => {
+      const active = button.dataset.sub === name;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+      button.tabIndex = active ? 0 : -1;
     });
-    document.querySelectorAll('#detail-pane .subpanel').forEach(p => {
-      p.classList.toggle('active', p.id === `sub-${name}`);
-    });
-    if (name === 'overview') loadOverview();
+    document.querySelectorAll('#detail-pane .subpanel').forEach(panel => panel.classList.toggle('active', panel.id === `sub-${name}`));
     if (name === 'writing') loadStudentWriting();
     if (name === 'reading') loadStudentReading();
+    if (name === 'subscription') loadStudentSubscriptions();
   }
+
+  const weaknessLabels = {weak_vocab: '用字太安全', safe_answer: '答得太保險', lack_detail: '缺少具體細節', grammar_minor: '小文法', off_topic: '答非所問'};
+  const weaknessLabel = tag => weaknessLabels[tag] || tag || '尚無弱點標記';
 
   function renderMiddle() {
     const d = state.detail;
@@ -1289,26 +1274,13 @@
     });
     const total = d.total_records || records.length;
 
-    const bar = `
-      <div class="triage-bar">
-        <div class="triage-bar__stats">
-          <span class="qc v">${counts.valid} valid</span>
-          <span class="qc p">${counts.partial} partial</span>
-          <span class="qc i">${counts.invalid} invalid</span>
-          ${counts.unknown ? `<span class="qc">${counts.unknown} unknown</span>` : ''}
-          ${counts.none ? `<span class="qc">${counts.none} unrated</span>` : ''}
-          <span class="triage-bar__total">/ ${total} total</span>
-        </div>
-        <div class="triage-bar__actions">
-          <label class="toggle">
-            <input type="checkbox" id="show-all" ${state.showAll ? 'checked' : ''}>
-            Show all
-          </label>
-          <button class="btn" id="reclassify-btn" type="button">Run Reclassify</button>
-          <span class="status" id="reclassify-status"></span>
-        </div>
-      </div>
-    `;
+    const weaknesses = d.weakness_counts == null ? '<span>弱點統計暫時無法取得</span>' :
+      Object.entries(d.weakness_counts).sort((a, b) => b[1] - a[1]).map(([tag, count]) => `<span>${escapeHtml(weaknessLabel(tag))} <strong>${count}</strong></span>`).join('') || '<span>尚無弱點資料</span>';
+    const bar = `<div class="member-section speaking-summary"><h2>口說練習 <span>${total} 次</span></h2>
+      <h3>常見弱點</h3><div class="weakness-summary">${weaknesses}</div></div>
+      <div class="triage-bar"><strong>最近口說紀錄</strong><span class="member-note">本頁 ${records.length} 筆</span>
+      <div class="triage-bar__actions"><label class="toggle"><input type="checkbox" id="show-all" ${state.showAll ? 'checked' : ''}>包含未評分與待改善</label>
+      <button class="btn" id="reclassify-btn" type="button">重新分類</button><span class="status" id="reclassify-status"></span></div></div>`;
 
     // Part 1 / Part 2 filter tabs — sits between triage-bar and rows.
     // mode field isn't returned by /admin/user/{id}, so infer from coach_response shape.
@@ -1336,13 +1308,13 @@
         (okQuality && okPart) ? '' : 'hidden',
       ].filter(Boolean).join(' ');
       return `
-        <div class="${cls}" data-record-id="${escapeHtml(r.id || '')}" data-part="${part}">
+        <div class="${cls}" role="button" tabindex="0" data-record-id="${escapeHtml(r.id || '')}" data-part="${part}">
           <div class="prow__time">${escapeHtml(fmtTime(r.created_at))}</div>
           <div class="prow__main">
             <div class="prow__q">${(r.question || '').trim()
               ? escapeHtml(truncate(r.question, 40))
               : `<span class="italic" style="color:var(--muted);opacity:.75;">No question was preserved — a relic of an older fault, since mended.</span>`}</div>
-            <div class="prow__t">${escapeHtml(truncate(r.user_transcript || '(no transcript)', 60))}</div>
+            <div class="prow__t">${part === 'part2' ? 'Part 2' : 'Part 1'} · ${escapeHtml(weaknessLabel(r.weakness_tag))} · ${escapeHtml(truncate(r.user_transcript || '(no transcript)', 140))}</div>
           </div>
           <div class="prow__grade">
             <span class="badge ${escapeHtml(grade)}">${escapeHtml(badgeLabel)}</span>
@@ -1351,7 +1323,11 @@
       `;
     }).join('');
 
-    $('middle-content').innerHTML = bar + tabs + (rows || '<div class="col__empty">No records.</div>');
+    const visible = records.some(r => (state.showAll || r.quality_grade === 'valid') && (state.partFilter === 'all' || state.partFilter === (isP2(r) ? 'part2' : 'part1')));
+    $('middle-content').innerHTML = bar + tabs + rows + (!visible ? `<div class="col__empty">${total ? '本頁沒有符合條件的口說紀錄' : '沒有口說紀錄'}</div>` : '') +
+      `<div class="member-pagination"><button class="btn" id="speaking-prev" ${(d.offset || 0) === 0 ? 'disabled' : ''}>較新紀錄</button><span>${total ? (d.offset || 0) + 1 : 0}–${(d.offset || 0) + records.length} / ${total}</span><button class="btn" id="speaking-next" ${d.has_more ? '' : 'disabled'}>較舊紀錄</button></div>`;
+    $('speaking-prev').onclick = () => loadSpeakingPage(Math.max(0, d.offset - 10));
+    $('speaking-next').onclick = () => loadSpeakingPage((d.offset || 0) + 10);
 
     $('show-all').addEventListener('change', (e) => {
       state.showAll = e.target.checked;
@@ -1368,6 +1344,7 @@
 
     document.querySelectorAll('#middle-content .prow').forEach(el => {
       el.addEventListener('click', () => selectRecord(el.dataset.recordId));
+      el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectRecord(el.dataset.recordId); } };
     });
   }
 
@@ -1401,66 +1378,21 @@
 
   // === Right column ===
   function renderDetailHeader() {
-    const d = state.detail;
-    if (!d) return;
     const u = state.users.find(x => x.user_id === state.selectedUserId) || {};
-    const plan = u.is_pro_effective
-      ? '<span class="badge valid">PRO</span>'
-      : '<span class="badge none">FREE</span>';
-    const join = u.created_at ? fmtDateTime(u.created_at) : '—';
-    const last = u.last_practice ? fmtDateTime(u.last_practice) : '—';
-    const total = (u.practice_count != null) ? u.practice_count : (d.total_records || 0);
-    const qc = u.quality_counts || { valid: 0, partial: 0, invalid: 0, unknown: 0 };
-    const sum = Math.max(1, qc.valid + qc.partial + qc.invalid + qc.unknown);
-    const seg = (n, cls) => n > 0
-      ? `<span class="bd__seg bd__seg--${cls}" style="width:${(n / sum * 100).toFixed(1)}%"></span>`
-      : '';
-    $('detail-header').innerHTML = `
-      <div class="dh__top">
-        <div class="dh__email">${escapeHtml(d.email || d.user_id || '—')} ${plan}</div>
-        <div class="dh__actions">
-          <button class="btn btn--primary" id="brief-btn" type="button">📋 生成學生簡報</button>
-          <button class="btn" id="diag-btn" type="button">🧠 AI 診斷報告</button>
-        </div>
-      </div>
-      <div class="dh__meta">加入 ${escapeHtml(join)} · 最後練習 ${escapeHtml(last)} · 共 ${total} 次練習</div>
-      <div class="bd">
-        ${seg(qc.valid, 'valid')}${seg(qc.partial, 'partial')}${seg(qc.invalid, 'invalid')}${seg(qc.unknown, 'unknown')}
-      </div>
-      <div class="bd__legend">
-        <span><i class="bd__dot bd__dot--valid"></i>${qc.valid} valid</span>
-        <span><i class="bd__dot bd__dot--partial"></i>${qc.partial} partial</span>
-        <span><i class="bd__dot bd__dot--invalid"></i>${qc.invalid} invalid</span>
-      </div>
-      <div class="dh__pro">
-        ${u.is_pro_effective
-          ? '<button class="btn" id="right-revoke-btn" type="button">撤銷 Pro</button>'
-          : '<input type="text" id="right-pro-reason" class="dh__reason" placeholder="發放原因…" autocomplete="off"><button class="btn btn--primary" id="right-grant-btn" type="button">發放 Pro</button>'}
-        <span id="right-pro-result" class="dh__pro-result"></span>
-      </div>
-      <div class="right-section" id="brief-section" style="display:none">
-        <h3>學生簡報</h3>
-        <div class="brief-block" id="brief-content"></div>
-        <button class="copy-btn" id="brief-copy" type="button">複製</button>
-      </div>
-      <div class="right-section" id="diag-section" style="display:none">
-        <h3>AI 診斷報告</h3>
-        <div class="diag-block" id="diag-content"></div>
-      </div>
-    `;
-    $('brief-btn').addEventListener('click', loadBrief);
-    $('diag-btn').addEventListener('click', loadDiagnosis);
-    const grantBtn = $('right-grant-btn');
-    if (grantBtn) grantBtn.addEventListener('click', window.rightGrantPro);
-    const revokeBtn = $('right-revoke-btn');
-    if (revokeBtn) revokeBtn.addEventListener('click', window.rightRevokePro);
+    if ($('ai-scope')) $('ai-scope').textContent = `資料範圍：口說 ${u.practice_count ?? '—'} 次。各報告依下列取樣範圍分析。`;
+    $('detail-header').innerHTML = `<div class="dh__top"><div><h1>${escapeHtml(u.display_name || u.name || u.email || u.user_id)}</h1>
+      ${u.display_name || u.name ? `<div class="member-email">${escapeHtml(u.email)}</div>` : ''}</div>
+      <span class="badge ${u.is_pro_effective ? 'valid' : 'none'}">${u.is_pro_effective ? 'PRO' : 'FREE'}</span></div>
+      <div class="dh__meta">加入 ${escapeHtml(fmtDay(u.created_at))} · 最近口說活動 ${escapeHtml(fmtDateTime(u.last_practice))}</div>`;
   }
 
   async function loadBrief() {
     const sec = $('brief-section');
     const block = $('brief-content');
     const btn = $('brief-btn');
+    const copy = $('brief-copy');
     sec.style.display = '';
+    $('ai-report-status').textContent = '報告結果會顯示在對應項目下方。';
     block.classList.add('loading');
     block.textContent = 'Generating brief… (this may take 10–20 seconds)';
     btn.disabled = true;
@@ -1484,11 +1416,10 @@
     } finally {
       btn.disabled = false;
     }
-    $('brief-copy').addEventListener('click', () => {
-      navigator.clipboard.writeText(block.textContent || '');
-      $('brief-copy').textContent = '已複製';
-      setTimeout(() => { $('brief-copy').textContent = '複製'; }, 1200);
-    });
+    copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(block.textContent || ''); copy.textContent = '已複製'; }
+      catch (_) { copy.textContent = '複製失敗，請選取文字複製'; }
+    };
   }
 
   // 後端把結構化診斷放在 body.data(summary / weaknesses[] / next_step);
@@ -1539,6 +1470,7 @@
     const block = $('diag-content');
     const btn = $('diag-btn');
     sec.style.display = '';
+    $('ai-report-status').textContent = '報告結果會顯示在對應項目下方。';
     block.classList.add('loading');
     block.classList.remove('md');
     block.textContent = 'Generating diagnosis… (this may take 10–30 seconds)';
@@ -1556,7 +1488,7 @@
       }
       block.classList.remove('loading');
       block.classList.add('md');
-      block.innerHTML = renderAdminDiagnosis(body);
+      block.innerHTML = (body.generated_at ? `<p class="member-note">生成時間 ${escapeHtml(fmtDateTime(body.generated_at))}</p>` : '') + renderAdminDiagnosis(body);
     } catch (err) {
       console.error('loadDiagnosis failed', err);
       block.textContent = 'Network error';
@@ -1654,12 +1586,13 @@
     sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  // === Tabs (用戶管理 / 訂閱管理 / 更新日誌) ===
+  // === Tabs (會員管理 / 訂閱管理 / 更新日誌) ===
   // Subs/changelog are lazy on first click. Subs round-trips an API; changelog
   // is static but rendering 5 versions of HTML is still wasted work if no one
   // opens the tab.
   let changelogLoaded = false;
   function activateTab(name) {
+    if (name === 'subs') { activateTab('users'); activateSubtab('subscription'); return; }
     document.querySelectorAll('.tab').forEach(t => {
       t.classList.toggle('active', t.dataset.tab === name);
     });
@@ -1669,9 +1602,6 @@
     try { localStorage.setItem('blabby_admin_tab', name); } catch (_) { /* private mode */ }
     if (name === 'dashboard') {
       loadDashboard();
-    }
-    if (name === 'subs') {
-      loadSubsTab();
     }
     if (name === 'changelog' && !changelogLoaded) {
       changelogLoaded = true;
@@ -1698,9 +1628,10 @@
   // .badge / .detail-field visual vocabulary.
   function bindRowToggles(container) {
     container.querySelectorAll('.lrow').forEach(row => {
+      row.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.click(); } };
       row.addEventListener('click', () => {
         const target = document.getElementById(row.dataset.target);
-        if (target) target.hidden = !target.hidden;
+        if (target) { target.hidden = !target.hidden; row.setAttribute('aria-expanded', String(!target.hidden)); }
       });
     });
   }
@@ -1712,7 +1643,7 @@
     return (u && u.email) || (uid ? uid.slice(0, 8) : '—');
   }
 
-  // Cross-link: jump from a monitoring row into that student's 用戶管理 detail,
+  // Cross-link: jump from a monitoring row into that student's 會員管理 detail,
   // landing on the given sub-tab. Core to the handoff's "fewer clicks" IA.
   async function jumpToStudent(uid, sub) {
     if (!uid) return;
@@ -1939,7 +1870,7 @@
     host = host || $('writing-content');
     prefix = prefix || 'w';
     if (!subs.length) {
-      host.innerHTML = '<div class="col__empty">No submissions.</div>';
+      host.innerHTML = '<div class="col__empty">尚未提交寫作。</div>';
       return;
     }
     const summary = `<div class="ltab-summary">${subs.length} submissions</div>`;
@@ -1959,11 +1890,11 @@
           <div class="detail-field__value ${d[3] ? '' : 'empty'}" style="margin-top:3px">${d[3] ? 'Fix — ' + escapeHtml(d[3]) : '(no fix)'}</div>
         </div>`).join('');
       return `
-        <div class="lrow" data-target="${prefix}${i}">
+        <div class="lrow" role="button" tabindex="0" aria-expanded="false" data-target="${prefix}${i}">
           <div class="lrow__time">${escapeHtml(fmtTime(s.submitted_at))}</div>
           <div class="lrow__main">
             <div class="lrow__title">${q ? escapeHtml(truncate(q, 70)) : '(無對應題目)'}</div>
-            <div class="lrow__meta">${escapeHtml(s.task_type || '—')} · ${s.word_count ?? '—'} words${retry}</div>
+            <div class="lrow__meta">${escapeHtml(s.task_type || '—')} · ${escapeHtml(s.writing_questions?.task1_subtype || '')} · ${s.word_count ?? '—'} words${retry} · 查看作文 / AI Feedback</div>
           </div>
           <div><span class="badge tag">band ${s.band_overall ?? '—'}</span></div>
         </div>
@@ -2004,7 +1935,7 @@
     host = host || $('reading-content');
     prefix = prefix || 'r';
     if (!atts.length) {
-      host.innerHTML = '<div class="col__empty">No attempts.</div>';
+      host.innerHTML = '<div class="col__empty">尚無閱讀紀錄。</div>';
       return;
     }
     let zombies = 0;
@@ -2026,7 +1957,7 @@
         rowCls = 'lrow';
       }
       return `
-        <div class="${rowCls}" data-target="${prefix}${i}">
+        <div class="${rowCls}" role="button" tabindex="0" aria-expanded="false" data-target="${prefix}${i}">
           <div class="lrow__time">${escapeHtml(fmtTime(a.started_at))}</div>
           <div class="lrow__main">
             <div class="lrow__title">${p.title ? escapeHtml(truncate(p.title, 60)) : '(no passage)'}</div>
@@ -2091,7 +2022,7 @@
       '</div>';
     const summary = `<div class="ltab-summary">${view.length} / ${subs.length} submissions</div>`;
     if (!view.length) {
-      host.innerHTML = summary + chips + '<div class="col__empty">No submissions.</div>';
+      host.innerHTML = summary + chips + '<div class="col__empty">尚未提交寫作。</div>';
       wireWritingTaskTabs(host, subs);
       return;
     }
@@ -2103,7 +2034,7 @@
           <div class="lrow__time">${escapeHtml(fmtTime(s.submitted_at))}</div>
           <div class="lrow__main">
             <div class="lrow__title">${q ? escapeHtml(truncate(q, 50)) : '(無對應題目)'}</div>
-            <div class="lrow__meta">${escapeHtml(emailFor(s.user_id))} · ${escapeHtml(s.task_type || '—')} · ${s.word_count ?? '—'} words${retry}</div>
+            <div class="lrow__meta">${escapeHtml(emailFor(s.user_id))} · ${escapeHtml(s.task_type || '—')} · ${escapeHtml(s.writing_questions?.task1_subtype || '')} · ${s.word_count ?? '—'} words${retry} · 查看作文 / AI Feedback</div>
           </div>
           <div><span class="badge ${bandClass(s.band_overall)}">band ${s.band_overall ?? '—'}</span></div>
         </div>`;
@@ -2121,7 +2052,7 @@
   function renderReadingMonitor(atts) {
     const host = $('reading-content');
     if (!atts.length) {
-      host.innerHTML = '<div class="col__empty">No attempts.</div>';
+      host.innerHTML = '<div class="col__empty">尚無閱讀紀錄。</div>';
       return;
     }
     let zombies = 0;
@@ -2152,110 +2083,81 @@
     });
   }
 
-  // === 用戶管理 寫作 / 閱讀 sub-tabs (Phase 2b-2) ===
-  // Same render as the cross-student Writing/Reading tabs, scoped to the
-  // selected student via ?user_id and a distinct id prefix (sw/sr) so the
-  // inline-detail ids never collide with the global tabs' w/r ids.
-  async function loadStudentWriting() {
-    const host = $('sub-writing');
-    if (!host || !state.selectedUserId) return;
-    host.innerHTML = '<div class="col__empty">Loading…</div>';
+  async function loadMemberPanel(name, path, render) {
+    const host = $(`sub-${name}`);
+    if (!host || !state.selectedUserId || state.memberCache[name]) return;
+    const cache = state.memberCache;
+    const epoch = state.memberEpoch;
+    cache[name] = true;
+    host.innerHTML = '<div class="col__empty" role="status">載入中…</div>';
     try {
-      const res = await fetch(`${API_BASE}/admin/writing/submissions?user_id=${encodeURIComponent(state.selectedUserId)}`, {
-        headers: { 'Authorization': `Bearer ${state.token}` },
-      });
-      if (!res.ok) { host.innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`; return; }
-      const data = await res.json();
-      renderWritingList(data.submissions || [], host, 'sw');
-    } catch (err) {
-      console.error('loadStudentWriting error', err);
-      host.innerHTML = '<div class="col__empty">Network error</div>';
+      const data = await memberRequest(path);
+      if (epoch !== state.memberEpoch) return;
+      render(data, host);
+    } catch (error) {
+      if (epoch !== state.memberEpoch) return;
+      delete cache[name];
+      host.innerHTML = `<div class="col__empty" role="alert">載入失敗：${escapeHtml(error.message)} <button class="btn">重試</button></div>`;
+      host.querySelector('button').onclick = () => activateSubtab(name);
     }
   }
 
-  async function loadStudentReading() {
-    const host = $('sub-reading');
-    if (!host || !state.selectedUserId) return;
-    host.innerHTML = '<div class="col__empty">Loading…</div>';
-    try {
-      const res = await fetch(`${API_BASE}/admin/reading/attempts?user_id=${encodeURIComponent(state.selectedUserId)}`, {
-        headers: { 'Authorization': `Bearer ${state.token}` },
-      });
-      if (!res.ok) { host.innerHTML = `<div class="col__empty">Failed to load (${res.status})</div>`; return; }
-      const data = await res.json();
-      renderReadingList(data.attempts || [], host, 'sr');
-    } catch (err) {
-      console.error('loadStudentReading error', err);
-      host.innerHTML = '<div class="col__empty">Network error</div>';
-    }
+  function renderMemberHistory(rows, host, name, render, prefix) {
+    let shown = 10;
+    const draw = () => {
+      render(rows.slice(0, shown), host, prefix);
+      const heading = document.createElement('div');
+      heading.className = 'member-section';
+      let metric = '';
+      if (name === '閱讀') {
+        const completed = rows.filter(row => row.status === 'submitted');
+        const scored = completed.filter(row => row.score != null && Number(row.total) > 0 && Number.isFinite(Number(row.score)));
+        const average = scored.length ? Math.round(scored.reduce((sum, row) => sum + Number(row.score) / Number(row.total), 0) / scored.length * 100) : null;
+        metric = `<p class="member-note">載入紀錄中已完成 ${completed.length} 次${average == null ? '' : ` · 平均正確率 ${average}%（${scored.length} 次已評分紀錄）`}</p>`;
+      }
+      heading.innerHTML = `<h2>${name} <span>${rows.length}${rows.length === 200 ? '+' : ''} ${name === '寫作' ? '篇' : '次'}</span></h2><p class="member-note">顯示最近 ${Math.min(shown, rows.length)} 筆 · 服務最多回傳 200 筆</p>${metric}`;
+      host.prepend(heading);
+      if (shown < rows.length) {
+        const button = document.createElement('button');
+        button.className = 'btn member-more'; button.textContent = '載入更多紀錄';
+        button.onclick = () => { shown += 10; draw(); }; host.append(button);
+      }
+    };
+    draw();
   }
 
-  // 用戶管理 概覽 sub-tab — per-skill counts, a unified cross-skill timeline,
-  // and the student's most common speaking weakness tags. Speaking comes from
-  // the already-loaded state.detail; writing/reading are fetched per-student.
-  async function loadOverview() {
-    const host = $('sub-overview');
-    if (!host || !state.selectedUserId) return;
-    host.innerHTML = '<div class="col__empty">Loading…</div>';
-    const speaking = (state.detail && state.detail.records) || [];
-    let writing = [], reading = [];
-    try {
-      const [wRes, rRes] = await Promise.all([
-        fetch(`${API_BASE}/admin/writing/submissions?user_id=${encodeURIComponent(state.selectedUserId)}`, { headers: { 'Authorization': `Bearer ${state.token}` } }),
-        fetch(`${API_BASE}/admin/reading/attempts?user_id=${encodeURIComponent(state.selectedUserId)}`, { headers: { 'Authorization': `Bearer ${state.token}` } }),
-      ]);
-      if (wRes.ok) writing = (await wRes.json()).submissions || [];
-      if (rRes.ok) reading = (await rRes.json()).attempts || [];
-    } catch (e) {
-      console.error('loadOverview error', e);
-    }
-    renderOverview(speaking, writing, reading);
+  function loadStudentWriting() {
+    return loadMemberPanel('writing', `/admin/writing/submissions?user_id=${encodeURIComponent(state.selectedUserId)}`,
+      (data, host) => renderMemberHistory(data.submissions || [], host, '寫作', renderWritingList, 'sw'));
   }
-
-  function renderOverview(speaking, writing, reading) {
-    const host = $('sub-overview');
-    if (!host) return;
-
-    // Common weakness tags from speaking records, most frequent first.
-    const tagCounts = {};
-    speaking.forEach(r => {
-      const t = (r.weakness_tag || '').trim();
-      if (t) tagCounts[t] = (tagCounts[t] || 0) + 1;
+  function loadStudentReading() {
+    return loadMemberPanel('reading', `/admin/reading/attempts?user_id=${encodeURIComponent(state.selectedUserId)}`,
+      (data, host) => renderMemberHistory(data.attempts || [], host, '閱讀', renderReadingList, 'sr'));
+  }
+  function loadStudentSubscriptions() {
+    return loadMemberPanel('subscription', `/api/admin/subscriptions?user_id=${encodeURIComponent(state.selectedUserId)}`, (data, host) => {
+      host.innerHTML = '<div id="subs-middle-content"></div><div class="member-section" id="member-subscriptions"></div><div class="member-section"><h3>本次工作階段操作紀錄</h3><div id="subs-action-log"></div></div>';
+      selectSubsUser(state.selectedUserId);
+      renderMemberSubscriptions(data.subscriptions || []);
+      subsRenderActionLog();
     });
-    const tags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
-    const tagsHTML = tags.length
-      ? tags.map(([t, n]) => `<span class="badge tag">${escapeHtml(t)} · ${n}</span>`).join(' ')
-      : '<span class="dash-empty">尚無弱點資料</span>';
-
-    // Unified cross-skill timeline, newest first.
-    const events = [];
-    speaking.forEach(r => events.push({ at: r.created_at, skill: '口說', cls: 'sp', label: r.weakness_tag || r.topic || r.question || '口說練習' }));
-    writing.forEach(w => events.push({ at: w.submitted_at, skill: '寫作', cls: 'wr', label: `${w.task_type || 'writing'} · band ${w.band_overall ?? '—'}` }));
-    reading.forEach(a => events.push({ at: a.started_at, skill: '閱讀', cls: 'rd', label: `${(a.reading_passages && a.reading_passages.title) || 'reading'} · ${a.status || ''}` }));
-    events.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
-    const timeline = events.slice(0, 15).map(e => `
-      <div class="ov-tl__row">
-        <span class="ov-tl__time">${escapeHtml(fmtTime(e.at))}</span>
-        <span class="ov-tl__skill ov-tl__skill--${e.cls}">${e.skill}</span>
-        <span class="ov-tl__label">${escapeHtml(truncate(e.label, 50))}</span>
-      </div>`).join('') || '<div class="dash-empty">尚無活動</div>';
-
-    host.innerHTML = `
-      <div class="ov">
-        <div class="ov-counts">
-          <div class="ov-count"><div class="ov-count__n">${speaking.length}</div><div class="ov-count__l">口說</div></div>
-          <div class="ov-count"><div class="ov-count__n">${writing.length}</div><div class="ov-count__l">寫作</div></div>
-          <div class="ov-count"><div class="ov-count__n">${reading.length}</div><div class="ov-count__l">閱讀</div></div>
-        </div>
-        <div class="dash-section">
-          <div class="dash-section__title">常見弱點</div>
-          <div>${tagsHTML}</div>
-        </div>
-        <div class="dash-section">
-          <div class="dash-section__title">近期活動</div>
-          ${timeline}
-        </div>
-      </div>`;
+  }
+  function renderMemberSubscriptions(rows) {
+    const host = $('member-subscriptions');
+    host.innerHTML = '<h3>訂閱紀錄</h3><p class="member-note">此會員最近最多 100 筆。取消只更新訂閱狀態，保留到期日；延長會恢復 active 並授予同期限的人工 grant。</p>' +
+      (rows.length ? rows.map(row => `<div class="member-subscription-row"><div><strong>${escapeHtml(row.plan || '未提供方案')}</strong> · ${escapeHtml(row.status)}<p>開始 ${escapeHtml(fmtDay(row.started_at))} · 到期 ${escapeHtml(fmtDay(row.expires_at))}</p><p>訂單 ${escapeHtml(row.order_id || '—')} · ${escapeHtml(row.amount == null ? '金額未提供' : `NT$${row.amount}`)}</p></div><div class="member-subscription-actions"><button class="btn" data-extend="${escapeHtml(row.id)}">延長 30 天</button><button class="btn" data-cancel="${escapeHtml(row.id)}">取消訂閱</button></div></div>`).join('') : '<p class="col__empty">沒有訂閱紀錄</p>');
+    host.querySelectorAll('[data-extend]').forEach(button => { button.onclick = () => extendSub(button.dataset.extend, button); });
+    host.querySelectorAll('[data-cancel]').forEach(button => { button.onclick = () => cancelSub(button.dataset.cancel, button); });
+  }
+  async function refreshMemberEntitlement(userId, epoch) {
+    // Refresh list badges without resetting the selection or another member's tab.
+    const data = await memberRequest('/admin/users');
+    state.users = data.users || [];
+    renderUsers();
+    renderDetailHeader();
+    if (epoch !== state.memberEpoch || userId !== state.selectedUserId) return;
+    delete state.memberCache.subscription;
+    await loadStudentSubscriptions();
   }
 
   // === 總覽 Dashboard (handoff §3.1) ===
@@ -2385,7 +2287,7 @@
         </div>
       </div>`;
 
-    // Deep-link: clicking a student jumps to 用戶管理 with them selected.
+    // Deep-link: clicking a student jumps to 會員管理 with them selected.
     host.querySelectorAll('.actrow').forEach(row => {
       row.addEventListener('click', () => {
         const uid = row.dataset.uid;
@@ -2562,132 +2464,6 @@ Admin 觀測儀表板
     } catch (_) { return null; }
   }
 
-  async function loadSubscriptions() {
-    const root = $('subs-content');
-    root.innerHTML = '<div class="col__empty">Loading…</div>';
-    try {
-      const res = await fetch(`${API_BASE}/api/admin/subscriptions`, {
-        headers: { 'Authorization': `Bearer ${state.token}` },
-      });
-      if (!res.ok) {
-        root.innerHTML = `<div class="col__empty">Failed (${res.status})</div>`;
-        return;
-      }
-      const body = await res.json();
-      renderSubscriptions(body.subscriptions || []);
-    } catch (err) {
-      console.error('loadSubscriptions error', err);
-      root.innerHTML = '<div class="col__empty">Network error</div>';
-    }
-  }
-
-  function renderSubscriptions(rows) {
-    const container = $('subs-content');
-    container.innerHTML = '';
-
-    // Manual Pro toggle section
-    const proSection = document.createElement('div');
-    proSection.style.cssText = 'margin-bottom:32px;';
-    proSection.innerHTML = `
-        <h3 style="font-family:var(--serif);font-size:18px;margin-bottom:12px;color:var(--ink)">Manual Pro Access</h3>
-        <div style="margin-bottom:12px;">
-            <input type="text" id="pro-search-input" placeholder="Search by email…"
-                oninput="filterProSearchResults(this.value)"
-                style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:4px;font-size:13px;margin-bottom:8px;">
-            <div id="pro-search-results" style="margin-bottom:8px;max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;display:none;"></div>
-            <input type="text" id="pro-reason-input" placeholder="Reason for grant (required)"
-                style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:4px;font-size:13px;margin-bottom:8px;">
-            <div style="display:flex;gap:8px;">
-                <button onclick="grantPro()"
-                    style="padding:8px 16px;background:var(--green);color:var(--gold);border:none;border-radius:4px;font-size:13px;cursor:pointer;">
-                    Grant Pro
-                </button>
-                <button onclick="revokePro()"
-                    style="padding:8px 16px;background:var(--wine);color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;">
-                    Revoke Pro
-                </button>
-            </div>
-        </div>
-        <div id="pro-toggle-result" style="font-size:13px;min-height:20px;margin-bottom:16px;"></div>
-        <div id="pro-users-list"></div>
-    `;
-    container.appendChild(proSection);
-    loadProUsers();
-
-    // Subscriptions table (or empty state)
-    if (!rows.length) {
-      container.insertAdjacentHTML('beforeend', '<div class="col__empty">No subscriptions yet.</div>');
-      return;
-    }
-    const trs = rows.map(s => {
-      const status = s.status || 'pending';
-      const days = daysUntil(s.expires_at);
-      const expiringSoon = (status === 'active' && days !== null && days <= 7);
-      return `
-        <tr data-sub-id="${escapeHtml(s.id)}">
-          <td class="email" title="${escapeHtml(s.email || '')}">${escapeHtml(s.email || s.user_id || '—')}</td>
-          <td>${escapeHtml(s.plan || '—')}</td>
-          <td><span class="sub-badge ${escapeHtml(status)}">${escapeHtml(status)}</span></td>
-          <td>${s.amount != null ? escapeHtml('NT$' + s.amount) : '—'}</td>
-          <td>${escapeHtml(fmtDay(s.started_at))}</td>
-          <td class="${expiringSoon ? 'expiring-soon' : ''}">${escapeHtml(fmtDay(s.expires_at))}${expiringSoon ? ` (${days}d)` : ''}</td>
-          <td class="actions">
-            <button class="subs-actions-btn" data-act="extend" data-sub-id="${escapeHtml(s.id)}">延長 30 天</button>
-            <button class="subs-actions-btn cancel" data-act="cancel" data-sub-id="${escapeHtml(s.id)}">取消</button>
-          </td>
-        </tr>
-      `;
-    }).join('');
-    container.insertAdjacentHTML('beforeend', `
-      <table class="subs-table">
-        <thead>
-          <tr>
-            <th>Email</th><th>方案</th><th>狀態</th><th>金額</th>
-            <th>開始日</th><th>到期日</th><th>操作</th>
-          </tr>
-        </thead>
-        <tbody>${trs}</tbody>
-      </table>
-    `);
-    container.querySelectorAll('.subs-actions-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const subId = btn.dataset.subId;
-        const act = btn.dataset.act;
-        if (act === 'extend') extendSub(subId, btn);
-        else if (act === 'cancel') cancelSub(subId, btn);
-      });
-    });
-  }
-
-  let _selectedProUserId = null;
-  let _selectedProEmail = null;
-
-  window.filterProSearchResults = function(query) {
-    const results = document.getElementById('pro-search-results');
-    if (!results) return;
-    const q = query.trim().toLowerCase();
-    if (!q) { results.style.display = 'none'; return; }
-    const matches = (state.users || []).filter(u => u.email && u.email.toLowerCase().includes(q)).slice(0, 8);
-    if (matches.length === 0) { results.style.display = 'none'; return; }
-    results.style.display = '';
-    results.innerHTML = matches.map(u => `
-        <div onclick="selectProUser('${u.user_id}', '${escapeHtml(u.email)}')"
-            style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);"
-            onmouseover="this.style.background='#f5f0e8'" onmouseout="this.style.background=''">
-            ${escapeHtml(u.email)}
-        </div>
-    `).join('');
-  };
-
-  window.selectProUser = function(userId, email) {
-    _selectedProUserId = userId;
-    _selectedProEmail = email;
-    const input = document.getElementById('pro-search-input');
-    if (input) input.value = email;
-    const results = document.getElementById('pro-search-results');
-    if (results) results.style.display = 'none';
-  };
-
   async function callProGrant(userId, granted, reason, expiresAt) {
     // expiresAt: ISO datetime string (e.g. "2026-06-15T00:00:00.000Z"),
     // null/undefined means permanent. On revoke (granted=false), it's ignored
@@ -2707,153 +2483,11 @@ Admin 觀測儀表板
     return r.json();
   }
 
-  window.grantPro = async function() {
-    const result = document.getElementById('pro-toggle-result');
-    const reason = document.getElementById('pro-reason-input')?.value?.trim();
-    if (!_selectedProUserId) { if(result) { result.textContent = 'Select a user first.'; result.style.color = 'var(--wine)'; } return; }
-    if (!reason) { if(result) { result.textContent = 'Reason is required.'; result.style.color = 'var(--wine)'; } return; }
-    try {
-        await callProGrant(_selectedProUserId, true, reason);
-        if(result) { result.textContent = `✓ ${_selectedProEmail} is now Pro.`; result.style.color = 'var(--green)'; }
-        window.analytics?.track('admin_pro_granted', { email: _selectedProEmail });
-        loadProUsers();
-    } catch(e) {
-        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
-    }
-  };
-
-  window.revokePro = async function() {
-    const result = document.getElementById('pro-toggle-result');
-    if (!_selectedProUserId) { if(result) { result.textContent = 'Select a user first.'; result.style.color = 'var(--wine)'; } return; }
-    try {
-        await callProGrant(_selectedProUserId, false, 'admin revoke');
-        if(result) { result.textContent = `✓ ${_selectedProEmail} Pro access revoked.`; result.style.color = 'var(--muted)'; }
-        window.analytics?.track('admin_pro_revoked', { email: _selectedProEmail });
-        loadProUsers();
-    } catch(e) {
-        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
-    }
-  };
-
-  window.revokeProById = async function(userId, email) {
-    try {
-        await callProGrant(userId, false, 'admin revoke');
-        window.analytics?.track('admin_pro_revoked', { email });
-        loadProUsers();
-    } catch(e) {
-        alert('Failed: ' + e.message);
-    }
-  };
-
-  window.rightGrantPro = async function() {
-    const reason = document.getElementById('right-pro-reason')?.value?.trim();
-    const result = document.getElementById('right-pro-result');
-    if (!reason) { if(result) { result.textContent = 'Reason required.'; result.style.color = 'var(--wine)'; } return; }
-    try {
-        await callProGrant(state.selectedUserId, true, reason);
-        if(result) { result.textContent = '✓ Pro granted.'; result.style.color = 'var(--green)'; }
-        window.analytics?.track('admin_pro_granted', { user_id: state.selectedUserId });
-        await loadUsers();
-        renderDetailHeader();
-    } catch(e) {
-        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
-    }
-  };
-
-  window.rightRevokePro = async function() {
-    const result = document.getElementById('right-pro-result');
-    try {
-        await callProGrant(state.selectedUserId, false, 'admin revoke');
-        if(result) { result.textContent = '✓ Pro revoked.'; result.style.color = 'var(--muted)'; }
-        window.analytics?.track('admin_pro_revoked', { user_id: state.selectedUserId });
-        await loadUsers();
-        renderDetailHeader();
-    } catch(e) {
-        if(result) { result.textContent = `Failed: ${e.message}`; result.style.color = 'var(--wine)'; }
-    }
-  };
-
-  async function loadProUsers() {
-    const el = document.getElementById('pro-users-list');
-    if (!el) return;
-    const proUsers = (state.users || []).filter(u => u.is_pro || u.is_pro_grant);
-    if (proUsers.length === 0) {
-        el.innerHTML = '<div style="font-size:13px;color:var(--muted);font-style:italic">No Pro users yet.</div>';
-        return;
-    }
-    el.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Current Pro Users</div>' +
-        proUsers.map(u => `
-            <div style="padding:6px 0;border-bottom:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;">
-                <div>
-                    <span style="font-size:13px;">${escapeHtml(u.email || u.user_id)}</span>
-                    ${u.is_pro_grant ? '<span style="font-size:10px;color:var(--gold);margin-left:6px;">manual</span>' : ''}
-                    ${u.is_pro ? '<span style="font-size:10px;color:var(--green);margin-left:6px;">subscription</span>' : ''}
-                </div>
-                <button onclick="revokeProById('${u.user_id}', '${escapeHtml(u.email || '')}')"
-                    style="font-size:11px;padding:3px 10px;background:transparent;border:1px solid var(--wine);color:var(--wine);border-radius:4px;cursor:pointer;">
-                    Revoke
-                </button>
-            </div>
-        `).join('');
-  }
-
-  // === 訂閱管理 tab — 3-column Pro grant management ===
-  // Mirrors the 用戶管理 tab pattern: left=user list, middle=selected user detail
-  // (with grant/revoke form), right=action log (session-scoped, no persistence).
   let _subsSelectedUserId = null;
-  let _subsSearchQuery    = '';
-  const _subsActionLog    = []; // [{when:ISO, verb:'grant'|'revoke', email, reason}]
-
-  async function loadSubsTab() {
-    if (!state.users || state.users.length === 0) await loadUsers();
-    subsRenderUserList();
-    subsRenderActionLog();
-    // Bind search input once. Re-bind safe because the input is in static HTML.
-    const search = document.getElementById('subs-search-input');
-    if (search && !search.dataset.bound) {
-      search.dataset.bound = '1';
-      search.addEventListener('input', (e) => {
-        _subsSearchQuery = (e.target.value || '').trim().toLowerCase();
-        subsRenderUserList();
-      });
-    }
-    // If we had a previously-selected user, re-render the middle detail with
-    // fresh Pro status from the reloaded state.users.
-    if (_subsSelectedUserId) selectSubsUser(_subsSelectedUserId);
-  }
-
-  function subsRenderUserList() {
-    const listEl = document.getElementById('subs-user-list');
-    if (!listEl) return;
-    const q = _subsSearchQuery;
-    const filtered = (state.users || []).filter(u => {
-      if (!q) return true;
-      return (u.email || '').toLowerCase().includes(q);
-    });
-    if (filtered.length === 0) {
-      listEl.innerHTML = '<div class="col__empty">No matches.</div>';
-      return;
-    }
-    listEl.innerHTML = filtered.map(u => {
-      const isPro = u.is_pro || u.is_pro_grant;
-      const active = u.user_id === _subsSelectedUserId ? ' active' : '';
-      return `
-        <div class="subs-user-row${active}" data-user-id="${escapeHtml(u.user_id)}">
-          <div class="subs-user-row__email">${escapeHtml(u.email || u.user_id)}</div>
-          <div class="subs-user-row__status ${isPro ? 'pro' : 'free'}">
-            ${isPro ? '✦ PRO' : 'FREE'}${u.is_pro_grant ? '<span class="manual">manual</span>' : ''}
-          </div>
-        </div>
-      `;
-    }).join('');
-    listEl.querySelectorAll('.subs-user-row').forEach(el => {
-      el.addEventListener('click', () => selectSubsUser(el.dataset.userId));
-    });
-  }
+  const _subsActionLog = [];
 
   window.selectSubsUser = function(userId) {
     _subsSelectedUserId = userId;
-    subsRenderUserList();  // refresh active highlight
     const user = (state.users || []).find(u => u.user_id === userId);
     const middle = document.getElementById('subs-middle-content');
     if (!middle) return;
@@ -2868,8 +2502,6 @@ Admin 觀測儀表板
     // Try the latest first so UI works against any deployed migration.
     const isPaid    = user.is_pro_paid ?? user.is_pro ?? false;
     const isGranted = user.is_pro_grant === true;
-    const practices = user.practice_count ?? user.record_count ?? 0;
-    const memberSince = user.created_at;
     const grantAt      = user.pro_grant_at;
     const grantReason  = user.pro_grant_reason;
     const grantBy      = user.pro_grant_by;
@@ -2881,12 +2513,6 @@ Admin 觀測儀表板
       ? (new Date(grantExpires).getTime() <= Date.now())
       : false;
     const isPro = user.is_pro_effective ?? (isPaid || (isGranted && !grantExpired));
-
-    // === Section 1: user info card ===
-    const metaRows = [
-      memberSince ? `<div><span class="subs-info__meta-label">Member since:</span> ${escapeHtml(fmtDateTime(memberSince))}</div>` : '',
-      `<div><span class="subs-info__meta-label">Total practices:</span> ${escapeHtml(practices)}</div>`,
-    ].filter(Boolean).join('');
 
     // Status badge: 3 states — PRO (active) / 已到期 (granted but past expiry) / FREE
     let statusBadge;
@@ -2914,8 +2540,8 @@ Admin 觀測儀表板
     // === Section 2: action area ===
     let actionHTML = '';
     // Show revoke flow whenever the row carries a manual grant (active OR expired)
-    // so admin can still tidy up. Show grant flow only for truly Free users.
-    if (isPro || isGranted) {
+    // so admin can still tidy up. Paid-only members can also receive a grant.
+    if (isGranted) {
       // PRO user OR expired grant: audit info box + revoke button
       const auditBox = isGranted ? `
         <div class="subs-pro-info">
@@ -2927,12 +2553,12 @@ Admin 觀測儀表板
       ` : '';
       actionHTML = `
         ${auditBox}
-        <button class="subs-action__revoke" id="subs-revoke-btn" type="button">撤銷 Pro 權限</button>
+        <button class="subs-action__revoke" id="subs-revoke-btn" type="button">撤銷人工 Pro 授權</button>
       `;
     } else {
-      // FREE user: trigger button → expand inline form
+      // No manual grant: trigger button → expand inline form
       actionHTML = `
-        <button class="subs-action__upgrade" id="subs-upgrade-trigger" type="button">升級為 Pro</button>
+        <button class="subs-action__upgrade" id="subs-upgrade-trigger" type="button">授予人工 Pro</button>
         <div class="subs-grant-form" id="subs-grant-form">
           <label class="subs-grant-form__label" for="subs-reason-input">Reason for grant (required)</label>
           <input class="subs-grant-form__input" type="text" id="subs-reason-input" placeholder="e.g. early access, content creator, refund">
@@ -2944,7 +2570,7 @@ Admin 觀測儀表板
             <button class="subs-expiry-pill" data-expiry="custom"   type="button">自訂</button>
           </div>
           <input class="subs-grant-form__input subs-expiry-custom" type="date" id="subs-expiry-custom-input">
-          <button class="subs-grant-form__confirm" id="subs-grant-btn" type="button">Grant Pro Access</button>
+          <button class="subs-grant-form__confirm" id="subs-grant-btn" type="button">確認授予 Pro</button>
           <button class="subs-grant-form__cancel" id="subs-cancel-link" type="button">Cancel</button>
         </div>
       `;
@@ -2953,10 +2579,11 @@ Admin 觀測儀表板
     middle.innerHTML = `
       <div class="subs-detail">
         <div class="subs-info">
-          <div class="subs-info__email">${escapeHtml(user.email || userId)}</div>
-          <div class="subs-info__meta">${metaRows}</div>
+          <h2>方案與權限</h2>
           ${statusBadge}
+          <div class="subs-info__grant-line">權限來源：${isPaid && isGranted && !grantExpired ? 'subscription + grant' : isPaid ? 'subscription' : isGranted && !grantExpired ? 'grant' : 'none'}</div>
           ${proGrantLine}
+          <p class="member-note">人工授權與付費訂閱分開管理。撤銷人工授權不會取消付費訂閱。</p>
         </div>
         <div class="subs-action">
           ${actionHTML}
@@ -3035,10 +2662,10 @@ Admin 觀測儀表板
     return { expiresAt: null, error: null };
   }
 
-  function subsAppendLog(verb, email, reason) {
+  function subsAppendLog(verb, email, reason, userId) {
     _subsActionLog.unshift({
       when: new Date().toISOString(),
-      verb, email, reason,
+      verb, email, reason, userId,
     });
     subsRenderActionLog();
   }
@@ -3046,11 +2673,12 @@ Admin 觀測儀表板
   function subsRenderActionLog() {
     const log = document.getElementById('subs-action-log');
     if (!log) return;
-    if (_subsActionLog.length === 0) {
+    const entries = _subsActionLog.filter(entry => entry.userId === state.selectedUserId);
+    if (entries.length === 0) {
       log.innerHTML = '<div class="col__empty">No actions yet.</div>';
       return;
     }
-    log.innerHTML = _subsActionLog.map(e => `
+    log.innerHTML = entries.map(e => `
       <div class="subs-action-item">
         <div class="subs-action-item__when">${escapeHtml(fmtDateTime(e.when))}</div>
         <div class="subs-action-item__what">
@@ -3077,40 +2705,45 @@ Admin 觀測儀表板
       return;
     }
     if (btn) { btn.disabled = true; btn.textContent = 'Granting…'; }
+    const userId = _subsSelectedUserId;
+    const epoch = state.memberEpoch;
     try {
-      const user = (state.users || []).find(u => u.user_id === _subsSelectedUserId);
-      await callProGrant(_subsSelectedUserId, true, reason, expiresAt);
-      window.analytics?.track('admin_pro_granted', { user_id: _subsSelectedUserId, expires_at: expiresAt });
-      subsAppendLog('grant', user?.email || _subsSelectedUserId, reason);
+      const user = (state.users || []).find(u => u.user_id === userId);
+      await callProGrant(userId, true, reason, expiresAt);
+      window.analytics?.track('admin_pro_granted', { user_id: userId, expires_at: expiresAt });
+      subsAppendLog('grant', user?.email || userId, reason, userId);
       if (result) { result.textContent = '✓ Pro access granted.'; result.className = 'subs-result ok'; }
-      await loadUsers();
-      await loadSubsTab();
+      await refreshMemberEntitlement(userId, epoch);
     } catch (err) {
       if (result) { result.textContent = `Failed: ${err.message}`; result.className = 'subs-result err'; }
-      if (btn) { btn.disabled = false; btn.textContent = 'Grant Pro Access'; }
+      if (btn) { btn.disabled = false; btn.textContent = '確認授予 Pro'; }
     }
   }
 
   async function subsRevokePro() {
-    if (!confirm('Revoke Pro access for this user?')) return;
+    if (!confirm('確定撤銷此會員的人工 Pro 授權？付費訂閱不受影響。')) return;
     const result = document.getElementById('subs-pro-result');
     const btn    = document.getElementById('subs-revoke-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Revoking…'; }
+    const userId = _subsSelectedUserId;
+    const epoch = state.memberEpoch;
     try {
-      const user = (state.users || []).find(u => u.user_id === _subsSelectedUserId);
-      await callProGrant(_subsSelectedUserId, false, 'admin revoke');
-      window.analytics?.track('admin_pro_revoked', { user_id: _subsSelectedUserId });
-      subsAppendLog('revoke', user?.email || _subsSelectedUserId, null);
+      const user = (state.users || []).find(u => u.user_id === userId);
+      await callProGrant(userId, false, 'admin revoke');
+      window.analytics?.track('admin_pro_revoked', { user_id: userId });
+      subsAppendLog('revoke', user?.email || userId, null, userId);
       if (result) { result.textContent = '✓ Pro access revoked.'; result.className = 'subs-detail__result'; }
-      await loadUsers();
-      await loadSubsTab();
+      await refreshMemberEntitlement(userId, epoch);
     } catch (err) {
       if (result) { result.textContent = `Failed: ${err.message}`; result.className = 'subs-detail__result err'; }
-      if (btn) { btn.disabled = false; btn.textContent = '撤銷 Pro 權限'; }
+      if (btn) { btn.disabled = false; btn.textContent = '撤銷人工 Pro 授權'; }
     }
   }
 
   async function extendSub(subId, btn) {
+    if (!confirm('延長此訂閱 30 天、恢復 active，並授予同期限的人工 Pro？')) return;
+    const userId = state.selectedUserId;
+    const epoch = state.memberEpoch;
     btn.disabled = true;
     const original = btn.textContent;
     btn.textContent = '處理中…';
@@ -3130,7 +2763,7 @@ Admin 觀測儀表板
         return;
       }
       // Reload list so the row reflects the new expires_at.
-      loadSubscriptions();
+      await refreshMemberEntitlement(userId, epoch);
     } catch (_) {
       alert('Network error');
       btn.disabled = false; btn.textContent = original;
@@ -3139,6 +2772,8 @@ Admin 觀測儀表板
 
   async function cancelSub(subId, btn) {
     if (!confirm('確定取消這筆訂閱？用戶會繼續享有 Pro 直到 expires_at。')) return;
+    const userId = state.selectedUserId;
+    const epoch = state.memberEpoch;
     btn.disabled = true;
     const original = btn.textContent;
     btn.textContent = '處理中…';
@@ -3157,7 +2792,7 @@ Admin 觀測儀表板
         btn.disabled = false; btn.textContent = original;
         return;
       }
-      loadSubscriptions();
+      await refreshMemberEntitlement(userId, epoch);
     } catch (_) {
       alert('Network error');
       btn.disabled = false; btn.textContent = original;
